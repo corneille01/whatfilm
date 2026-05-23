@@ -1,24 +1,23 @@
-# Système Linux léger avec Python
 FROM python:3.10-slim
 
-# FFmpeg + dépendances système en UNE SEULE commande (bonne pratique Docker)
+# FFmpeg + curl (requis par curl_cffi pour imiter Chrome sur TikTok)
 RUN apt-get update && \
-    apt-get install -y ffmpeg git && \
+    apt-get install -y ffmpeg git curl build-essential && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# On installe d'abord les dépendances Python
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-# On pré-télécharge le modèle Whisper "tiny" au moment du BUILD
-# → Comme ça il est dans l'image Docker, pas besoin de le télécharger à chaque démarrage
-# → Si tu veux plus de précision (plan Render 7$/mois), remplace "tiny" par "base"
+# Installation des dépendances + mise à jour yt-dlp à la dernière version
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir --upgrade yt-dlp && \
+    pip install --no-cache-dir curl_cffi
+
+# Pré-téléchargement du modèle Whisper tiny au moment du build
+# → evite le téléchargement au premier démarrage
 RUN python -c "import whisper; whisper.load_model('tiny')"
 
-# On copie le code
 COPY . .
 
-# Lancement sur le port 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

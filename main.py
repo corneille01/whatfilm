@@ -130,7 +130,10 @@ async def extraire_contexte_complet(url: str, id_unique: str) -> dict:
     cmd_dl = (
         f"yt-dlp -o {fichier_video} "
         f"-f 'worstvideo[ext=mp4]+worstaudio[ext=m4a]/worst[ext=mp4]/worst' "
-        f"--download-sections \"*0-30\" --force-keyframes-at-cuts --write-info-json --no-playlist --user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' --quiet {url}"
+        f"--download-sections '*0-30' --force-keyframes-at-cuts "
+        f"--write-info-json --no-playlist "
+        f"--impersonate chrome-110 "
+        f"--quiet {url}"
     )
     proc = await asyncio.create_subprocess_shell(cmd_dl)
     await asyncio.wait_for(proc.communicate(), timeout=90)
