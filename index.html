@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>🎬 Quel Film ?</title>
     <style>
-      /* La couleur du fond du site (Noir galaxie) */
+      /* --- STYLE GLOBAL & 3D GAMER --- */
       body {
         background-color: #0b0c10;
         color: white;
@@ -13,24 +13,39 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: center;
+        justify-content: flex-start;
         min-height: 100vh;
         margin: 0;
+        padding-top: 20px;
       }
 
-      /* L'effet Texte 3D Gamer */
+      /* Sélecteur de langue */
+      #lang-selector {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        background: #1f2833;
+        color: white;
+        border: 2px solid #66fcf1;
+        padding: 5px 10px;
+        border-radius: 5px;
+        font-size: 1.2rem;
+        cursor: pointer;
+        outline: none;
+        box-shadow: 0 0 10px rgba(102, 252, 241, 0.3);
+      }
+
       h1 {
-        font-size: 4rem;
-        color: #66fcf1; /* Bleu Cyan néon */
-        /* C'est ici la magie de la 3D : on empile les ombres rose et violette */
+        font-size: 3.5rem;
+        color: #66fcf1;
         text-shadow:
-          4px 4px 0px #ff0055,
-          8px 8px 0px #450892;
-        margin-bottom: 40px;
+          3px 3px 0px #ff0055,
+          6px 6px 0px #450892;
+        margin-bottom: 30px;
         text-align: center;
+        text-transform: uppercase;
       }
 
-      /* La boîte où on colle le lien */
       input {
         padding: 15px;
         font-size: 1.2rem;
@@ -40,48 +55,72 @@
         color: #66fcf1;
         border: 2px solid #45a29e;
         border-radius: 8px;
-        box-shadow: 0 0 15px rgba(102, 252, 241, 0.5); /* Effet lumineux */
+        box-shadow: 0 0 15px rgba(102, 252, 241, 0.5);
         outline: none;
         margin-bottom: 20px;
+        text-align: center;
       }
 
-      /* Le Bouton style Arcade */
       button {
-        padding: 15px 30px;
+        padding: 15px 40px;
         font-size: 1.5rem;
-        background: #ff0055; /* Rose agressif */
+        background: #ff0055;
         color: white;
         font-weight: bold;
         border: none;
         border-radius: 8px;
         cursor: pointer;
-        /* L'épaisseur du bouton */
-        box-shadow: 0 8px 0 #990033;
+        box-shadow:
+          0 8px 0 #990033,
+          0 0 20px rgba(255, 0, 85, 0.6);
         transition: all 0.1s;
+        text-transform: uppercase;
       }
 
-      /* L'animation quand on appuie sur le bouton */
       button:active {
-        transform: translateY(8px); /* Le bouton descend */
-        box-shadow: 0 0 0 #990033; /* L'ombre disparaît pour faire l'effet enfoncé */
+        transform: translateY(8px);
+        box-shadow: 0 0 0 #990033;
       }
 
-      /* La zone où la réponse s'affiche */
-      #resultat {
-        margin-top: 40px;
+      /* --- MINI JEU & RÉSULTATS --- */
+      #game-container {
+        display: none;
+        margin-top: 30px;
         text-align: center;
-        background: rgba(31, 40, 51, 0.8);
+      }
+
+      #game-title {
+        color: #ff0055;
+        font-size: 1.2rem;
+        margin-bottom: 10px;
+        text-shadow: 0 0 5px #ff0055;
+      }
+
+      canvas {
+        background: #12151c;
+        border: 3px solid #450892;
+        border-radius: 10px;
+        box-shadow: 0 0 20px rgba(69, 8, 146, 0.8);
+        cursor: crosshair;
+      }
+
+      #resultat {
+        margin-top: 30px;
+        text-align: center;
+        background: rgba(31, 40, 51, 0.9);
         padding: 20px;
         border-radius: 10px;
         border: 2px dashed #66fcf1;
         display: none;
         max-width: 400px;
+        box-shadow: 0 0 20px rgba(102, 252, 241, 0.2);
       }
 
       #resultat img {
         width: 100%;
         border-radius: 8px;
         margin-bottom: 15px;
+        box-shadow: 0 0 10px black;
       }
 
       a.bouton-streaming {
@@ -89,53 +128,208 @@
         background: #450892;
         color: white;
         text-decoration: none;
-        padding: 10px 20px;
+        padding: 12px 25px;
         border-radius: 5px;
         font-weight: bold;
         margin-top: 10px;
+        box-shadow: 0 5px 0 #2e0563;
+        transition: all 0.1s;
+      }
+
+      a.bouton-streaming:active {
+        transform: translateY(5px);
+        box-shadow: 0 0 0 #2e0563;
       }
     </style>
   </head>
   <body>
-    <h1>QUEL FILM ?</h1>
+    <select id="lang-selector" onchange="changerLangueManuellement()">
+      <option value="fr">🇫🇷 FR</option>
+      <option value="en">🇬🇧 EN</option>
+      <option value="es">🇪🇸 ES</option>
+      <option value="zh">🇨🇳 ZH</option>
+      <option value="de">🇩🇪 DE</option>
+    </select>
+
+    <h1 id="ui-title">QUEL FILM ?</h1>
 
     <input
       type="text"
       id="lien_video"
       placeholder="Colle le lien TikTok ou Insta ici..."
     />
-    <button onclick="analyserVideo()">IDENTIFIER</button>
+    <button id="ui-btn" onclick="analyserVideo()">IDENTIFIER</button>
+
+    <div id="game-container">
+      <div id="game-title">
+        ⚡ NEON AIM TRAINER ⚡<br />Score : <span id="score">0</span>
+      </div>
+      <canvas id="gameCanvas" width="300" height="300"></canvas>
+      <p id="ui-loading" style="color: #66fcf1; margin-top: 10px">
+        Recherche du film en cours...
+      </p>
+    </div>
 
     <div id="resultat">
-      <img id="affiche_film" src="" alt="Affiche du film" />
       <h2 id="titre_film"></h2>
+      <img id="affiche_film" src="" alt="Affiche du film" />
+      <br />
       <a id="lien_film" class="bouton-streaming" href="#" target="_blank"
         >Où regarder ?</a
       >
     </div>
 
     <script>
-      // Le petit robot dans le navigateur qui va parler à ton serveur Render
+      // ==========================================
+      // 1. LE SYSTÈME DE TRADUCTION (i18n)
+      // ==========================================
+      const traductions = {
+        fr: {
+          title: "QUEL FILM ?",
+          placeholder: "Colle le lien TikTok ou Insta...",
+          btn: "IDENTIFIER",
+          loading: "Recherche en cours... Joue en attendant !",
+          error: "Erreur de connexion",
+          watch: "Où regarder ?",
+        },
+        en: {
+          title: "WHICH MOVIE?",
+          placeholder: "Paste TikTok or Insta link...",
+          btn: "IDENTIFY",
+          loading: "Searching... Play while waiting!",
+          error: "Connection Error",
+          watch: "Where to watch?",
+        },
+        es: {
+          title: "¿QUÉ PELÍCULA?",
+          placeholder: "Pega el enlace de TikTok o Insta...",
+          btn: "IDENTIFICAR",
+          loading: "Buscando... ¡Juega mientras esperas!",
+          error: "Error de conexión",
+          watch: "¿Dónde ver?",
+        },
+        zh: {
+          title: "什么电影？",
+          placeholder: "粘贴 TikTok 或 Insta 链接...",
+          btn: "识别",
+          loading: "搜索中... 边等边玩！",
+          error: "连接错误",
+          watch: "去哪里看？",
+        },
+        de: {
+          title: "WELCHER FILM?",
+          placeholder: "TikTok oder Insta Link einfügen...",
+          btn: "FINDEN",
+          loading: "Suche läuft... Spiel ein wenig!",
+          error: "Verbindungsfehler",
+          watch: "Wo anschauen?",
+        },
+      };
+
+      let langueActuelle = "fr";
+
+      function initialiserLangue() {
+        // Détection automatique de la langue du navigateur
+        const langueNavigateur = navigator.language.slice(0, 2);
+        if (traductions[langueNavigateur]) {
+          langueActuelle = langueNavigateur;
+          document.getElementById("lang-selector").value = langueActuelle;
+        }
+        appliquerLangue();
+      }
+
+      function changerLangueManuellement() {
+        langueActuelle = document.getElementById("lang-selector").value;
+        appliquerLangue();
+      }
+
+      function appliquerLangue() {
+        const t = traductions[langueActuelle];
+        document.getElementById("ui-title").innerText = t.title;
+        document.getElementById("lien_video").placeholder = t.placeholder;
+        document.getElementById("ui-btn").innerText = t.btn;
+        document.getElementById("ui-loading").innerText = t.loading;
+        document.getElementById("lien_film").innerText = t.watch;
+      }
+
+      // ==========================================
+      // 2. LE MINI-JEU (NEON AIM TRAINER)
+      // ==========================================
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+      let score = 0;
+      let cible = { x: 150, y: 150, taille: 30 };
+      let jeuActif = false;
+
+      function dessinerCible() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Effet néon de la cible
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = "#66fcf1";
+        ctx.fillStyle = "#66fcf1";
+        ctx.fillRect(
+          cible.x - cible.taille / 2,
+          cible.y - cible.taille / 2,
+          cible.taille,
+          cible.taille,
+        );
+        ctx.shadowBlur = 0; // On reset l'ombre
+      }
+
+      function nouvelleCible() {
+        const marge = cible.taille;
+        cible.x = marge + Math.random() * (canvas.width - marge * 2);
+        cible.y = marge + Math.random() * (canvas.height - marge * 2);
+        cible.taille = Math.max(15, 40 - score * 1.5); // La cible rétrécit quand le score monte !
+        dessinerCible();
+      }
+
+      // Gestion du clic ou du touché sur mobile
+      canvas.addEventListener("mousedown", verifierTir);
+      canvas.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        verifierTir(e.touches[0]);
+      });
+
+      function verifierTir(event) {
+        if (!jeuActif) return;
+        const rect = canvas.getBoundingClientRect();
+        const clicX = event.clientX - rect.left;
+        const clicY = event.clientY - rect.top;
+
+        // Vérifie si le clic est dans le carré
+        if (
+          clicX > cible.x - cible.taille / 2 &&
+          clicX < cible.x + cible.taille / 2 &&
+          clicY > cible.y - cible.taille / 2 &&
+          clicY < cible.y + cible.taille / 2
+        ) {
+          score++;
+          document.getElementById("score").innerText = score;
+          nouvelleCible();
+        }
+      }
+
+      // ==========================================
+      // 3. LA LOGIQUE DE RECHERCHE DE FILM
+      // ==========================================
       async function analyserVideo() {
         const lien = document.getElementById("lien_video").value;
         const divResultat = document.getElementById("resultat");
-        const titreFilm = document.getElementById("titre_film");
-        const afficheFilm = document.getElementById("affiche_film");
-        const lienFilm = document.getElementById("lien_film");
+        const conteneurJeu = document.getElementById("game-container");
+        const t = traductions[langueActuelle];
 
-        if (!lien) {
-          alert("N'oublie pas de coller un lien !");
-          return;
-        }
+        if (!lien) return;
 
-        // On montre à l'utilisateur que ça charge
-        divResultat.style.display = "block";
-        titreFilm.innerText = "Analyse en cours... ⏳";
-        afficheFilm.style.display = "none";
-        lienFilm.style.display = "none";
+        // On cache le résultat précédent, on lance le jeu
+        divResultat.style.display = "none";
+        conteneurJeu.style.display = "block";
+        score = 0;
+        document.getElementById("score").innerText = score;
+        jeuActif = true;
+        nouvelleCible();
 
         try {
-          // On tape à la porte de ton serveur Python
           const response = await fetch("/analyser", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -144,27 +338,37 @@
 
           const data = await response.json();
 
+          // Le serveur a répondu, on arrête le jeu
+          jeuActif = false;
+          conteneurJeu.style.display = "none";
+          divResultat.style.display = "block";
+
           if (data.erreur) {
-            titreFilm.innerText = "Erreur : " + data.erreur;
+            document.getElementById("titre_film").innerText =
+              t.error + " " + data.erreur;
+            document.getElementById("affiche_film").style.display = "none";
+            document.getElementById("lien_film").style.display = "none";
           } else {
-            // On affiche les résultats de TMDB !
-            titreFilm.innerText = data.titre;
-
+            document.getElementById("titre_film").innerText = data.titre;
             if (data.affiche) {
-              afficheFilm.src = data.affiche;
-              afficheFilm.style.display = "block";
+              document.getElementById("affiche_film").src = data.affiche;
+              document.getElementById("affiche_film").style.display = "block";
             }
-
             if (data.lien_streaming) {
-              lienFilm.href = data.lien_streaming;
-              lienFilm.style.display = "inline-block";
+              document.getElementById("lien_film").href = data.lien_streaming;
+              document.getElementById("lien_film").style.display =
+                "inline-block";
             }
           }
         } catch (error) {
-          titreFilm.innerText =
-            "Le serveur est peut-être endormi. Réessaie dans 1 minute !";
+          // Si la connexion coupe (mode hors ligne), on laisse le jeu affiché
+          document.getElementById("ui-loading").innerText =
+            t.error + " ! Joue en mode hors-ligne 🎮";
         }
       }
+
+      // Démarrage : on vérifie la langue de l'utilisateur
+      window.onload = initialiserLangue;
     </script>
   </body>
 </html>
