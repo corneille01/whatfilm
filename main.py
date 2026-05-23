@@ -200,48 +200,70 @@ async def extraire_contexte_complet(url: str, id_unique: str) -> dict:
     # STRATÉGIE : TikTok bloque les IPs cloud → on utilise l'API non-officielle
     # pour récupérer l'URL directe de la vidéo, puis on la télécharge avec httpx
     est_tiktok = "tiktok.com" in url or "vm.tiktok" in url
+    print(f"[DEBUG] URL reçue : {url}")
+    print(f"[DEBUG] Est TikTok : {est_tiktok}")
 
     if est_tiktok:
-        # API non-officielle TikTok (pas de blocage IP car on ne passe pas par
-        # le site web, mais par l'endpoint mobile)
+        print("[DEBUG] Tentative API TikTok non-officielle...")
         video_url_directe = await recuperer_url_tiktok(url)
+        print(f"[DEBUG] URL directe obtenue : {video_url_directe[:80] if video_url_directe else 'AUCUNE'}")
         if video_url_directe:
-            async with httpx.AsyncClient(
-                headers={
-                    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
-                    "Referer": "https://www.tiktok.com/",
-                },
-                follow_redirects=True,
-                timeout=60,
-            ) as client_dl:
-                async with client_dl.stream("GET", video_url_directe) as r:
-                    with open(fichier_video, "wb") as fv:
-                        async for chunk in r.aiter_bytes(chunk_size=1024 * 64):
-                            fv.write(chunk)
+            try:
+                async with httpx.AsyncClient(
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+                        "Referer": "https://www.tiktok.com/",
+                    },
+                    follow_redirects=True,
+                    timeout=40,
+                ) as client_dl:
+                    async with client_dl.stream("GET", video_url_directe) as r:
+                        print(f"[DEBUG] Statut téléchargement direct : {r.status_code}")
+                        with open(fichier_video, "wb") as fv:
+                            async for chunk in r.aiter_bytes(chunk_size=1024 * 64):
+                                fv.write(chunk)
+                print(f"[DEBUG] Vidéo téléchargée : {os.path.exists(fichier_video)}")
+            except Exception as e:
+                print(f"[DEBUG] Erreur téléchargement direct : {e}")
 
     # Pour Instagram / YouTube ou si l'API TikTok a échoué → yt-dlp classique
     if not os.path.exists(fichier_video):
+        print("[DEBUG] Tentative yt-dlp classique...")
         cmd_dl = (
             f"yt-dlp -o {fichier_video} "
             f"-f 'worstvideo[ext=mp4]+worstaudio[ext=m4a]/worst[ext=mp4]/worst' "
             f"--download-sections '*0-30' --force-keyframes-at-cuts "
-            f"--write-info-json --no-playlist --no-warnings {url}"
+            f"--write-info-json --no-playlist {url}"
         )
-        proc = await asyncio.create_subprocess_shell(cmd_dl)
-        await asyncio.wait_for(proc.communicate(), timeout=90)
+        proc = await asyncio.create_subprocess_shell(
+            cmd_dl,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=90)
+        print(f"[DEBUG] yt-dlp stdout: {stdout.decode()[-300:]}")
+        print(f"[DEBUG] yt-dlp stderr: {stderr.decode()[-300:]}")
+        print(f"[DEBUG] Vidéo après yt-dlp : {os.path.exists(fichier_video)}")
 
     # Métadonnées seules si la vidéo n'a pas pu être téléchargée
     if not os.path.exists(fichier_video):
+        print("[DEBUG] Tentative métadonnées seules...")
         cmd_meta = (
             f"yt-dlp --skip-download --write-info-json --no-playlist "
-            f"-o {fichier_video} --no-warnings {url}"
+            f"-o {fichier_video} {url}"
         )
-        proc_meta = await asyncio.create_subprocess_shell(cmd_meta)
+        proc_meta = await asyncio.create_subprocess_shell(
+            cmd_meta,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
         try:
-            await asyncio.wait_for(proc_meta.communicate(), timeout=30)
-        except Exception:
-            pass
+            stdout, stderr = await asyncio.wait_for(proc_meta.communicate(), timeout=30)
+            print(f"[DEBUG] meta stderr: {stderr.decode()[-200:]}")
+        except Exception as e:
+            print(f"[DEBUG] meta timeout : {e}")
         if not os.path.exists(fichier_info):
+            print("[DEBUG] Aucun fichier info JSON récupéré — abandon")
             return contexte
 
     # --- Métadonnées du post ---
