@@ -52,44 +52,83 @@ async def chercher_sur_tmdb(titre):
 async def analyser_video(lien: LienVideo):
     id_unique = str(uuid.uuid4())
     fichier_video = f"temp_{id_unique}.mp4"
-    fichier_image = f"capture_{id_unique}.jpg"
+    
+    # Noms prévus pour nos 4 images
+    fichiers_images = [f"capture_{id_unique}_{i}.jpg" for i in [2, 4, 6, 10]]
     
     try:
-        commande_yt = f"yt-dlp -o {fichier_video} -f best --quiet {lien.url}"
+        # OPTIMISATION 1 : On télécharge la pire qualité ('worst') pour aller extrêmement vite
+        commande_yt = f"yt-dlp -o {fichier_video} -f worst --quiet {lien.url}"
         proc1 = await asyncio.create_subprocess_shell(commande_yt)
         await proc1.communicate()
 
-        commande_ffmpeg = f"ffmpeg -y -i {fichier_video} -ss 00:00:03 -vframes 1 {fichier_image}"
+        # Sécurité : vérifier que le téléchargement a bien fonctionné
+        if not os.path.exists(fichier_video):
+            return {"erreur": "Impossible de récupérer la vidéo (lien privé ou protégé)."}
+
+        # OPTIMISATION 2 : Extraire les 4 images en UNE SEULE commande ffmpeg
+        commande_ffmpeg = (
+            f"ffmpeg -y -i {fichier_video} "
+            f"-ss 00:00:02 -vframes 1 {fichiers_images[0]} "
+            f"-ss 00:00:04 -vframes 1 {fichiers_images[1]} "
+            f"-ss 00:00:06 -vframes 1 {fichiers_images[2]} "
+            f"-ss 00:00:10 -vframes 1 {fichiers_images[3]}"
+        )
         proc2 = await asyncio.create_subprocess_shell(commande_ffmpeg, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
         await proc2.communicate()
 
-        if os.path.exists(fichier_video):
-            os.remove(fichier_video)
+        # On supprime la vidéo immédiatement pour libérer de l'espace
+        os.remove(fichier_video)
 
-        if os.path.exists(fichier_image):
-            img = PIL.Image.open(fichier_image)
-            prompt = 'Analyse cette image. De quel film, série ou anime est-elle tirée ? Réponds UNIQUEMENT avec ce format JSON : {"titre": "Nom du film"}'
-            
-            reponse_ia = client.models.generate_content(model='gemini-2.5-flash', contents=[prompt, img])
-            
-            # ---> LA CORRECTION EST ICI <---
-            trois_accents = chr(96) * 3
-            texte_ia = reponse_ia.text.strip().replace(f"{trois_accents}json", "").replace(trois_accents, "").strip()
-            # --------------------------------
-            
+        # OPTIMISATION 3 : Charger dynamiquement les images réussies 
+        # (Si la vidéo dure 5 secondes, on n'aura que les images de 2s et 4s, et ça marchera quand même)
+        images_a_envoyer = []
+        for img_path in fichiers_images:
+            if os.path.exists(img_path):
+                images_a_envoyer.append(PIL.Image.open(img_path))
+
+        if not images_a_envoyer:
+            return {"erreur": "Impossible de capturer des images."}
+
+        # On prépare la requête IA avec le texte ET la liste des images
+        prompt = 'Analyse ces images extraites d\'une même vidéo. De quel film, série ou anime sont-elles tirées ? Évalue aussi ta certitude. Réponds UNIQUEMENT avec ce format JSON : {"titre": "Nom du film", "confiance": 95} (où confiance est un nombre entier entre 0 et 100).'
+        
+        # L'API Gemini accepte une liste combinant texte et multiples images
+        contenu_requete = [prompt] + images_a_envoyer
+        reponse_ia = client.models.generate_content(model='gemini-2.5-flash', contents=contenu_requete)
+        
+        # Nettoyage des images du serveur
+        for img_path in fichiers_images:
+            if os.path.exists(img_path):
+                os.remove(img_path)
+
+        # Traitement du JSON (avec une sécurité try/except)
+        trois_accents = chr(96) * 3
+        texte_ia = reponse_ia.text.strip().replace(f"{trois_accents}json", "").replace(trois_accents, "").strip()
+        
+        try:
             data_ia = json.loads(texte_ia)
             titre_trouve = data_ia.get("titre", "")
+            confiance_ia = data_ia.get("confiance", 0) # On récupère la confiance ici
+        except json.JSONDecodeError:
+            return {"erreur": "L'IA a mal formaté sa réponse."}
 
-            os.remove(fichier_image)
+        if not titre_trouve:
+            return {"erreur": "Film non reconnu."}
 
-            infos_film = await chercher_sur_tmdb(titre_trouve)
-            return infos_film
-        else:
-            return {"erreur": "Capture impossible"}
+        # On cherche sur TMDB
+        infos_film = await chercher_sur_tmdb(titre_trouve)
+        
+        # On injecte la confiance dans le résultat final pour que le site web l'affiche
+        infos_film["confiance"] = confiance_ia
+        
+        return infos_film
 
     except Exception as e:
+        # Nettoyage de secours en cas de crash
         if os.path.exists(fichier_video): os.remove(fichier_video)
-        if os.path.exists(fichier_image): os.remove(fichier_image)
+        for img_path in fichiers_images:
+            if os.path.exists(img_path): os.remove(img_path)
         return {"erreur": str(e)}
 
 # ==========================================

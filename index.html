@@ -117,7 +117,7 @@
         box-shadow: 0 0 0 #990033;
       }
 
-      /* --- MINI JEU & RÉSULTATS --- */
+      /* --- MINI JEU CYBER JUMP --- */
       #game-container {
         display: none;
         margin-top: 30px;
@@ -136,9 +136,10 @@
         border: 3px solid #450892;
         border-radius: 10px;
         box-shadow: 0 0 20px rgba(69, 8, 146, 0.8);
-        cursor: crosshair;
+        cursor: pointer; /* Indique qu'on peut cliquer pour sauter */
       }
 
+      /* --- RÉSULTATS & TAUX DE CONFIANCE --- */
       #resultat {
         margin-top: 30px;
         text-align: center;
@@ -149,6 +150,36 @@
         display: none;
         max-width: 400px;
         box-shadow: 0 0 20px rgba(102, 252, 241, 0.2);
+      }
+
+      /* Design du badge de confiance */
+      .badge-confiance {
+        display: inline-block;
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-weight: bold;
+        font-size: 1rem;
+        margin-bottom: 15px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+      .conf-haute {
+        background: rgba(102, 252, 241, 0.1);
+        color: #66fcf1;
+        border: 1px solid #66fcf1;
+        box-shadow: 0 0 10px rgba(102, 252, 241, 0.4);
+      }
+      .conf-moyenne {
+        background: rgba(255, 204, 0, 0.1);
+        color: #ffcc00;
+        border: 1px solid #ffcc00;
+        box-shadow: 0 0 10px rgba(255, 204, 0, 0.4);
+      }
+      .conf-basse {
+        background: rgba(255, 0, 85, 0.1);
+        color: #ff0055;
+        border: 1px solid #ff0055;
+        box-shadow: 0 0 10px rgba(255, 0, 85, 0.4);
       }
 
       #resultat img {
@@ -195,18 +226,25 @@
     />
     <button id="ui-btn" onclick="analyserVideo()">IDENTIFIER</button>
 
+    <!-- NOUVEAU JEU CYBER JUMP -->
     <div id="game-container">
       <div id="game-title">
-        ⚡ NEON AIM TRAINER ⚡<br />Score : <span id="score">0</span>
+        ⚡ CYBER JUMP ⚡<br /><span style="font-size: 0.8rem; color: #66fcf1"
+          >Touche pour sauter !</span
+        ><br />Score : <span id="score">0</span>
       </div>
-      <canvas id="gameCanvas" width="300" height="300"></canvas>
+      <canvas id="gameCanvas" width="300" height="200"></canvas>
       <p id="ui-loading" style="color: #66fcf1; margin-top: 10px">
         Recherche du film en cours...
       </p>
     </div>
 
     <div id="resultat">
-      <h2 id="titre_film"></h2>
+      <h2 id="titre_film" style="margin-bottom: 5px"></h2>
+
+      <!-- Emplacement pour le taux de confiance -->
+      <div id="zone_confiance"></div>
+
       <img id="affiche_film" src="" alt="Affiche du film" />
       <br />
       <a id="lien_film" class="bouton-streaming" href="#" target="_blank"
@@ -223,48 +261,52 @@
           title: "QUEL FILM ?",
           placeholder: "Colle le lien TikTok ou Insta...",
           btn: "IDENTIFIER",
-          loading: "Recherche en cours... Joue en attendant !",
+          loading: "Recherche en cours... Survis en attendant !",
           error: "Erreur de connexion",
           watch: "Où regarder ?",
+          conf: "Confiance IA",
         },
         en: {
           title: "WHICH MOVIE?",
           placeholder: "Paste TikTok or Insta link...",
           btn: "IDENTIFY",
-          loading: "Searching... Play while waiting!",
+          loading: "Searching... Survive while waiting!",
           error: "Connection Error",
           watch: "Where to watch?",
+          conf: "AI Confidence",
         },
         es: {
           title: "¿QUÉ PELÍCULA?",
           placeholder: "Pega el enlace de TikTok o Insta...",
           btn: "IDENTIFICAR",
-          loading: "Buscando... ¡Juega mientras esperas!",
+          loading: "Buscando... ¡Sobrevive mientras esperas!",
           error: "Error de conexión",
           watch: "¿Dónde ver?",
+          conf: "Confianza IA",
         },
         zh: {
           title: "什么电影？",
           placeholder: "粘贴 TikTok 或 Insta 链接...",
           btn: "识别",
-          loading: "搜索中... 边等边玩！",
+          loading: "搜索中... 活下去！",
           error: "连接错误",
           watch: "去哪里看？",
+          conf: "AI 信心",
         },
         de: {
           title: "WELCHER FILM?",
           placeholder: "TikTok oder Insta Link einfügen...",
           btn: "FINDEN",
-          loading: "Suche läuft... Spiel ein wenig!",
+          loading: "Suche läuft... Überlebe in der Zwischenzeit!",
           error: "Verbindungsfehler",
           watch: "Wo anschauen?",
+          conf: "KI-Vertrauen",
         },
       };
 
       let langueActuelle = "fr";
 
       function initialiserLangue() {
-        // Détection automatique de la langue du navigateur
         const langueNavigateur = navigator.language.slice(0, 2);
         if (traductions[langueNavigateur]) {
           langueActuelle = langueNavigateur;
@@ -288,61 +330,125 @@
       }
 
       // ==========================================
-      // 2. LE MINI-JEU (NEON AIM TRAINER)
+      // 2. LE MINI-JEU DYNAMIQUE (CYBER JUMP)
       // ==========================================
       const canvas = document.getElementById("gameCanvas");
       const ctx = canvas.getContext("2d");
-      let score = 0;
-      let cible = { x: 150, y: 150, taille: 30 };
+
+      let animationJeu;
       let jeuActif = false;
+      let score = 0;
+      let frames = 0;
 
-      function dessinerCible() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        // Effet néon de la cible
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = "#66fcf1";
-        ctx.fillStyle = "#66fcf1";
-        ctx.fillRect(
-          cible.x - cible.taille / 2,
-          cible.y - cible.taille / 2,
-          cible.taille,
-          cible.taille,
-        );
-        ctx.shadowBlur = 0; // On reset l'ombre
+      // Variables du joueur
+      const joueur = {
+        x: 30,
+        y: 150,
+        taille: 20,
+        vy: 0,
+        gravite: 0.8,
+        saut: -10,
+        sol: 150,
+      };
+      let obstacles = [];
+
+      function sauter() {
+        if (joueur.y >= joueur.sol && jeuActif) {
+          joueur.vy = joueur.saut;
+        }
       }
 
-      function nouvelleCible() {
-        const marge = cible.taille;
-        cible.x = marge + Math.random() * (canvas.width - marge * 2);
-        cible.y = marge + Math.random() * (canvas.height - marge * 2);
-        cible.taille = Math.max(15, 40 - score * 1.5); // La cible rétrécit quand le score monte !
-        dessinerCible();
-      }
-
-      // Gestion du clic ou du touché sur mobile
-      canvas.addEventListener("mousedown", verifierTir);
+      // Contrôles (Clic, Tactile, Barre Espace)
+      canvas.addEventListener("mousedown", sauter);
       canvas.addEventListener("touchstart", (e) => {
         e.preventDefault();
-        verifierTir(e.touches[0]);
+        sauter();
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.code === "Space" && jeuActif) sauter();
       });
 
-      function verifierTir(event) {
-        if (!jeuActif) return;
-        const rect = canvas.getBoundingClientRect();
-        const clicX = event.clientX - rect.left;
-        const clicY = event.clientY - rect.top;
+      function resetJeu() {
+        score = 0;
+        frames = 0;
+        obstacles = [];
+        joueur.y = joueur.sol;
+        joueur.vy = 0;
+        document.getElementById("score").innerText = score;
+      }
 
-        // Vérifie si le clic est dans le carré
-        if (
-          clicX > cible.x - cible.taille / 2 &&
-          clicX < cible.x + cible.taille / 2 &&
-          clicY > cible.y - cible.taille / 2 &&
-          clicY < cible.y + cible.taille / 2
-        ) {
-          score++;
-          document.getElementById("score").innerText = score;
-          nouvelleCible();
+      function boucleJeu() {
+        if (!jeuActif) return;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Physique du joueur
+        joueur.vy += joueur.gravite;
+        joueur.y += joueur.vy;
+        if (joueur.y > joueur.sol) {
+          joueur.y = joueur.sol;
+          joueur.vy = 0;
         }
+
+        // Dessin du joueur (Néon Rose)
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = "#ff0055";
+        ctx.fillStyle = "#ff0055";
+        ctx.fillRect(joueur.x, joueur.y, joueur.taille, joueur.taille);
+
+        // Génération d'obstacles
+        frames++;
+        if (frames % 80 === 0) {
+          // Un obstacle toutes les 80 frames
+          // Hauteur aléatoire de l'obstacle
+          let hauteurObs = 15 + Math.random() * 25;
+          obstacles.push({
+            x: canvas.width,
+            y: joueur.sol + joueur.taille - hauteurObs,
+            w: 15,
+            h: hauteurObs,
+          });
+        }
+
+        // Dessin et déplacement des obstacles (Néon Cyan)
+        ctx.shadowColor = "#66fcf1";
+        ctx.fillStyle = "#66fcf1";
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+          let obs = obstacles[i];
+          obs.x -= 4 + score * 0.1; // La vitesse augmente avec le score
+          ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+
+          // Détection de collision
+          if (
+            joueur.x < obs.x + obs.w &&
+            joueur.x + joueur.taille > obs.x &&
+            joueur.y < obs.y + obs.h &&
+            joueur.y + joueur.taille > obs.y
+          ) {
+            resetJeu(); // Perdu ! On recommence le score à 0
+          }
+
+          // Augmentation du score quand on passe l'obstacle
+          if (obs.x === joueur.x) {
+            score += 10;
+            document.getElementById("score").innerText = score;
+          }
+
+          // Suppression des obstacles sortis de l'écran
+          if (obs.x + obs.w < 0) obstacles.splice(i, 1);
+        }
+
+        ctx.shadowBlur = 0; // Reset de l'ombre
+
+        // Dessin du sol
+        ctx.strokeStyle = "#450892";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, joueur.sol + joueur.taille + 2);
+        ctx.lineTo(canvas.width, joueur.sol + joueur.taille + 2);
+        ctx.stroke();
+
+        animationJeu = requestAnimationFrame(boucleJeu);
       }
 
       // ==========================================
@@ -352,17 +458,20 @@
         const lien = document.getElementById("lien_video").value;
         const divResultat = document.getElementById("resultat");
         const conteneurJeu = document.getElementById("game-container");
+        const divConfiance = document.getElementById("zone_confiance");
         const t = traductions[langueActuelle];
 
         if (!lien) return;
 
-        // On cache le résultat précédent, on lance le jeu
+        // Interface UI : Lancement
         divResultat.style.display = "none";
         conteneurJeu.style.display = "block";
-        score = 0;
-        document.getElementById("score").innerText = score;
+        divConfiance.innerHTML = ""; // On vide la confiance précédente
+
+        // Lancement du jeu
         jeuActif = true;
-        nouvelleCible();
+        resetJeu();
+        boucleJeu();
 
         try {
           const response = await fetch("/analyser", {
@@ -373,38 +482,59 @@
 
           const data = await response.json();
 
-          // Le serveur a répondu, on arrête le jeu
+          // Arrêt du jeu
           jeuActif = false;
+          cancelAnimationFrame(animationJeu);
           conteneurJeu.style.display = "none";
           divResultat.style.display = "block";
 
           if (data.erreur) {
             document.getElementById("titre_film").innerText =
-              t.error + " " + data.erreur;
+              t.error + " : " + data.erreur;
             document.getElementById("affiche_film").style.display = "none";
             document.getElementById("lien_film").style.display = "none";
           } else {
             document.getElementById("titre_film").innerText = data.titre;
+
+            // --- GESTION DU TAUX DE CONFIANCE ---
+            if (data.confiance !== undefined) {
+              let conf = parseInt(data.confiance);
+              let classeConfiance =
+                conf >= 80
+                  ? "conf-haute"
+                  : conf >= 50
+                    ? "conf-moyenne"
+                    : "conf-basse";
+              let texteConf = t.conf + " : " + conf + "%";
+
+              divConfiance.innerHTML = `<span class="badge-confiance ${classeConfiance}">${texteConf}</span>`;
+            }
+
             if (data.affiche) {
               document.getElementById("affiche_film").src = data.affiche;
               document.getElementById("affiche_film").style.display = "block";
+            } else {
+              document.getElementById("affiche_film").style.display = "none";
             }
-            if (data.lien_streaming) {
+
+            if (data.lien_streaming && data.lien_streaming !== "Non trouvé") {
               document.getElementById("lien_film").href = data.lien_streaming;
               document.getElementById("lien_film").style.display =
                 "inline-block";
+            } else {
+              document.getElementById("lien_film").style.display = "none";
             }
           }
         } catch (error) {
-          // Si la connexion coupe (mode hors ligne), on laisse le jeu affiché
-          document.getElementById("ui-loading").innerText =
-            t.error + " ! Joue en mode hors-ligne 🎮";
+          jeuActif = false;
+          cancelAnimationFrame(animationJeu);
+          document.getElementById("ui-loading").innerText = t.error + " !";
         }
       }
 
-      // Démarrage : on vérifie la langue de l'utilisateur
       window.onload = initialiserLangue;
     </script>
+
     <div
       style="
         margin-top: 80px;
@@ -421,7 +551,6 @@
       <h3 style="color: #66fcf1; text-align: center; text-transform: uppercase">
         Questions Fréquentes (FAQ) 💡
       </h3>
-
       <h4 style="color: #ff0055">
         Comment retrouver le nom d'un film vu sur TikTok ou Instagram ?
       </h4>
@@ -431,22 +560,20 @@
         recherche, et notre intelligence artificielle analysera les images pour
         te donner le titre exact en quelques secondes.
       </p>
-
       <h4 style="color: #ff0055">
         Existe-t-il un Shazam pour les films et séries ?
       </h4>
       <p style="color: #c5c6c7; line-height: 1.6; font-size: 0.9rem">
         Oui, "Quel Film" est le Shazam ultime de la vidéo. Contrairement aux
-        recherches d'images classiques (qui bloquent à cause des filtres lofi ou
-        des édits), notre technologie IA reconnaît les acteurs, le contexte et
-        l'ambiance pour identifier le film infailliblement.
+        recherches d'images classiques, notre technologie IA reconnaît les
+        acteurs, le contexte et l'ambiance pour identifier le film
+        infailliblement.
       </p>
-
       <h4 style="color: #ff0055">Où regarder le film trouvé en streaming ?</h4>
       <p style="color: #c5c6c7; line-height: 1.6; font-size: 0.9rem">
         Une fois le film identifié, nous te fournissons directement un lien pour
-        savoir sur quelle plateforme de streaming légal (Netflix, Amazon Prime
-        Video, Disney+, Canal) il est disponible dans ton pays.
+        savoir sur quelle plateforme de streaming légal il est disponible dans
+        ton pays.
       </p>
     </div>
   </body>
