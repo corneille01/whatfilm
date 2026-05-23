@@ -6,15 +6,17 @@ import PIL.Image
 import httpx
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse  # <-- Ajouté pour afficher ton site web
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from google import genai
 
-# --- CONFIGURATION (À remplacer par tes vraies clés) ---
+# --- CONFIGURATION (Assure-toi de mettre tes 2 vraies clés ici) ---
 GEMINI_API_KEY = "AIzaSyCqA4MZT13G4XPdFT7pk1LopM7gqxOMdYo"
 TMDB_API_KEY = "f97fba4e5fe525209b66fc86ee0ed227"
-META_VERIFY_TOKEN = "MON_MOT_DE_PASSE_SECRET_META"
-META_ACCESS_TOKEN = "TON_TOKEN_INSTAGRAM"
+
+# Les clés Meta sont en attente, on les commente :
+# META_VERIFY_TOKEN = "MON_MOT_DE_PASSE_SECRET_META"
+# META_ACCESS_TOKEN = "TON_TOKEN_INSTAGRAM"
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 app = FastAPI()
@@ -90,19 +92,22 @@ async def analyser_video(lien: LienVideo):
         if os.path.exists(fichier_image): os.remove(fichier_image)
         return {"erreur": str(e)}
 
+# ==========================================
 # 4. LA SONNETTE : LE WEBHOOK INSTAGRAM
-@app.get("/webhook")
-async def verifier_webhook(request: Request):
-    mode = request.query_params.get("hub.mode")
-    token = request.query_params.get("hub.verify_token")
-    challenge = request.query_params.get("hub.challenge")
-
-    if mode == "subscribe" and token == META_VERIFY_TOKEN:
-        return int(challenge)
-    raise HTTPException(status_code=403, detail="Token invalide")
-
-@app.post("/webhook")
-async def recevoir_message(request: Request):
-    data = await request.json()
-    print("🔔 Dring ! Meta a sonné à la porte :", data)
-    return {"status": "ok"}
+# (En pause le temps d'avoir les clés)
+# ==========================================
+# @app.get("/webhook")
+# async def verifier_webhook(request: Request):
+#     mode = request.query_params.get("hub.mode")
+#     token = request.query_params.get("hub.verify_token")
+#     challenge = request.query_params.get("hub.challenge")
+#
+#     if mode == "subscribe" and token == META_VERIFY_TOKEN:
+#         return int(challenge)
+#     raise HTTPException(status_code=403, detail="Token invalide")
+#
+# @app.post("/webhook")
+# async def recevoir_message(request: Request):
+#     data = await request.json()
+#     print("🔔 Dring ! Meta a sonné à la porte :", data)
+#     return {"status": "ok"}

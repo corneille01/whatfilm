@@ -41,3 +41,9 @@ Dans ton fichier main.py, mets-le à la place de "MON_MOT_DE_PASSE_SECRET_META".
 Une fois que tu as collé ces 4 clés dans ton fichier main.py sur ton ordinateur, il te suffira de reprendre ce fichier et de le glisser-déposer à nouveau sur ton GitHub (via le bouton Add file > Upload files). Render verra la mise à jour et rechargera ton serveur automatiquement avec les bonnes clés !
 
 Laquelle de ces clés veux-tu qu'on aille chercher ensemble en premier ?
+
+
+GEMINI_API_KEY = ""
+TMDB_API_KEY = ""
+META_VERIFY_TOKEN = "MON_MOT_DE_PASSE_SECRET_META"
+META_ACCESS_TOKEN = "TON_TOKEN_INSTAGRAM"
