@@ -12,8 +12,8 @@ from google import genai
 from google.genai import types
 
 # --- CONFIGURATION ---
-GEMINI_API_KEY = "AIzaSyCqA4MZT13G4XPdFT7pk1LopM7gqxOMdYo"
-TMDB_API_KEY = "f97fba4e5fe525209b66fc86ee0ed227"
+GEMINI_API_KEY = "TON_API_KEY"
+TMDB_API_KEY = "TON_TMDB_KEY"
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 app = FastAPI()
@@ -127,25 +127,37 @@ async def extraire_contexte_complet(url: str, id_unique: str) -> dict:
 
     # --- Téléchargement vidéo + métadonnées ---
     # On prend la qualité la plus basse pour la vitesse
-    # Détection de la plateforme pour adapter les options
-    est_tiktok = "tiktok.com" in url
-    
     cmd_dl = (
         f"yt-dlp -o {fichier_video} "
         f"-f 'worstvideo[ext=mp4]+worstaudio[ext=m4a]/worst[ext=mp4]/worst' "
         f"--download-sections '*0-30' --force-keyframes-at-cuts "
         f"--write-info-json --no-playlist "
-        # TikTok : on tente l'impersonation si curl_cffi dispo, sinon on continue sans
-        f"{'--impersonate chrome ' if est_tiktok else ''}"
-        f"--user-agent 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' "
-        f"--add-header 'Referer:https://www.tiktok.com/' "
-        f"--ignore-errors --quiet {url}"
+        f"--user-agent 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+        f"AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' "
+        f"--add-header 'Accept-Language:fr-FR,fr;q=0.9' "
+        f"--add-header 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' "
+        f"--ignore-errors --no-warnings {url}"
     )
     proc = await asyncio.create_subprocess_shell(cmd_dl)
     await asyncio.wait_for(proc.communicate(), timeout=90)
 
     if not os.path.exists(fichier_video):
-        return contexte  # Téléchargement échoué
+        # Plan B : récupère au moins les métadonnées sans télécharger la vidéo
+        # Utile quand TikTok bloque le téléchargement depuis un serveur cloud
+        cmd_meta = (
+            f"yt-dlp --skip-download --write-info-json --no-playlist "
+            f"--user-agent 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+            f"AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' "
+            f"-o {fichier_video} --no-warnings {url}"
+        )
+        proc_meta = await asyncio.create_subprocess_shell(cmd_meta)
+        try:
+            await asyncio.wait_for(proc_meta.communicate(), timeout=30)
+        except Exception:
+            pass
+        # Même sans vidéo, on continue avec les métadonnées si elles existent
+        if not os.path.exists(fichier_info):
+            return contexte  # Vraiment rien récupéré
 
     # --- Métadonnées du post ---
     if os.path.exists(fichier_info):

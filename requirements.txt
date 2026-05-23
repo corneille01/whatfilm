@@ -5,4 +5,3 @@ pillow
 google-genai
 httpx
 openai-whisper
-curl_cffi
