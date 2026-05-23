@@ -130,7 +130,7 @@ async def extraire_contexte_complet(url: str, id_unique: str) -> dict:
     cmd_dl = (
         f"yt-dlp -o {fichier_video} "
         f"-f 'worstvideo[ext=mp4]+worstaudio[ext=m4a]/worst[ext=mp4]/worst' "
-        f"--write-info-json --no-playlist --quiet {url}"
+        f"--write-info-json --no-playlist --user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' --quiet {url}"
     )
     proc = await asyncio.create_subprocess_shell(cmd_dl)
     await asyncio.wait_for(proc.communicate(), timeout=60)
@@ -242,6 +242,7 @@ async def analyser_video(lien: LienVideo):
 
     id_unique = str(uuid.uuid4())[:8]
     fichier_gemini_audio = None
+    contexte = {"images": [], "fichier_audio_path": ""}  # sécurité si erreur avant extraction
 
     try:
         # --- Extraction maximale du contexte ---
@@ -352,77 +353,77 @@ async def analyser_video(lien: LienVideo):
 # ==========================================
 # 7. WEBHOOK META (prêt pour le bot)
 # ==========================================
-META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "mon_token_secret")
+# META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "mon_token_secret")
 
 
-@app.get("/webhook")
-async def verifier_webhook(request: Request):
-    mode = request.query_params.get("hub.mode")
-    token = request.query_params.get("hub.verify_token")
-    challenge = request.query_params.get("hub.challenge")
-    if mode == "subscribe" and token == META_VERIFY_TOKEN:
-        return int(challenge)
-    raise HTTPException(status_code=403, detail="Token invalide")
+# @app.get("/webhook")
+# async def verifier_webhook(request: Request):
+#     mode = request.query_params.get("hub.mode")
+#     token = request.query_params.get("hub.verify_token")
+#     challenge = request.query_params.get("hub.challenge")
+#     if mode == "subscribe" and token == META_VERIFY_TOKEN:
+#         return int(challenge)
+#     raise HTTPException(status_code=403, detail="Token invalide")
 
 
-@app.post("/webhook")
-async def recevoir_message(request: Request):
-    """
-    Reçoit les messages Instagram/Facebook et déclenche l'analyse.
-    Format attendu : l'utilisateur mentionne @BotName + colle un lien vidéo.
-    """
-    data = await request.json()
+# @app.post("/webhook")
+# async def recevoir_message(request: Request):
+#     """
+#     Reçoit les messages Instagram/Facebook et déclenche l'analyse.
+#     Format attendu : l'utilisateur mentionne @BotName + colle un lien vidéo.
+#     """
+#     data = await request.json()
 
-    try:
-        # Extraction du message entrant (format Meta Messenger)
-        entries = data.get("entry", [])
-        for entry in entries:
-            for event in entry.get("messaging", []):
-                message = event.get("message", {})
-                texte = message.get("text", "")
-                sender_id = event.get("sender", {}).get("id")
+#     try:
+#         # Extraction du message entrant (format Meta Messenger)
+#         entries = data.get("entry", [])
+#         for entry in entries:
+#             for event in entry.get("messaging", []):
+#                 message = event.get("message", {})
+#                 texte = message.get("text", "")
+#                 sender_id = event.get("sender", {}).get("id")
 
-                # Cherche un lien vidéo dans le message
-                import re
-                liens = re.findall(
-                    r"https?://(?:www\.)?(?:tiktok\.com|instagram\.com|youtube\.com|youtu\.be)\S+",
-                    texte,
-                )
-                if liens and sender_id:
-                    # Lance l'analyse en arrière-plan (ne bloque pas la réponse webhook)
-                    asyncio.create_task(
-                        analyser_et_repondre_messenger(liens[0], sender_id)
-                    )
-    except Exception as e:
-        print(f"Erreur webhook : {e}")
+#                 # Cherche un lien vidéo dans le message
+#                 import re
+#                 liens = re.findall(
+#                     r"https?://(?:www\.)?(?:tiktok\.com|instagram\.com|youtube\.com|youtu\.be)\S+",
+#                     texte,
+#                 )
+#                 if liens and sender_id:
+#                     # Lance l'analyse en arrière-plan (ne bloque pas la réponse webhook)
+#                     asyncio.create_task(
+#                         analyser_et_repondre_messenger(liens[0], sender_id)
+#                     )
+#     except Exception as e:
+#         print(f"Erreur webhook : {e}")
 
-    return {"status": "ok"}
+#     return {"status": "ok"}
 
 
-async def analyser_et_repondre_messenger(url: str, sender_id: str):
-    """Analyse la vidéo et envoie le résultat via l'API Messenger."""
-    resultat = await analyser_video(LienVideo(url=url))
-    PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN", "")
-    if not PAGE_ACCESS_TOKEN:
-        return
+# async def analyser_et_repondre_messenger(url: str, sender_id: str):
+#     """Analyse la vidéo et envoie le résultat via l'API Messenger."""
+#     resultat = await analyser_video(LienVideo(url=url))
+#     PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN", "")
+#     if not PAGE_ACCESS_TOKEN:
+#         return
 
-    if "erreur" in resultat:
-        texte_reponse = f"❌ {resultat['erreur']}"
-    else:
-        conf = resultat.get("confiance", "?")
-        titre = resultat.get("titre", "?")
-        lien = resultat.get("lien_streaming", "")
-        texte_reponse = (
-            f"🎬 *{titre}*\n"
-            f"Confiance IA : {conf}%\n"
-            f"Où regarder : {lien}"
-        )
+#     if "erreur" in resultat:
+#         texte_reponse = f"❌ {resultat['erreur']}"
+#     else:
+#         conf = resultat.get("confiance", "?")
+#         titre = resultat.get("titre", "?")
+#         lien = resultat.get("lien_streaming", "")
+#         texte_reponse = (
+#             f"🎬 *{titre}*\n"
+#             f"Confiance IA : {conf}%\n"
+#             f"Où regarder : {lien}"
+#         )
 
-    async with httpx.AsyncClient() as c:
-        await c.post(
-            f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}",
-            json={
-                "recipient": {"id": sender_id},
-                "message": {"text": texte_reponse},
-            },
-        )
+#     async with httpx.AsyncClient() as c:
+#         await c.post(
+#             f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}",
+#             json={
+#                 "recipient": {"id": sender_id},
+#                 "message": {"text": texte_reponse},
+#             },
+#         )
