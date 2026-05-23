@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>🎬 Quel Film ?</title>
+    <style>
+      /* La couleur du fond du site (Noir galaxie) */
+      body {
+        background-color: #0b0c10;
+        color: white;
+        font-family: "Courier New", Courier, monospace;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        margin: 0;
+      }
+
+      /* L'effet Texte 3D Gamer */
+      h1 {
+        font-size: 4rem;
+        color: #66fcf1; /* Bleu Cyan néon */
+        /* C'est ici la magie de la 3D : on empile les ombres rose et violette */
+        text-shadow:
+          4px 4px 0px #ff0055,
+          8px 8px 0px #450892;
+        margin-bottom: 40px;
+        text-align: center;
+      }
+
+      /* La boîte où on colle le lien */
+      input {
+        padding: 15px;
+        font-size: 1.2rem;
+        width: 80%;
+        max-width: 400px;
+        background: #1f2833;
+        color: #66fcf1;
+        border: 2px solid #45a29e;
+        border-radius: 8px;
+        box-shadow: 0 0 15px rgba(102, 252, 241, 0.5); /* Effet lumineux */
+        outline: none;
+        margin-bottom: 20px;
+      }
+
+      /* Le Bouton style Arcade */
+      button {
+        padding: 15px 30px;
+        font-size: 1.5rem;
+        background: #ff0055; /* Rose agressif */
+        color: white;
+        font-weight: bold;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        /* L'épaisseur du bouton */
+        box-shadow: 0 8px 0 #990033;
+        transition: all 0.1s;
+      }
+
+      /* L'animation quand on appuie sur le bouton */
+      button:active {
+        transform: translateY(8px); /* Le bouton descend */
+        box-shadow: 0 0 0 #990033; /* L'ombre disparaît pour faire l'effet enfoncé */
+      }
+
+      /* La zone où la réponse s'affiche */
+      #resultat {
+        margin-top: 40px;
+        text-align: center;
+        background: rgba(31, 40, 51, 0.8);
+        padding: 20px;
+        border-radius: 10px;
+        border: 2px dashed #66fcf1;
+        display: none;
+        max-width: 400px;
+      }
+
+      #resultat img {
+        width: 100%;
+        border-radius: 8px;
+        margin-bottom: 15px;
+      }
+
+      a.bouton-streaming {
+        display: inline-block;
+        background: #450892;
+        color: white;
+        text-decoration: none;
+        padding: 10px 20px;
+        border-radius: 5px;
+        font-weight: bold;
+        margin-top: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>QUEL FILM ?</h1>
+
+    <input
+      type="text"
+      id="lien_video"
+      placeholder="Colle le lien TikTok ou Insta ici..."
+    />
+    <button onclick="analyserVideo()">IDENTIFIER</button>
+
+    <div id="resultat">
+      <img id="affiche_film" src="" alt="Affiche du film" />
+      <h2 id="titre_film"></h2>
+      <a id="lien_film" class="bouton-streaming" href="#" target="_blank"
+        >Où regarder ?</a
+      >
+    </div>
+
+    <script>
+      // Le petit robot dans le navigateur qui va parler à ton serveur Render
+      async function analyserVideo() {
+        const lien = document.getElementById("lien_video").value;
+        const divResultat = document.getElementById("resultat");
+        const titreFilm = document.getElementById("titre_film");
+        const afficheFilm = document.getElementById("affiche_film");
+        const lienFilm = document.getElementById("lien_film");
+
+        if (!lien) {
+          alert("N'oublie pas de coller un lien !");
+          return;
+        }
+
+        // On montre à l'utilisateur que ça charge
+        divResultat.style.display = "block";
+        titreFilm.innerText = "Analyse en cours... ⏳";
+        afficheFilm.style.display = "none";
+        lienFilm.style.display = "none";
+
+        try {
+          // On tape à la porte de ton serveur Python
+          const response = await fetch("/analyser", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: lien }),
+          });
+
+          const data = await response.json();
+
+          if (data.erreur) {
+            titreFilm.innerText = "Erreur : " + data.erreur;
+          } else {
+            // On affiche les résultats de TMDB !
+            titreFilm.innerText = data.titre;
+
+            if (data.affiche) {
+              afficheFilm.src = data.affiche;
+              afficheFilm.style.display = "block";
+            }
+
+            if (data.lien_streaming) {
+              lienFilm.href = data.lien_streaming;
+              lienFilm.style.display = "inline-block";
+            }
+          }
+        } catch (error) {
+          titreFilm.innerText =
+            "Le serveur est peut-être endormi. Réessaie dans 1 minute !";
+        }
+      }
+    </script>
+  </body>
+</html>
