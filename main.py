@@ -127,13 +127,19 @@ async def extraire_contexte_complet(url: str, id_unique: str) -> dict:
 
     # --- Téléchargement vidéo + métadonnées ---
     # On prend la qualité la plus basse pour la vitesse
+    # Détection de la plateforme pour adapter les options
+    est_tiktok = "tiktok.com" in url
+    
     cmd_dl = (
         f"yt-dlp -o {fichier_video} "
         f"-f 'worstvideo[ext=mp4]+worstaudio[ext=m4a]/worst[ext=mp4]/worst' "
         f"--download-sections '*0-30' --force-keyframes-at-cuts "
         f"--write-info-json --no-playlist "
-        f"--impersonate chrome-110 "
-        f"--quiet {url}"
+        # TikTok : on tente l'impersonation si curl_cffi dispo, sinon on continue sans
+        f"{'--impersonate chrome ' if est_tiktok else ''}"
+        f"--user-agent 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' "
+        f"--add-header 'Referer:https://www.tiktok.com/' "
+        f"--ignore-errors --quiet {url}"
     )
     proc = await asyncio.create_subprocess_shell(cmd_dl)
     await asyncio.wait_for(proc.communicate(), timeout=90)
