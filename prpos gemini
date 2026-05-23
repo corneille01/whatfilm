@@ -43,7 +43,7 @@ Une fois que tu as collé ces 4 clés dans ton fichier main.py sur ton ordinateu
 Laquelle de ces clés veux-tu qu'on aille chercher ensemble en premier ?
 
 
-GEMINI_API_KEY = ""
+GEMINI_API_KEY = "AIzaSyCqA4MZT13G4XPdFT7pk1LopM7gqxOMdYo"
 TMDB_API_KEY = ""
 META_VERIFY_TOKEN = "MON_MOT_DE_PASSE_SECRET_META"
 META_ACCESS_TOKEN = "TON_TOKEN_INSTAGRAM"

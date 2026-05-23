@@ -9,14 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from google import genai
+from google.genai import types
 
-# --- CONFIGURATION (Assure-toi de mettre tes 2 vraies clés ici) ---
+# --- CONFIGURATION ---
 GEMINI_API_KEY = "AIzaSyCqA4MZT13G4XPdFT7pk1LopM7gqxOMdYo"
 TMDB_API_KEY = "f97fba4e5fe525209b66fc86ee0ed227"
-
-# Les clés Meta sont en attente, on les commente :
-# META_VERIFY_TOKEN = "MON_MOT_DE_PASSE_SECRET_META"
-# META_ACCESS_TOKEN = "TON_TOKEN_INSTAGRAM"
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 app = FastAPI()
@@ -25,13 +22,19 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, 
 class LienVideo(BaseModel):
     url: str
 
-# 1. LA ROUTE POUR AFFICHER TON SITE WEB
+# ==========================================
+# 🌟 NOUVEAU : LE CACHE MÉMOIRE
+# ==========================================
+# Ce dictionnaire va stocker les résultats. 
+# Format : {"url_de_la_video": {infos_du_film}}
+CACHE_RECHERCHES = {}
+
+
 @app.get("/")
 async def afficher_site():
-    # Quand quelqu'un va sur ton lien, le serveur lui donne le fichier HTML
     return FileResponse("index.html")
 
-# 2. FONCTION POUR INTERROGER TMDB (L'annuaire des films)
+
 async def chercher_sur_tmdb(titre):
     url = f"https://api.themoviedb.org/3/search/multi?api_key={TMDB_API_KEY}&query={titre}&language=fr-FR"
     async with httpx.AsyncClient() as client_http:
@@ -47,88 +50,108 @@ async def chercher_sur_tmdb(titre):
             }
     return {"titre": titre, "affiche": "", "lien_streaming": "Non trouvé"}
 
-# 3. LE CERVEAU : L'ANALYSE DE LA VIDÉO
+
 @app.post("/analyser")
 async def analyser_video(lien: LienVideo):
+    # 🌟 1. VÉRIFICATION DU CACHE : Si on connaît déjà la vidéo, on répond instantanément !
+    if lien.url in CACHE_RECHERCHES:
+        print("⚡ Résultat servi depuis le CACHE !")
+        return CACHE_RECHERCHES[lien.url]
+
     id_unique = str(uuid.uuid4())
     fichier_video = f"temp_{id_unique}.mp4"
-    
-    # Noms prévus pour nos 4 images
+    fichier_audio = f"audio_{id_unique}.mp3"
     fichiers_images = [f"capture_{id_unique}_{i}.jpg" for i in [2, 4, 6, 10]]
+    fichier_gemini_audio = None
     
     try:
-        # OPTIMISATION 1 : On télécharge la pire qualité ('worst') pour aller extrêmement vite
+        # Téléchargement ultra-rapide
         commande_yt = f"yt-dlp -o {fichier_video} -f worst --quiet {lien.url}"
         proc1 = await asyncio.create_subprocess_shell(commande_yt)
         await proc1.communicate()
 
-        # Sécurité : vérifier que le téléchargement a bien fonctionné
         if not os.path.exists(fichier_video):
-            return {"erreur": "Impossible de récupérer la vidéo (lien privé ou protégé)."}
+            return {"erreur": "Impossible de récupérer la vidéo."}
 
-        # OPTIMISATION 2 : Extraire les 4 images en UNE SEULE commande ffmpeg
+        # 🌟 2. EXTRACTION IMAGES + AUDIO SIMULTANÉE
+        # On extrait les 4 images ET les 15 premières secondes de la piste audio (-map a? évite le crash s'il n'y a pas de son)
         commande_ffmpeg = (
             f"ffmpeg -y -i {fichier_video} "
             f"-ss 00:00:02 -vframes 1 {fichiers_images[0]} "
             f"-ss 00:00:04 -vframes 1 {fichiers_images[1]} "
             f"-ss 00:00:06 -vframes 1 {fichiers_images[2]} "
-            f"-ss 00:00:10 -vframes 1 {fichiers_images[3]}"
+            f"-ss 00:00:10 -vframes 1 {fichiers_images[3]} "
+            f"-t 15 -q:a 9 -map a? {fichier_audio}"
         )
         proc2 = await asyncio.create_subprocess_shell(commande_ffmpeg, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
         await proc2.communicate()
 
-        # On supprime la vidéo immédiatement pour libérer de l'espace
-        os.remove(fichier_video)
+        os.remove(fichier_video) # Nettoyage vidéo
 
-        # OPTIMISATION 3 : Charger dynamiquement les images réussies 
-        # (Si la vidéo dure 5 secondes, on n'aura que les images de 2s et 4s, et ça marchera quand même)
-        images_a_envoyer = []
+        # Préparation des images
+        contenu_requete = []
         for img_path in fichiers_images:
             if os.path.exists(img_path):
-                images_a_envoyer.append(PIL.Image.open(img_path))
+                contenu_requete.append(PIL.Image.open(img_path))
 
-        if not images_a_envoyer:
+        if not contenu_requete:
             return {"erreur": "Impossible de capturer des images."}
 
-        # On prépare la requête IA avec le texte ET la liste des images
-        prompt = 'Analyse ces images extraites d\'une même vidéo. De quel film, série ou anime sont-elles tirées ? Évalue aussi ta certitude. Réponds UNIQUEMENT avec ce format JSON : {"titre": "Nom du film", "confiance": 95} (où confiance est un nombre entier entre 0 et 100).'
-        
-        # L'API Gemini accepte une liste combinant texte et multiples images
-        contenu_requete = [prompt] + images_a_envoyer
-        reponse_ia = client.models.generate_content(model='gemini-2.5-flash', contents=contenu_requete)
-        
-        # Nettoyage des images du serveur
-        for img_path in fichiers_images:
-            if os.path.exists(img_path):
-                os.remove(img_path)
+        # 🌟 3. AJOUT DE L'AUDIO POUR L'IA
+        if os.path.exists(fichier_audio):
+            # On upload temporairement l'audio sur les serveurs de Gemini pour qu'il l'écoute
+            fichier_gemini_audio = client.files.upload(file=fichier_audio)
+            contenu_requete.append(fichier_gemini_audio)
 
-        # Traitement du JSON (avec une sécurité try/except)
+        prompt = 'Analyse ces images et cet extrait audio (s\'il est présent). De quel film, série ou anime proviennent-ils ? Écoute attentivement les dialogues et les voix. Évalue aussi ta certitude. Réponds UNIQUEMENT avec ce format JSON : {"titre": "Nom du film", "confiance": 95}. Si tu ne sais pas, renvoie un taux de confiance bas.'
+        contenu_requete.insert(0, prompt)
+
+        # 🌟 4. TEMPÉRATURE = 0 (ZÉRO HALLUCINATION)
+        config = types.GenerateContentConfig(temperature=0.0)
+        reponse_ia = client.models.generate_content(
+            model='gemini-2.5-flash', 
+            contents=contenu_requete,
+            config=config
+        )
+        
+        # Nettoyage des fichiers locaux et distants
+        for img_path in fichiers_images:
+            if os.path.exists(img_path): os.remove(img_path)
+        if os.path.exists(fichier_audio): os.remove(fichier_audio)
+        if fichier_gemini_audio:
+            client.files.delete(name=fichier_gemini_audio.name)
+
+        # Traitement du JSON
         trois_accents = chr(96) * 3
         texte_ia = reponse_ia.text.strip().replace(f"{trois_accents}json", "").replace(trois_accents, "").strip()
         
         try:
             data_ia = json.loads(texte_ia)
             titre_trouve = data_ia.get("titre", "")
-            confiance_ia = data_ia.get("confiance", 0) # On récupère la confiance ici
+            confiance_ia = data_ia.get("confiance", 0)
         except json.JSONDecodeError:
             return {"erreur": "L'IA a mal formaté sa réponse."}
 
         if not titre_trouve:
             return {"erreur": "Film non reconnu."}
 
-        # On cherche sur TMDB
+        # Recherche TMDB et préparation du résultat final
         infos_film = await chercher_sur_tmdb(titre_trouve)
-        
-        # On injecte la confiance dans le résultat final pour que le site web l'affiche
         infos_film["confiance"] = confiance_ia
+        
+        # 🌟 5. ENREGISTREMENT DANS LE CACHE POUR LA PROCHAINE FOIS
+        CACHE_RECHERCHES[lien.url] = infos_film
         
         return infos_film
 
     except Exception as e:
-        # Nettoyage de secours en cas de crash
         if os.path.exists(fichier_video): os.remove(fichier_video)
+        if os.path.exists(fichier_audio): os.remove(fichier_audio)
         for img_path in fichiers_images:
             if os.path.exists(img_path): os.remove(img_path)
+        if fichier_gemini_audio:
+            try: client.files.delete(name=fichier_gemini_audio.name)
+            except: pass
         return {"erreur": str(e)}
 
 # ==========================================
