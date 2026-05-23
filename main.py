@@ -30,51 +30,37 @@ class LienVideo(BaseModel):
 CACHE_RECHERCHES = {}
 
 
-@app.get("/")
-async def afficher_site():
-    return FileResponse("index.html")
-
-
-async def chercher_sur_tmdb(titre):
-    url = f"https://api.themoviedb.org/3/search/multi?api_key={TMDB_API_KEY}&query={titre}&language=fr-FR"
-    async with httpx.AsyncClient() as client_http:
-        reponse = await client_http.get(url)
-        data = reponse.json()
-        if data.get("results") and len(data["results"]) > 0:
-            premier_resultat = data["results"][0]
-            chemin_affiche = premier_resultat.get("poster_path")
-            return {
-                "titre": premier_resultat.get("title", premier_resultat.get("name", titre)),
-                "affiche": f"https://image.tmdb.org/t/p/w500{chemin_affiche}" if chemin_affiche else "",
-                "lien_streaming": f"https://www.justwatch.com/fr/recherche?q={titre}"
-            }
-    return {"titre": titre, "affiche": "", "lien_streaming": "Non trouvé"}
-
-
 @app.post("/analyser")
 async def analyser_video(lien: LienVideo):
-    # 🌟 1. VÉRIFICATION DU CACHE : Si on connaît déjà la vidéo, on répond instantanément !
+    # 1. VÉRIFICATION DU CACHE
     if lien.url in CACHE_RECHERCHES:
-        print("⚡ Résultat servi depuis le CACHE !")
         return CACHE_RECHERCHES[lien.url]
 
     id_unique = str(uuid.uuid4())
     fichier_video = f"temp_{id_unique}.mp4"
     fichier_audio = f"audio_{id_unique}.mp3"
+    fichier_info_json = f"temp_{id_unique}.info.json" # NOUVEAU: Fichier pour les métadonnées
     fichiers_images = [f"capture_{id_unique}_{i}.jpg" for i in [2, 4, 6, 10]]
     fichier_gemini_audio = None
     
     try:
-        # Téléchargement ultra-rapide
-        commande_yt = f"yt-dlp -o {fichier_video} -f worst --quiet {lien.url}"
+        # 🌟 OPTIMISATION : On demande à yt-dlp de télécharger aussi la description (--write-info-json)
+        commande_yt = f"yt-dlp -o {fichier_video} -f worst --write-info-json --quiet {lien.url}"
         proc1 = await asyncio.create_subprocess_shell(commande_yt)
         await proc1.communicate()
 
         if not os.path.exists(fichier_video):
             return {"erreur": "Impossible de récupérer la vidéo."}
 
-        # 🌟 2. EXTRACTION IMAGES + AUDIO SIMULTANÉE
-        # On extrait les 4 images ET les 15 premières secondes de la piste audio (-map a? évite le crash s'il n'y a pas de son)
+        # NOUVEAU : Récupération du texte de la publication (titre, hashtags, description)
+        texte_publication = ""
+        if os.path.exists(fichier_info_json):
+            with open(fichier_info_json, "r", encoding="utf-8") as f:
+                info = json.load(f)
+                texte_publication = f"Titre du post : {info.get('title', '')} | Description : {info.get('description', '')}"
+            os.remove(fichier_info_json)
+
+        # Extraction des images et de l'audio
         commande_ffmpeg = (
             f"ffmpeg -y -i {fichier_video} "
             f"-ss 00:00:02 -vframes 1 {fichiers_images[0]} "
@@ -86,9 +72,8 @@ async def analyser_video(lien: LienVideo):
         proc2 = await asyncio.create_subprocess_shell(commande_ffmpeg, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
         await proc2.communicate()
 
-        os.remove(fichier_video) # Nettoyage vidéo
+        os.remove(fichier_video)
 
-        # Préparation des images
         contenu_requete = []
         for img_path in fichiers_images:
             if os.path.exists(img_path):
@@ -97,16 +82,22 @@ async def analyser_video(lien: LienVideo):
         if not contenu_requete:
             return {"erreur": "Impossible de capturer des images."}
 
-        # 🌟 3. AJOUT DE L'AUDIO POUR L'IA
         if os.path.exists(fichier_audio):
-            # On upload temporairement l'audio sur les serveurs de Gemini pour qu'il l'écoute
             fichier_gemini_audio = client.files.upload(file=fichier_audio)
             contenu_requete.append(fichier_gemini_audio)
 
-        prompt = 'Analyse ces images et cet extrait audio (s\'il est présent). De quel film, série ou anime proviennent-ils ? Écoute attentivement les dialogues et les voix. Évalue aussi ta certitude. Réponds UNIQUEMENT avec ce format JSON : {"titre": "Nom du film", "confiance": 95}. Si tu ne sais pas, renvoie un taux de confiance bas.'
+        # 🌟 NOUVEAU PROMPT : Le mode "Détective TikTok"
+        prompt = f"""Tu es un expert en cinéma. Identifie le film, la série ou l'anime présent dans ces images et cet audio.
+ATTENTION : Il s'agit d'une vidéo TikTok/Instagram.
+1. La musique est souvent modifiée (Lo-Fi) : ignore-la.
+2. S'il y a une voix robotique (IA), c'est un résumé de l'intrigue. ÉCOUTE ce qu'elle raconte pour déduire l'œuvre !
+3. LIS les sous-titres incrustés sur les images, ils contiennent les dialogues.
+4. Voici la description et les hashtags originaux du post (qui contiennent souvent le titre caché) : {texte_publication}
+
+Analyse tout cela. Réponds UNIQUEMENT avec ce format JSON : {{"titre": "Nom du film", "confiance": 95}}. Si tu es sûr grâce au résumé ou aux hashtags, mets une confiance de 90 ou plus."""
+        
         contenu_requete.insert(0, prompt)
 
-        # 🌟 4. TEMPÉRATURE = 0 (ZÉRO HALLUCINATION)
         config = types.GenerateContentConfig(temperature=0.0)
         reponse_ia = client.models.generate_content(
             model='gemini-2.5-flash', 
@@ -114,14 +105,13 @@ async def analyser_video(lien: LienVideo):
             config=config
         )
         
-        # Nettoyage des fichiers locaux et distants
+        # Nettoyage
         for img_path in fichiers_images:
             if os.path.exists(img_path): os.remove(img_path)
         if os.path.exists(fichier_audio): os.remove(fichier_audio)
         if fichier_gemini_audio:
             client.files.delete(name=fichier_gemini_audio.name)
 
-        # Traitement du JSON
         trois_accents = chr(96) * 3
         texte_ia = reponse_ia.text.strip().replace(f"{trois_accents}json", "").replace(trois_accents, "").strip()
         
@@ -132,14 +122,12 @@ async def analyser_video(lien: LienVideo):
         except json.JSONDecodeError:
             return {"erreur": "L'IA a mal formaté sa réponse."}
 
-        if not titre_trouve:
-            return {"erreur": "Film non reconnu."}
+        if not titre_trouve or titre_trouve.lower() in ["inconnu", "unknown"]:
+            return {"erreur": "Film non reconnu malgré l'analyse."}
 
-        # Recherche TMDB et préparation du résultat final
         infos_film = await chercher_sur_tmdb(titre_trouve)
         infos_film["confiance"] = confiance_ia
         
-        # 🌟 5. ENREGISTREMENT DANS LE CACHE POUR LA PROCHAINE FOIS
         CACHE_RECHERCHES[lien.url] = infos_film
         
         return infos_film
@@ -147,6 +135,7 @@ async def analyser_video(lien: LienVideo):
     except Exception as e:
         if os.path.exists(fichier_video): os.remove(fichier_video)
         if os.path.exists(fichier_audio): os.remove(fichier_audio)
+        if os.path.exists(fichier_info_json): os.remove(fichier_info_json)
         for img_path in fichiers_images:
             if os.path.exists(img_path): os.remove(img_path)
         if fichier_gemini_audio:
