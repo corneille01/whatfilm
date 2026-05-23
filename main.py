@@ -23,13 +23,41 @@ class LienVideo(BaseModel):
     url: str
 
 # ==========================================
-# 🌟 NOUVEAU : LE CACHE MÉMOIRE
+# 🌟 LE CACHE MÉMOIRE
 # ==========================================
-# Ce dictionnaire va stocker les résultats. 
-# Format : {"url_de_la_video": {infos_du_film}}
 CACHE_RECHERCHES = {}
 
 
+# ==========================================
+# 1. LA ROUTE D'ACCUEIL (Celle qui manquait !)
+# ==========================================
+@app.get("/")
+async def afficher_site():
+    return FileResponse("index.html")
+
+
+# ==========================================
+# 2. FONCTION TMDB (Celle qui manquait !)
+# ==========================================
+async def chercher_sur_tmdb(titre):
+    url = f"https://api.themoviedb.org/3/search/multi?api_key={TMDB_API_KEY}&query={titre}&language=fr-FR"
+    async with httpx.AsyncClient() as client_http:
+        reponse = await client_http.get(url)
+        data = reponse.json()
+        if data.get("results") and len(data["results"]) > 0:
+            premier_resultat = data["results"][0]
+            chemin_affiche = premier_resultat.get("poster_path")
+            return {
+                "titre": premier_resultat.get("title", premier_resultat.get("name", titre)),
+                "affiche": f"https://image.tmdb.org/t/p/w500{chemin_affiche}" if chemin_affiche else "",
+                "lien_streaming": f"https://www.justwatch.com/fr/recherche?q={titre}"
+            }
+    return {"titre": titre, "affiche": "", "lien_streaming": "Non trouvé"}
+
+
+# ==========================================
+# 3. LE CERVEAU IA : ANALYSE DE LA VIDÉO
+# ==========================================
 @app.post("/analyser")
 async def analyser_video(lien: LienVideo):
     # 1. VÉRIFICATION DU CACHE
@@ -39,12 +67,12 @@ async def analyser_video(lien: LienVideo):
     id_unique = str(uuid.uuid4())
     fichier_video = f"temp_{id_unique}.mp4"
     fichier_audio = f"audio_{id_unique}.mp3"
-    fichier_info_json = f"temp_{id_unique}.info.json" # NOUVEAU: Fichier pour les métadonnées
+    fichier_info_json = f"temp_{id_unique}.info.json"
     fichiers_images = [f"capture_{id_unique}_{i}.jpg" for i in [2, 4, 6, 10]]
     fichier_gemini_audio = None
     
     try:
-        # 🌟 OPTIMISATION : On demande à yt-dlp de télécharger aussi la description (--write-info-json)
+        # OPTIMISATION : yt-dlp télécharge aussi la description
         commande_yt = f"yt-dlp -o {fichier_video} -f worst --write-info-json --quiet {lien.url}"
         proc1 = await asyncio.create_subprocess_shell(commande_yt)
         await proc1.communicate()
@@ -52,7 +80,7 @@ async def analyser_video(lien: LienVideo):
         if not os.path.exists(fichier_video):
             return {"erreur": "Impossible de récupérer la vidéo."}
 
-        # NOUVEAU : Récupération du texte de la publication (titre, hashtags, description)
+        # Récupération du texte de la publication (titre, hashtags, description)
         texte_publication = ""
         if os.path.exists(fichier_info_json):
             with open(fichier_info_json, "r", encoding="utf-8") as f:
@@ -86,7 +114,7 @@ async def analyser_video(lien: LienVideo):
             fichier_gemini_audio = client.files.upload(file=fichier_audio)
             contenu_requete.append(fichier_gemini_audio)
 
-        # 🌟 NOUVEAU PROMPT : Le mode "Détective TikTok"
+        # PROMPT : Le mode "Détective TikTok"
         prompt = f"""Tu es un expert en cinéma. Identifie le film, la série ou l'anime présent dans ces images et cet audio.
 ATTENTION : Il s'agit d'une vidéo TikTok/Instagram.
 1. La musique est souvent modifiée (Lo-Fi) : ignore-la.
@@ -145,7 +173,6 @@ Analyse tout cela. Réponds UNIQUEMENT avec ce format JSON : {{"titre": "Nom du 
 
 # ==========================================
 # 4. LA SONNETTE : LE WEBHOOK INSTAGRAM
-# (En pause le temps d'avoir les clés)
 # ==========================================
 # @app.get("/webhook")
 # async def verifier_webhook(request: Request):
