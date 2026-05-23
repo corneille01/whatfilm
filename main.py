@@ -70,7 +70,7 @@ async def analyser_video(lien: LienVideo):
             img = PIL.Image.open(fichier_image)
             prompt = 'Analyse cette image. De quel film, série ou anime est-elle tirée ? Réponds UNIQUEMENT avec ce format JSON : {"titre": "Nom du film"}'
             
-            reponse_ia = client.models.generate_content(model='gemini-2.0-flash', contents=[prompt, img])
+            reponse_ia = client.models.generate_content(model='gemini-1.5-flash', contents=[prompt, img])
             
             # ---> LA CORRECTION EST ICI <---
             trois_accents = chr(96) * 3
