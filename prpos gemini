@@ -44,6 +44,6 @@ Laquelle de ces clés veux-tu qu'on aille chercher ensemble en premier ?
 
 
 GEMINI_API_KEY = "AIzaSyCqA4MZT13G4XPdFT7pk1LopM7gqxOMdYo"
-TMDB_API_KEY = ""
+TMDB_API_KEY = "f97fba4e5fe525209b66fc86ee0ed227"
 META_VERIFY_TOKEN = "MON_MOT_DE_PASSE_SECRET_META"
 META_ACCESS_TOKEN = "TON_TOKEN_INSTAGRAM"

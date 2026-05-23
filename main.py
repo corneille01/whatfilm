@@ -130,10 +130,10 @@ async def extraire_contexte_complet(url: str, id_unique: str) -> dict:
     cmd_dl = (
         f"yt-dlp -o {fichier_video} "
         f"-f 'worstvideo[ext=mp4]+worstaudio[ext=m4a]/worst[ext=mp4]/worst' "
-        f"--write-info-json --no-playlist --user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' --quiet {url}"
+        f"--download-sections \"*0-30\" --force-keyframes-at-cuts --write-info-json --no-playlist --user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' --quiet {url}"
     )
     proc = await asyncio.create_subprocess_shell(cmd_dl)
-    await asyncio.wait_for(proc.communicate(), timeout=60)
+    await asyncio.wait_for(proc.communicate(), timeout=90)
 
     if not os.path.exists(fichier_video):
         return contexte  # Téléchargement échoué
@@ -170,7 +170,7 @@ async def extraire_contexte_complet(url: str, id_unique: str) -> dict:
     cmd_ffmpeg = (
         f"ffmpeg -y -i {fichier_video} "
         f"{args_ffmpeg_img} "
-        f"-t 60 -q:a 5 -map a? {fichier_audio} "
+        f"-t 30 -q:a 5 -map a? {fichier_audio} "
         f"-loglevel error"
     )
     proc2 = await asyncio.create_subprocess_shell(cmd_ffmpeg)
@@ -248,7 +248,7 @@ async def analyser_video(lien: LienVideo):
         # --- Extraction maximale du contexte ---
         contexte = await asyncio.wait_for(
             extraire_contexte_complet(url, id_unique),
-            timeout=90,  # max 90s pour le téléchargement + extraction
+            timeout=180,  # 3 min max sur Render gratuit (CPU lent)
         )
 
         if not contexte["images"]:
