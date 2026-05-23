@@ -12,8 +12,8 @@ from google import genai
 from google.genai import types
 
 # --- CONFIGURATION ---
-GEMINI_API_KEY = "TON_API_KEY"
-TMDB_API_KEY = "TON_TMDB_KEY"
+GEMINI_API_KEY = "AIzaSyCqA4MZT13G4XPdFT7pk1LopM7gqxOMdYo"
+TMDB_API_KEY = "f97fba4e5fe525209b66fc86ee0ed227"
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 app = FastAPI()
@@ -66,6 +66,77 @@ async def chercher_sur_tmdb(titre: str) -> dict:
             "lien_streaming": f"https://www.justwatch.com/fr/recherche?q={titre}",
         }
     return {"titre": titre, "affiche": "", "lien_streaming": "Non trouvé"}
+
+
+# ==========================================
+# 2b. API TIKTOK NON-OFFICIELLE
+#     Contourne le blocage IP des serveurs cloud
+#     en passant par l'endpoint mobile TikTok
+# ==========================================
+async def recuperer_url_tiktok(url_tiktok: str) -> str:
+    """
+    Utilise l'API Tikhub/SnapTik non-officielle pour récupérer
+    l'URL directe de la vidéo TikTok sans watermark.
+    Retourne l'URL ou une chaîne vide en cas d'échec.
+    """
+    # Service gratuit sans clé API
+    services = [
+        f"https://api.tikmate.app/api/lookup?url={url_tiktok}",
+        f"https://snaptik.app/abc2.php?url={url_tiktok}",
+    ]
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+                      "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        "Referer": "https://www.tiktok.com/",
+        "Accept": "application/json",
+    }
+
+    # Méthode 1 : tikmate API
+    try:
+        async with httpx.AsyncClient(headers=headers, timeout=15, follow_redirects=True) as c:
+            r = await c.get(f"https://api.tikmate.app/api/lookup?url={url_tiktok}")
+            if r.status_code == 200:
+                data = r.json()
+                token = data.get("token")
+                vid_id = data.get("id")
+                if token and vid_id:
+                    return f"https://tikmate.app/download/{token}/{vid_id}.mp4"
+    except Exception as e:
+        print(f"tikmate échoué : {e}")
+
+    # Méthode 2 : endpoint mobile TikTok direct
+    try:
+        # Résolution de l'URL courte si nécessaire
+        async with httpx.AsyncClient(headers=headers, timeout=10, follow_redirects=True) as c:
+            r = await c.get(url_tiktok)
+            url_finale = str(r.url)
+
+        # Extraction de l'ID de la vidéo
+        import re
+        match = re.search(r"/video/(\d+)", url_finale)
+        if match:
+            video_id = match.group(1)
+            api_url = (
+                f"https://api22-normal-c-alisg.tiktokv.com/aweme/v1/feed/"
+                f"?aweme_id={video_id}&version_code=262&app_name=musical_ly"
+            )
+            async with httpx.AsyncClient(timeout=15) as c:
+                r = await c.get(api_url, headers={
+                    "User-Agent": "TikTok 26.2.0 rv:262018 (iPhone; iOS 14.4.2; en_US) Cronet"
+                })
+                if r.status_code == 200:
+                    data = r.json()
+                    awemes = data.get("aweme_list", [])
+                    if awemes:
+                        play_url = awemes[0].get("video", {}).get("play_addr", {}).get("url_list", [])
+                        if play_url:
+                            return play_url[0]
+    except Exception as e:
+        print(f"API mobile TikTok échouée : {e}")
+
+    return ""
+
 
 
 # ==========================================
@@ -126,28 +197,43 @@ async def extraire_contexte_complet(url: str, id_unique: str) -> dict:
     }
 
     # --- Téléchargement vidéo + métadonnées ---
-    # On prend la qualité la plus basse pour la vitesse
-    cmd_dl = (
-        f"yt-dlp -o {fichier_video} "
-        f"-f 'worstvideo[ext=mp4]+worstaudio[ext=m4a]/worst[ext=mp4]/worst' "
-        f"--download-sections '*0-30' --force-keyframes-at-cuts "
-        f"--write-info-json --no-playlist "
-        f"--user-agent 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
-        f"AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' "
-        f"--add-header 'Accept-Language:fr-FR,fr;q=0.9' "
-        f"--add-header 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' "
-        f"--ignore-errors --no-warnings {url}"
-    )
-    proc = await asyncio.create_subprocess_shell(cmd_dl)
-    await asyncio.wait_for(proc.communicate(), timeout=90)
+    # STRATÉGIE : TikTok bloque les IPs cloud → on utilise l'API non-officielle
+    # pour récupérer l'URL directe de la vidéo, puis on la télécharge avec httpx
+    est_tiktok = "tiktok.com" in url or "vm.tiktok" in url
 
+    if est_tiktok:
+        # API non-officielle TikTok (pas de blocage IP car on ne passe pas par
+        # le site web, mais par l'endpoint mobile)
+        video_url_directe = await recuperer_url_tiktok(url)
+        if video_url_directe:
+            async with httpx.AsyncClient(
+                headers={
+                    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+                    "Referer": "https://www.tiktok.com/",
+                },
+                follow_redirects=True,
+                timeout=60,
+            ) as client_dl:
+                async with client_dl.stream("GET", video_url_directe) as r:
+                    with open(fichier_video, "wb") as fv:
+                        async for chunk in r.aiter_bytes(chunk_size=1024 * 64):
+                            fv.write(chunk)
+
+    # Pour Instagram / YouTube ou si l'API TikTok a échoué → yt-dlp classique
     if not os.path.exists(fichier_video):
-        # Plan B : récupère au moins les métadonnées sans télécharger la vidéo
-        # Utile quand TikTok bloque le téléchargement depuis un serveur cloud
+        cmd_dl = (
+            f"yt-dlp -o {fichier_video} "
+            f"-f 'worstvideo[ext=mp4]+worstaudio[ext=m4a]/worst[ext=mp4]/worst' "
+            f"--download-sections '*0-30' --force-keyframes-at-cuts "
+            f"--write-info-json --no-playlist --no-warnings {url}"
+        )
+        proc = await asyncio.create_subprocess_shell(cmd_dl)
+        await asyncio.wait_for(proc.communicate(), timeout=90)
+
+    # Métadonnées seules si la vidéo n'a pas pu être téléchargée
+    if not os.path.exists(fichier_video):
         cmd_meta = (
             f"yt-dlp --skip-download --write-info-json --no-playlist "
-            f"--user-agent 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
-            f"AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' "
             f"-o {fichier_video} --no-warnings {url}"
         )
         proc_meta = await asyncio.create_subprocess_shell(cmd_meta)
@@ -155,9 +241,8 @@ async def extraire_contexte_complet(url: str, id_unique: str) -> dict:
             await asyncio.wait_for(proc_meta.communicate(), timeout=30)
         except Exception:
             pass
-        # Même sans vidéo, on continue avec les métadonnées si elles existent
         if not os.path.exists(fichier_info):
-            return contexte  # Vraiment rien récupéré
+            return contexte
 
     # --- Métadonnées du post ---
     if os.path.exists(fichier_info):
