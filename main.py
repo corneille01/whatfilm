@@ -15,6 +15,8 @@ from google.genai import types
 GEMINI_API_KEY = "AIzaSyCqA4MZT13G4XPdFT7pk1LopM7gqxOMdYo"
 TMDB_API_KEY = "f97fba4e5fe525209b66fc86ee0ed227"
 
+
+
 client = genai.Client(api_key=GEMINI_API_KEY)
 app = FastAPI()
 app.add_middleware(
@@ -69,74 +71,49 @@ async def chercher_sur_tmdb(titre: str) -> dict:
 
 
 # ==========================================
-# 2b. API TIKTOK NON-OFFICIELLE
-#     Contourne le blocage IP des serveurs cloud
-#     en passant par l'endpoint mobile TikTok
+# 2b. TÉLÉCHARGEMENT TIKTOK VIA COBALT.TOOLS
+#     Service gratuit, open source, pas de clé API
+#     https://cobalt.tools — supporte TikTok, Instagram, YouTube
 # ==========================================
 async def recuperer_url_tiktok(url_tiktok: str) -> str:
     """
-    Utilise l'API Tikhub/SnapTik non-officielle pour récupérer
-    l'URL directe de la vidéo TikTok sans watermark.
-    Retourne l'URL ou une chaîne vide en cas d'échec.
+    Cobalt.tools est une API publique gratuite qui télécharge
+    les vidéos TikTok/Instagram depuis ses propres serveurs
+    (IPs non bloquées par TikTok).
     """
-    # Service gratuit sans clé API
-    services = [
-        f"https://api.tikmate.app/api/lookup?url={url_tiktok}",
-        f"https://snaptik.app/abc2.php?url={url_tiktok}",
-    ]
-
     headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
-                      "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-        "Referer": "https://www.tiktok.com/",
         "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    body = {
+        "url": url_tiktok,
+        "vQuality": "360",   # qualité basse = téléchargement rapide
+        "filenameStyle": "basic",
     }
 
-    # Méthode 1 : tikmate API
-    try:
-        async with httpx.AsyncClient(headers=headers, timeout=15, follow_redirects=True) as c:
-            r = await c.get(f"https://api.tikmate.app/api/lookup?url={url_tiktok}")
-            if r.status_code == 200:
-                data = r.json()
-                token = data.get("token")
-                vid_id = data.get("id")
-                if token and vid_id:
-                    return f"https://tikmate.app/download/{token}/{vid_id}.mp4"
-    except Exception as e:
-        print(f"tikmate échoué : {e}")
+    # Cobalt API v7 (publique, gratuite, sans clé)
+    endpoints = [
+        "https://cobalt.tools/api/json",
+        "https://api.cobalt.tools/",
+    ]
 
-    # Méthode 2 : endpoint mobile TikTok direct
-    try:
-        # Résolution de l'URL courte si nécessaire
-        async with httpx.AsyncClient(headers=headers, timeout=10, follow_redirects=True) as c:
-            r = await c.get(url_tiktok)
-            url_finale = str(r.url)
-
-        # Extraction de l'ID de la vidéo
-        import re
-        match = re.search(r"/video/(\d+)", url_finale)
-        if match:
-            video_id = match.group(1)
-            api_url = (
-                f"https://api22-normal-c-alisg.tiktokv.com/aweme/v1/feed/"
-                f"?aweme_id={video_id}&version_code=262&app_name=musical_ly"
-            )
-            async with httpx.AsyncClient(timeout=15) as c:
-                r = await c.get(api_url, headers={
-                    "User-Agent": "TikTok 26.2.0 rv:262018 (iPhone; iOS 14.4.2; en_US) Cronet"
-                })
+    for endpoint in endpoints:
+        try:
+            async with httpx.AsyncClient(timeout=20) as c:
+                r = await c.post(endpoint, json=body, headers=headers)
+                print(f"[DEBUG] Cobalt {endpoint} status: {r.status_code}")
                 if r.status_code == 200:
                     data = r.json()
-                    awemes = data.get("aweme_list", [])
-                    if awemes:
-                        play_url = awemes[0].get("video", {}).get("play_addr", {}).get("url_list", [])
-                        if play_url:
-                            return play_url[0]
-    except Exception as e:
-        print(f"API mobile TikTok échouée : {e}")
+                    print(f"[DEBUG] Cobalt réponse: {str(data)[:200]}")
+                    # Cobalt retourne soit une URL directe soit un tunnel
+                    if data.get("status") in ("tunnel", "redirect", "stream"):
+                        return data.get("url", "")
+                    elif data.get("url"):
+                        return data["url"]
+        except Exception as e:
+            print(f"[DEBUG] Cobalt {endpoint} erreur: {e}")
 
     return ""
-
 
 
 # ==========================================
@@ -481,77 +458,77 @@ async def analyser_video(lien: LienVideo):
 # ==========================================
 # 7. WEBHOOK META (prêt pour le bot)
 # ==========================================
-# META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "mon_token_secret")
+META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "mon_token_secret")
 
 
-# @app.get("/webhook")
-# async def verifier_webhook(request: Request):
-#     mode = request.query_params.get("hub.mode")
-#     token = request.query_params.get("hub.verify_token")
-#     challenge = request.query_params.get("hub.challenge")
-#     if mode == "subscribe" and token == META_VERIFY_TOKEN:
-#         return int(challenge)
-#     raise HTTPException(status_code=403, detail="Token invalide")
+@app.get("/webhook")
+async def verifier_webhook(request: Request):
+    mode = request.query_params.get("hub.mode")
+    token = request.query_params.get("hub.verify_token")
+    challenge = request.query_params.get("hub.challenge")
+    if mode == "subscribe" and token == META_VERIFY_TOKEN:
+        return int(challenge)
+    raise HTTPException(status_code=403, detail="Token invalide")
 
 
-# @app.post("/webhook")
-# async def recevoir_message(request: Request):
-#     """
-#     Reçoit les messages Instagram/Facebook et déclenche l'analyse.
-#     Format attendu : l'utilisateur mentionne @BotName + colle un lien vidéo.
-#     """
-#     data = await request.json()
+@app.post("/webhook")
+async def recevoir_message(request: Request):
+    """
+    Reçoit les messages Instagram/Facebook et déclenche l'analyse.
+    Format attendu : l'utilisateur mentionne @BotName + colle un lien vidéo.
+    """
+    data = await request.json()
 
-#     try:
-#         # Extraction du message entrant (format Meta Messenger)
-#         entries = data.get("entry", [])
-#         for entry in entries:
-#             for event in entry.get("messaging", []):
-#                 message = event.get("message", {})
-#                 texte = message.get("text", "")
-#                 sender_id = event.get("sender", {}).get("id")
+    try:
+        # Extraction du message entrant (format Meta Messenger)
+        entries = data.get("entry", [])
+        for entry in entries:
+            for event in entry.get("messaging", []):
+                message = event.get("message", {})
+                texte = message.get("text", "")
+                sender_id = event.get("sender", {}).get("id")
 
-#                 # Cherche un lien vidéo dans le message
-#                 import re
-#                 liens = re.findall(
-#                     r"https?://(?:www\.)?(?:tiktok\.com|instagram\.com|youtube\.com|youtu\.be)\S+",
-#                     texte,
-#                 )
-#                 if liens and sender_id:
-#                     # Lance l'analyse en arrière-plan (ne bloque pas la réponse webhook)
-#                     asyncio.create_task(
-#                         analyser_et_repondre_messenger(liens[0], sender_id)
-#                     )
-#     except Exception as e:
-#         print(f"Erreur webhook : {e}")
+                # Cherche un lien vidéo dans le message
+                import re
+                liens = re.findall(
+                    r"https?://(?:www\.)?(?:tiktok\.com|instagram\.com|youtube\.com|youtu\.be)\S+",
+                    texte,
+                )
+                if liens and sender_id:
+                    # Lance l'analyse en arrière-plan (ne bloque pas la réponse webhook)
+                    asyncio.create_task(
+                        analyser_et_repondre_messenger(liens[0], sender_id)
+                    )
+    except Exception as e:
+        print(f"Erreur webhook : {e}")
 
-#     return {"status": "ok"}
+    return {"status": "ok"}
 
 
-# async def analyser_et_repondre_messenger(url: str, sender_id: str):
-#     """Analyse la vidéo et envoie le résultat via l'API Messenger."""
-#     resultat = await analyser_video(LienVideo(url=url))
-#     PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN", "")
-#     if not PAGE_ACCESS_TOKEN:
-#         return
+async def analyser_et_repondre_messenger(url: str, sender_id: str):
+    """Analyse la vidéo et envoie le résultat via l'API Messenger."""
+    resultat = await analyser_video(LienVideo(url=url))
+    PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN", "")
+    if not PAGE_ACCESS_TOKEN:
+        return
 
-#     if "erreur" in resultat:
-#         texte_reponse = f"❌ {resultat['erreur']}"
-#     else:
-#         conf = resultat.get("confiance", "?")
-#         titre = resultat.get("titre", "?")
-#         lien = resultat.get("lien_streaming", "")
-#         texte_reponse = (
-#             f"🎬 *{titre}*\n"
-#             f"Confiance IA : {conf}%\n"
-#             f"Où regarder : {lien}"
-#         )
+    if "erreur" in resultat:
+        texte_reponse = f"❌ {resultat['erreur']}"
+    else:
+        conf = resultat.get("confiance", "?")
+        titre = resultat.get("titre", "?")
+        lien = resultat.get("lien_streaming", "")
+        texte_reponse = (
+            f"🎬 *{titre}*\n"
+            f"Confiance IA : {conf}%\n"
+            f"Où regarder : {lien}"
+        )
 
-#     async with httpx.AsyncClient() as c:
-#         await c.post(
-#             f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}",
-#             json={
-#                 "recipient": {"id": sender_id},
-#                 "message": {"text": texte_reponse},
-#             },
-#         )
+    async with httpx.AsyncClient() as c:
+        await c.post(
+            f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}",
+            json={
+                "recipient": {"id": sender_id},
+                "message": {"text": texte_reponse},
+            },
+        )
