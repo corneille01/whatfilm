@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-yt-dlp
-pillow
-google-genai
-httpx
-openai-whisper
