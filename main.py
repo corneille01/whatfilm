@@ -15,8 +15,6 @@ from google.genai import types
 GEMINI_API_KEY = "AIzaSyCqA4MZT13G4XPdFT7pk1LopM7gqxOMdYo"
 TMDB_API_KEY = "f97fba4e5fe525209b66fc86ee0ed227"
 
-
-
 client = genai.Client(api_key=GEMINI_API_KEY)
 app = FastAPI()
 app.add_middleware(
@@ -27,17 +25,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 class LienVideo(BaseModel):
     url: str
 
-
 # ==========================================
-# 🌟 CACHE MÉMOIRE (résultats + échecs)
+# 🌟 CACHE MÉMOIRE
 # ==========================================
-CACHE_RECHERCHES: dict = {}
-CACHE_ECHECS: dict = {}  # Pour ne pas re-analyser les vidéos inconnues
-
+CACHE_RECHERCHES = {}
+CACHE_ECHECS = {}
 
 # ==========================================
 # 1. ROUTE D'ACCUEIL
@@ -46,20 +41,16 @@ CACHE_ECHECS: dict = {}  # Pour ne pas re-analyser les vidéos inconnues
 async def afficher_site():
     return FileResponse("index.html")
 
-
 # ==========================================
 # 2. TMDB : RECHERCHE DU FILM
 # ==========================================
 async def chercher_sur_tmdb(titre: str) -> dict:
-    url = (
-        f"https://api.themoviedb.org/3/search/multi"
-        f"?api_key={TMDB_API_KEY}&query={titre}&language=fr-FR"
-    )
+    url = f"https://api.themoviedb.org/3/search/multi?api_key={TMDB_API_KEY}&query={titre}&language=fr-FR"
     async with httpx.AsyncClient() as c:
         r = await c.get(url)
         data = r.json()
 
-    if data.get("results"):
+    if data.get("results") and len(data["results"]) > 0:
         res = data["results"][0]
         chemin = res.get("poster_path")
         return {
@@ -69,72 +60,17 @@ async def chercher_sur_tmdb(titre: str) -> dict:
         }
     return {"titre": titre, "affiche": "", "lien_streaming": "Non trouvé"}
 
-
 # ==========================================
-# 2b. TÉLÉCHARGEMENT TIKTOK VIA COBALT.TOOLS
-#     Service gratuit, open source, pas de clé API
-#     https://cobalt.tools — supporte TikTok, Instagram, YouTube
-# ==========================================
-async def recuperer_url_tiktok(url_tiktok: str) -> str:
-    """
-    Cobalt.tools est une API publique gratuite qui télécharge
-    les vidéos TikTok/Instagram depuis ses propres serveurs
-    (IPs non bloquées par TikTok).
-    """
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    body = {
-        "url": url_tiktok,
-        "vQuality": "360",   # qualité basse = téléchargement rapide
-        "filenameStyle": "basic",
-    }
-
-    # Cobalt API v7 (publique, gratuite, sans clé)
-    endpoints = [
-        "https://cobalt.tools/api/json",
-        "https://api.cobalt.tools/",
-    ]
-
-    for endpoint in endpoints:
-        try:
-            async with httpx.AsyncClient(timeout=20) as c:
-                r = await c.post(endpoint, json=body, headers=headers)
-                print(f"[DEBUG] Cobalt {endpoint} status: {r.status_code}")
-                if r.status_code == 200:
-                    data = r.json()
-                    print(f"[DEBUG] Cobalt réponse: {str(data)[:200]}")
-                    # Cobalt retourne soit une URL directe soit un tunnel
-                    if data.get("status") in ("tunnel", "redirect", "stream"):
-                        return data.get("url", "")
-                    elif data.get("url"):
-                        return data["url"]
-        except Exception as e:
-            print(f"[DEBUG] Cobalt {endpoint} erreur: {e}")
-
-    return ""
-
-
-# ==========================================
-# 3. EXTRACTION DES SOUS-TITRES INCRUSTÉS
-#    via Whisper (speech-to-text local)
+# 3. EXTRACTION DES SOUS-TITRES VIA WHISPER
 # ==========================================
 async def extraire_sous_titres_whisper(fichier_audio: str) -> str:
-    """
-    Transcrit l'audio avec whisper-cli si disponible.
-    Retourne le texte ou une chaîne vide en cas d'échec.
-    On utilise le modèle 'base' pour la rapidité (< 3s sur un audio de 30s).
-    """
     try:
         proc = await asyncio.create_subprocess_shell(
-            # Modèle "tiny" = gratuit, léger (~400MB RAM), parfait pour Render plan gratuit
-            # Si tu passes au plan 7$/mois → remplace "tiny" par "base" pour plus de précision
             f"whisper {fichier_audio} --model tiny --language fr --output_format txt --output_dir /tmp --quiet",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )
-        await asyncio.wait_for(proc.communicate(), timeout=30)
+        await asyncio.wait_for(proc.communicate(), timeout=45)
         base = os.path.splitext(os.path.basename(fichier_audio))[0]
         txt_path = f"/tmp/{base}.txt"
         if os.path.exists(txt_path):
@@ -142,393 +78,263 @@ async def extraire_sous_titres_whisper(fichier_audio: str) -> str:
                 contenu = f.read().strip()
             os.remove(txt_path)
             return contenu
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[DEBUG] Erreur Whisper: {e}")
     return ""
 
-
 # ==========================================
-# 4. STRATÉGIE ANTI-HALLUCINATION
-#    → Extraction MAXIMALE avant d'envoyer à Gemini
-# ==========================================
-async def extraire_contexte_complet(url: str, id_unique: str) -> dict:
-    """
-    Télécharge la vidéo, extrait :
-    - title + description + hashtags du post (yt-dlp)
-    - transcription audio complète (whisper)
-    - 8 captures d'écran réparties sur toute la durée
-    - durée totale de la vidéo
-    Retourne un dictionnaire de contexte.
-    """
-    fichier_video = f"temp_{id_unique}.mp4"
-    fichier_audio = f"audio_{id_unique}.mp3"
-    fichier_info = f"temp_{id_unique}.info.json"
-    contexte = {
-        "texte_publication": "",
-        "transcription": "",
-        "duree": 30,
-        "images": [],
-        "fichier_audio": None,
-        "fichier_video": fichier_video,
-        "fichier_audio_path": fichier_audio,
-    }
-
-    # --- Téléchargement vidéo + métadonnées ---
-    # STRATÉGIE : TikTok bloque les IPs cloud → on utilise l'API non-officielle
-    # pour récupérer l'URL directe de la vidéo, puis on la télécharge avec httpx
-    est_tiktok = "tiktok.com" in url or "vm.tiktok" in url
-    print(f"[DEBUG] URL reçue : {url}")
-    print(f"[DEBUG] Est TikTok : {est_tiktok}")
-
-    if est_tiktok:
-        print("[DEBUG] Tentative API TikTok non-officielle...")
-        video_url_directe = await recuperer_url_tiktok(url)
-        print(f"[DEBUG] URL directe obtenue : {video_url_directe[:80] if video_url_directe else 'AUCUNE'}")
-        if video_url_directe:
-            try:
-                async with httpx.AsyncClient(
-                    headers={
-                        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
-                        "Referer": "https://www.tiktok.com/",
-                    },
-                    follow_redirects=True,
-                    timeout=40,
-                ) as client_dl:
-                    async with client_dl.stream("GET", video_url_directe) as r:
-                        print(f"[DEBUG] Statut téléchargement direct : {r.status_code}")
-                        with open(fichier_video, "wb") as fv:
-                            async for chunk in r.aiter_bytes(chunk_size=1024 * 64):
-                                fv.write(chunk)
-                print(f"[DEBUG] Vidéo téléchargée : {os.path.exists(fichier_video)}")
-            except Exception as e:
-                print(f"[DEBUG] Erreur téléchargement direct : {e}")
-
-    # Pour Instagram / YouTube ou si l'API TikTok a échoué → yt-dlp classique
-    if not os.path.exists(fichier_video):
-        print("[DEBUG] Tentative yt-dlp classique...")
-        cmd_dl = (
-            f"yt-dlp -o {fichier_video} "
-            f"-f 'worstvideo[ext=mp4]+worstaudio[ext=m4a]/worst[ext=mp4]/worst' "
-            f"--download-sections '*0-30' --force-keyframes-at-cuts "
-            f"--write-info-json --no-playlist {url}"
-        )
-        proc = await asyncio.create_subprocess_shell(
-            cmd_dl,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=90)
-        print(f"[DEBUG] yt-dlp stdout: {stdout.decode()[-300:]}")
-        print(f"[DEBUG] yt-dlp stderr: {stderr.decode()[-300:]}")
-        print(f"[DEBUG] Vidéo après yt-dlp : {os.path.exists(fichier_video)}")
-
-    # Métadonnées seules si la vidéo n'a pas pu être téléchargée
-    if not os.path.exists(fichier_video):
-        print("[DEBUG] Tentative métadonnées seules...")
-        cmd_meta = (
-            f"yt-dlp --skip-download --write-info-json --no-playlist "
-            f"-o {fichier_video} {url}"
-        )
-        proc_meta = await asyncio.create_subprocess_shell(
-            cmd_meta,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(proc_meta.communicate(), timeout=30)
-            print(f"[DEBUG] meta stderr: {stderr.decode()[-200:]}")
-        except Exception as e:
-            print(f"[DEBUG] meta timeout : {e}")
-        if not os.path.exists(fichier_info):
-            print("[DEBUG] Aucun fichier info JSON récupéré — abandon")
-            return contexte
-
-    # --- Métadonnées du post ---
-    if os.path.exists(fichier_info):
-        with open(fichier_info, "r", encoding="utf-8") as f:
-            info = json.load(f)
-        os.remove(fichier_info)
-
-        titre_post = info.get("title", "")
-        desc = info.get("description", "")
-        tags = " ".join(info.get("tags", []))
-        duree = int(info.get("duration", 30))
-        contexte["duree"] = duree
-        contexte["texte_publication"] = (
-            f"TITRE DU POST: {titre_post}\n"
-            f"DESCRIPTION: {desc}\n"
-            f"HASHTAGS: {tags}"
-        ).strip()
-
-    # --- Captures d'écran réparties sur toute la durée ---
-    duree = contexte["duree"]
-    # On prend 8 captures réparties uniformément
-    timestamps = [max(1, int(duree * i / 9)) for i in range(1, 9)]
-    fichiers_images = [f"cap_{id_unique}_{i}.jpg" for i in range(len(timestamps))]
-
-    args_ffmpeg_img = " ".join(
-        f"-ss {t} -vframes 1 {p}"
-        for t, p in zip(timestamps, fichiers_images)
-    )
-
-    # Audio complet (max 60s pour ne pas exploser la mémoire Gemini)
-    cmd_ffmpeg = (
-        f"ffmpeg -y -i {fichier_video} "
-        f"{args_ffmpeg_img} "
-        f"-t 30 -q:a 5 -map a? {fichier_audio} "
-        f"-loglevel error"
-    )
-    proc2 = await asyncio.create_subprocess_shell(cmd_ffmpeg)
-    await proc2.communicate()
-
-    os.remove(fichier_video)
-
-    contexte["images"] = [p for p in fichiers_images if os.path.exists(p)]
-
-    # --- Transcription Whisper (local, rapide) ---
-    if os.path.exists(fichier_audio):
-        contexte["transcription"] = await extraire_sous_titres_whisper(fichier_audio)
-        contexte["fichier_audio_path"] = fichier_audio
-    
-    return contexte
-
-
-# ==========================================
-# 5. PROMPT ANTI-HALLUCINATION (le cœur)
+# 4. LE PROMPT MAÎTRE ANTI-HALLUCINATION
 # ==========================================
 PROMPT_TEMPLATE = """Tu es un détective spécialisé dans l'identification de films, séries et animes.
 
 ━━━ INDICES DISPONIBLES ━━━
-
 {texte_publication}
 
 TRANSCRIPTION AUDIO (voix IA ou dialogues) :
 {transcription}
 
-Les images et l'audio ci-dessous complètent ces indices.
+Les images et l'audio joints complètent ces indices.
 
 ━━━ RÈGLES STRICTES ━━━
-
 RÈGLE 1 — PRIORITÉ DES INDICES (dans cet ordre) :
   1. Les HASHTAGS et la DESCRIPTION du post contiennent souvent le titre exact → cherche "#NomDuFilm"
   2. La TRANSCRIPTION contient le résumé de l'intrigue → déduis le film à partir de l'histoire racontée
   3. Les DIALOGUES visibles sur les images (sous-titres incrustés)
-  4. Les visages d'acteurs et les décors visibles sur les images
+  4. Les acteurs/décors sur les images
 
 RÈGLE 2 — ZÉRO HALLUCINATION :
   - Si tu n'es pas sûr, DIS-LE avec une confiance basse (< 50)
   - Mieux vaut confiance = 20 que d'inventer un titre
-  - Ne confonds PAS un remix musical Lo-Fi avec la BO officielle du film
   - Ne te base PAS sur la musique de fond (souvent modifiée/Lo-Fi)
 
-RÈGLE 3 — FORMAT DE RÉPONSE :
-  Réponds UNIQUEMENT avec ce JSON, sans aucun texte avant ou après :
-  {{"titre": "Titre exact du film/série/anime", "confiance": 85, "raison": "hashtag #TitreFilm trouvé dans la description"}}
+RÈGLE 3 — FORMAT DE RÉPONSE STRICT :
+  Réponds UNIQUEMENT avec ce JSON :
+  {{"titre": "Titre exact du film", "confiance": 85, "raison": "explication brève"}}
   
-  Si aucun indice ne permet d'identifier l'œuvre :
-  {{"titre": "inconnu", "confiance": 0, "raison": "Aucun indice suffisant"}}
+  Si introuvable : 
+  {{"titre": "inconnu", "confiance": 0, "raison": "Aucun indice"}}
 """
 
-
 # ==========================================
-# 6. ANALYSE PRINCIPALE
+# 5. ANALYSE PRINCIPALE
 # ==========================================
 @app.post("/analyser")
 async def analyser_video(lien: LienVideo):
     url = lien.url.strip()
 
-    # Cache des succès
+    # VÉRIFICATION DU CACHE
     if url in CACHE_RECHERCHES:
         return CACHE_RECHERCHES[url]
-
-    # Cache des échecs (évite de re-traiter une vidéo inconnue)
     if url in CACHE_ECHECS:
         return {"erreur": "Film non reconnu (résultat en cache)"}
 
     id_unique = str(uuid.uuid4())[:8]
+    fichier_video = f"temp_{id_unique}.mp4"
+    fichier_audio = f"audio_{id_unique}.mp3"
+    fichier_info = f"temp_{id_unique}.info.json"
     fichier_gemini_audio = None
-    contexte = {"images": [], "fichier_audio_path": ""}  # sécurité si erreur avant extraction
+    
+    texte_publication = ""
+    transcription = ""
+    images_valides = []
 
     try:
-        # --- Extraction maximale du contexte ---
-        contexte = await asyncio.wait_for(
-            extraire_contexte_complet(url, id_unique),
-            timeout=180,  # 3 min max sur Render gratuit (CPU lent)
-        )
+        # 🌟 TON ANCIENNE MÉTHODE SIMPLE ET EFFICACE (avec juste --write-info-json en plus)
+        print(f"[DEBUG] Lancement yt-dlp classique sur : {url}")
+        commande_yt = f"yt-dlp -o {fichier_video} -f worst --write-info-json --quiet {url}"
+        proc1 = await asyncio.create_subprocess_shell(commande_yt)
+        
+        # Timeout de sécurité de 60s
+        await asyncio.wait_for(proc1.communicate(), timeout=60)
 
-        if not contexte["images"]:
+        if not os.path.exists(fichier_video):
+            return {"erreur": "Impossible de télécharger la vidéo avec yt-dlp."}
+
+        # 🌟 LECTURE DES MÉTADONNÉES
+        if os.path.exists(fichier_info):
+            with open(fichier_info, "r", encoding="utf-8") as f:
+                info = json.load(f)
+            os.remove(fichier_info)
+            tags = " ".join(info.get("tags", []))
+            texte_publication = f"TITRE: {info.get('title', '')}\nDESC: {info.get('description', '')}\nHASHTAGS: {tags}"
+
+        # 🌟 EXTRACTION 8 IMAGES ET AUDIO (via FFMPEG)
+        # fps=8/30 signifie : prend 8 images réparties sur les 30 premières secondes
+        cmd_ffmpeg = (
+            f"ffmpeg -y -i {fichier_video} "
+            f"-vf fps=8/30 "
+            f"cap_{id_unique}_%d.jpg "
+            f"-t 30 -q:a 5 -map a? {fichier_audio} -loglevel error"
+        )
+        proc2 = await asyncio.create_subprocess_shell(cmd_ffmpeg)
+        await proc2.communicate()
+
+        os.remove(fichier_video) # Nettoyage immédiat de la vidéo
+
+        # Vérification des images extraites
+        for i in range(1, 10):
+            img = f"cap_{id_unique}_{i}.jpg"
+            if os.path.exists(img):
+                images_valides.append(img)
+
+        if not images_valides:
             return {"erreur": "Impossible de capturer des images de la vidéo."}
 
-        # --- Construction du prompt enrichi ---
+        # 🌟 TRANSCRIPTION WHISPER
+        if os.path.exists(fichier_audio):
+            transcription = await extraire_sous_titres_whisper(fichier_audio)
+
+        # 🌟 CONSTRUCTION DE LA REQUÊTE IA
         prompt = PROMPT_TEMPLATE.format(
-            texte_publication=contexte["texte_publication"] or "Non disponible",
-            transcription=contexte["transcription"] or "Non disponible (audio sans paroles ou muet)",
+            texte_publication=texte_publication or "Non disponible",
+            transcription=transcription or "Non disponible (audio muet ou musical)",
         )
-
-        # --- Assemblage du contenu pour Gemini ---
+        
         contenu_requete = [prompt]
+        for img_path in images_valides:
+            try: contenu_requete.append(PIL.Image.open(img_path))
+            except: pass
 
-        for img_path in contexte["images"]:
-            try:
-                contenu_requete.append(PIL.Image.open(img_path))
-            except Exception:
-                pass
-
-        audio_path = contexte.get("fichier_audio_path")
-        if audio_path and os.path.exists(audio_path):
-            fichier_gemini_audio = client.files.upload(file=audio_path)
+        if os.path.exists(fichier_audio):
+            fichier_gemini_audio = client.files.upload(file=fichier_audio)
             contenu_requete.append(fichier_gemini_audio)
 
-        # --- Appel Gemini avec température 0 (déterministe) ---
+        # 🌟 APPEL GEMINI (Zéro Hallucination)
         config = types.GenerateContentConfig(temperature=0.0)
         reponse_ia = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model='gemini-2.5-flash', 
             contents=contenu_requete,
-            config=config,
+            config=config
         )
 
     except asyncio.TimeoutError:
-        return {"erreur": "Délai dépassé (vidéo trop longue ou connexion lente)."}
+        return {"erreur": "Délai dépassé. La vidéo est trop longue à analyser."}
     except Exception as e:
-        return {"erreur": f"Erreur d'analyse : {str(e)}"}
+        return {"erreur": f"Erreur système : {str(e)}"}
     finally:
-        # Nettoyage systématique des fichiers temporaires
-        for img_path in contexte.get("images", []):
-            if os.path.exists(img_path):
-                os.remove(img_path)
-        audio_path = contexte.get("fichier_audio_path", "")
-        if audio_path and os.path.exists(audio_path):
-            os.remove(audio_path)
+        # Nettoyage méticuleux en cas de succès ou de plantage
+        if os.path.exists(fichier_video): os.remove(fichier_video)
+        if os.path.exists(fichier_audio): os.remove(fichier_audio)
+        if os.path.exists(fichier_info): os.remove(fichier_info)
+        for img in images_valides:
+            if os.path.exists(img): os.remove(img)
+        # On supprime toutes les images potentielles restantes
+        for i in range(1, 15):
+            img = f"cap_{id_unique}_{i}.jpg"
+            if os.path.exists(img): os.remove(img)
         if fichier_gemini_audio:
-            try:
-                client.files.delete(name=fichier_gemini_audio.name)
-            except Exception:
-                pass
+            try: client.files.delete(name=fichier_gemini_audio.name)
+            except: pass
 
-    # --- Parsing de la réponse JSON ---
+    # 🌟 PARSING DU RÉSULTAT JSON
     trois_accents = chr(96) * 3
-    texte_ia = (
-        reponse_ia.text.strip()
-        .replace(f"{trois_accents}json", "")
-        .replace(trois_accents, "")
-        .strip()
-    )
-
+    texte_ia = reponse_ia.text.strip().replace(f"{trois_accents}json", "").replace(trois_accents, "").strip()
+    
     try:
         data_ia = json.loads(texte_ia)
     except json.JSONDecodeError:
-        # Tentative de récupération si l'IA a quand même mis du texte autour
         import re
         match = re.search(r"\{.*\}", texte_ia, re.DOTALL)
         if match:
-            try:
-                data_ia = json.loads(match.group())
-            except Exception:
-                return {"erreur": "Réponse IA mal formatée."}
+            try: data_ia = json.loads(match.group())
+            except: return {"erreur": "L'IA a mal formaté sa réponse."}
         else:
-            return {"erreur": "Réponse IA mal formatée."}
+            return {"erreur": "L'IA a mal formaté sa réponse."}
 
     titre_trouve = data_ia.get("titre", "").strip()
     confiance_ia = int(data_ia.get("confiance", 0))
     raison = data_ia.get("raison", "")
 
-    # Titre inconnu ou confiance trop basse → on ne cherche pas sur TMDB
-    if not titre_trouve or titre_trouve.lower() in ["inconnu", "unknown", "non identifié"]:
+    # Traitement des échecs (inconnu ou confiance très basse)
+    if not titre_trouve or titre_trouve.lower() in ["inconnu", "unknown"] or confiance_ia < 20:
         CACHE_ECHECS[url] = True
-        return {
-            "erreur": f"Film non reconnu. Raison IA : {raison}",
-        }
+        return {"erreur": f"Film non reconnu. Raison : {raison}"}
 
-    if confiance_ia < 40:
-        # On retourne quand même le résultat mais avec un avertissement
-        infos_film = await chercher_sur_tmdb(titre_trouve)
-        infos_film["confiance"] = confiance_ia
-        infos_film["avertissement"] = f"Confiance faible ({confiance_ia}%) — {raison}"
-        return infos_film
-
-    # --- Résultat fiable → TMDB + mise en cache ---
+    # Recherche TMDB
     infos_film = await chercher_sur_tmdb(titre_trouve)
     infos_film["confiance"] = confiance_ia
     infos_film["raison"] = raison
-
+    
+    # Enregistrement en cache
     CACHE_RECHERCHES[url] = infos_film
+    
     return infos_film
 
 
 # ==========================================
 # 7. WEBHOOK META (prêt pour le bot)
 # ==========================================
-META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "mon_token_secret")
+# META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "mon_token_secret")
 
 
-@app.get("/webhook")
-async def verifier_webhook(request: Request):
-    mode = request.query_params.get("hub.mode")
-    token = request.query_params.get("hub.verify_token")
-    challenge = request.query_params.get("hub.challenge")
-    if mode == "subscribe" and token == META_VERIFY_TOKEN:
-        return int(challenge)
-    raise HTTPException(status_code=403, detail="Token invalide")
+# @app.get("/webhook")
+# async def verifier_webhook(request: Request):
+#     mode = request.query_params.get("hub.mode")
+#     token = request.query_params.get("hub.verify_token")
+#     challenge = request.query_params.get("hub.challenge")
+#     if mode == "subscribe" and token == META_VERIFY_TOKEN:
+#         return int(challenge)
+#     raise HTTPException(status_code=403, detail="Token invalide")
 
 
-@app.post("/webhook")
-async def recevoir_message(request: Request):
-    """
-    Reçoit les messages Instagram/Facebook et déclenche l'analyse.
-    Format attendu : l'utilisateur mentionne @BotName + colle un lien vidéo.
-    """
-    data = await request.json()
+# @app.post("/webhook")
+# async def recevoir_message(request: Request):
+#     """
+#     Reçoit les messages Instagram/Facebook et déclenche l'analyse.
+#     Format attendu : l'utilisateur mentionne @BotName + colle un lien vidéo.
+#     """
+#     data = await request.json()
 
-    try:
-        # Extraction du message entrant (format Meta Messenger)
-        entries = data.get("entry", [])
-        for entry in entries:
-            for event in entry.get("messaging", []):
-                message = event.get("message", {})
-                texte = message.get("text", "")
-                sender_id = event.get("sender", {}).get("id")
+#     try:
+#         # Extraction du message entrant (format Meta Messenger)
+#         entries = data.get("entry", [])
+#         for entry in entries:
+#             for event in entry.get("messaging", []):
+#                 message = event.get("message", {})
+#                 texte = message.get("text", "")
+#                 sender_id = event.get("sender", {}).get("id")
 
-                # Cherche un lien vidéo dans le message
-                import re
-                liens = re.findall(
-                    r"https?://(?:www\.)?(?:tiktok\.com|instagram\.com|youtube\.com|youtu\.be)\S+",
-                    texte,
-                )
-                if liens and sender_id:
-                    # Lance l'analyse en arrière-plan (ne bloque pas la réponse webhook)
-                    asyncio.create_task(
-                        analyser_et_repondre_messenger(liens[0], sender_id)
-                    )
-    except Exception as e:
-        print(f"Erreur webhook : {e}")
+#                 # Cherche un lien vidéo dans le message
+#                 import re
+#                 liens = re.findall(
+#                     r"https?://(?:www\.)?(?:tiktok\.com|instagram\.com|youtube\.com|youtu\.be)\S+",
+#                     texte,
+#                 )
+#                 if liens and sender_id:
+#                     # Lance l'analyse en arrière-plan (ne bloque pas la réponse webhook)
+#                     asyncio.create_task(
+#                         analyser_et_repondre_messenger(liens[0], sender_id)
+#                     )
+#     except Exception as e:
+#         print(f"Erreur webhook : {e}")
 
-    return {"status": "ok"}
+#     return {"status": "ok"}
 
 
-async def analyser_et_repondre_messenger(url: str, sender_id: str):
-    """Analyse la vidéo et envoie le résultat via l'API Messenger."""
-    resultat = await analyser_video(LienVideo(url=url))
-    PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN", "")
-    if not PAGE_ACCESS_TOKEN:
-        return
+# async def analyser_et_repondre_messenger(url: str, sender_id: str):
+#     """Analyse la vidéo et envoie le résultat via l'API Messenger."""
+#     resultat = await analyser_video(LienVideo(url=url))
+#     PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN", "")
+#     if not PAGE_ACCESS_TOKEN:
+#         return
 
-    if "erreur" in resultat:
-        texte_reponse = f"❌ {resultat['erreur']}"
-    else:
-        conf = resultat.get("confiance", "?")
-        titre = resultat.get("titre", "?")
-        lien = resultat.get("lien_streaming", "")
-        texte_reponse = (
-            f"🎬 *{titre}*\n"
-            f"Confiance IA : {conf}%\n"
-            f"Où regarder : {lien}"
-        )
+#     if "erreur" in resultat:
+#         texte_reponse = f"❌ {resultat['erreur']}"
+#     else:
+#         conf = resultat.get("confiance", "?")
+#         titre = resultat.get("titre", "?")
+#         lien = resultat.get("lien_streaming", "")
+#         texte_reponse = (
+#             f"🎬 *{titre}*\n"
+#             f"Confiance IA : {conf}%\n"
+#             f"Où regarder : {lien}"
+#         )
 
-    async with httpx.AsyncClient() as c:
-        await c.post(
-            f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}",
-            json={
-                "recipient": {"id": sender_id},
-                "message": {"text": texte_reponse},
-            },
-        )
+#     async with httpx.AsyncClient() as c:
+#         await c.post(
+#             f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}",
+#             json={
+#                 "recipient": {"id": sender_id},
+#                 "message": {"text": texte_reponse},
+#             },
+#         )
