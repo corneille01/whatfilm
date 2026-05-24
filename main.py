@@ -139,12 +139,10 @@ async def analyser_video(lien: LienVideo):
     images_valides = []
 
     try:
-        # 🌟 TON ANCIENNE MÉTHODE SIMPLE ET EFFICACE (avec juste --write-info-json en plus)
+        # 🌟 TÉLÉCHARGEMENT
         print(f"[DEBUG] Lancement yt-dlp classique sur : {url}")
         commande_yt = f"yt-dlp -o {fichier_video} -f worst --write-info-json --quiet {url}"
         proc1 = await asyncio.create_subprocess_shell(commande_yt)
-        
-        # Timeout de sécurité de 60s
         await asyncio.wait_for(proc1.communicate(), timeout=60)
 
         if not os.path.exists(fichier_video):
@@ -158,8 +156,7 @@ async def analyser_video(lien: LienVideo):
             tags = " ".join(info.get("tags", []))
             texte_publication = f"TITRE: {info.get('title', '')}\nDESC: {info.get('description', '')}\nHASHTAGS: {tags}"
 
-        # 🌟 EXTRACTION 8 IMAGES ET AUDIO (via FFMPEG)
-        # fps=8/30 signifie : prend 8 images réparties sur les 30 premières secondes
+        # 🌟 EXTRACTION 8 IMAGES ET AUDIO
         cmd_ffmpeg = (
             f"ffmpeg -y -i {fichier_video} "
             f"-vf fps=8/30 "
@@ -169,9 +166,8 @@ async def analyser_video(lien: LienVideo):
         proc2 = await asyncio.create_subprocess_shell(cmd_ffmpeg)
         await proc2.communicate()
 
-        os.remove(fichier_video) # Nettoyage immédiat de la vidéo
+        os.remove(fichier_video)
 
-        # Vérification des images extraites
         for i in range(1, 10):
             img = f"cap_{id_unique}_{i}.jpg"
             if os.path.exists(img):
@@ -191,38 +187,54 @@ async def analyser_video(lien: LienVideo):
         )
         
         contenu_requete = [prompt]
+        
+        # ==========================================
+        # 🔎 LOGS DÉTAILLÉS (MODE DEBUG EXTRÊME)
+        # ==========================================
+        print("\n" + "="*60)
+        print("🤖 [DEBUG EXTRÊME] ENVOI À L'IA")
+        print("="*60)
+        print("📝 PROMPT ET TEXTE :")
+        print(prompt)
+        print("-" * 60)
+        print("📸 IMAGES JOINTES :")
+        
         for img_path in images_valides:
-            try: contenu_requete.append(PIL.Image.open(img_path))
-            except: pass
+            try: 
+                img_obj = PIL.Image.open(img_path)
+                taille_ko = os.path.getsize(img_path) / 1024
+                print(f"  - {img_path} | {img_obj.width}x{img_obj.height} px | {taille_ko:.1f} Ko")
+                contenu_requete.append(img_obj)
+            except Exception as e:
+                print(f"  - Erreur chargement image {img_path} : {e}")
 
+        print("-" * 60)
         if os.path.exists(fichier_audio):
             fichier_gemini_audio = client.files.upload(file=fichier_audio)
             contenu_requete.append(fichier_gemini_audio)
-
-
-            # ==========================================
-        # 🔎 AFFICHAGE DANS LES LOGS (RENDER)
-        # ==========================================
-        print("\n" + "="*50)
-        print("🤖 [DEBUG] CE QUI EST ENVOYÉ À L'IA :")
-        print("="*50)
-        print(prompt)
-        print("-" * 50)
-        print(f"📸 Nombre d'images envoyées : {len(images_valides)}")
-        if fichier_gemini_audio:
-            print(f"🎵 Fichier audio envoyé : OUI")
+            print(f"🎵 AUDIO JOINT : Oui | URI Google: {fichier_gemini_audio.uri}")
         else:
-            print(f"🎵 Fichier audio envoyé : NON")
-        print("="*50 + "\n")
+            print("🎵 AUDIO JOINT : Non (Fichier inexistant)")
+        print("="*60 + "\n")
         # ==========================================
 
-        # 🌟 APPEL GEMINI (Zéro Hallucination)
+        # 🌟 APPEL GEMINI
         config = types.GenerateContentConfig(temperature=0.0)
         reponse_ia = client.models.generate_content(
             model='gemini-2.5-flash', 
             contents=contenu_requete,
             config=config
         )
+
+        # ==========================================
+        # 🔎 LOG DE LA RÉPONSE DE L'IA
+        # ==========================================
+        print("\n" + "="*60)
+        print("🧠 [DEBUG EXTRÊME] RÉPONSE BRUTE DE L'IA :")
+        print("="*60)
+        print(reponse_ia.text)
+        print("="*60 + "\n")
+        # ==========================================
 
     except asyncio.TimeoutError:
         return {"erreur": "Délai dépassé. La vidéo est trop longue à analyser."}
