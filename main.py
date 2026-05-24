@@ -199,6 +199,23 @@ async def analyser_video(lien: LienVideo):
             fichier_gemini_audio = client.files.upload(file=fichier_audio)
             contenu_requete.append(fichier_gemini_audio)
 
+
+            # ==========================================
+        # 🔎 AFFICHAGE DANS LES LOGS (RENDER)
+        # ==========================================
+        print("\n" + "="*50)
+        print("🤖 [DEBUG] CE QUI EST ENVOYÉ À L'IA :")
+        print("="*50)
+        print(prompt)
+        print("-" * 50)
+        print(f"📸 Nombre d'images envoyées : {len(images_valides)}")
+        if fichier_gemini_audio:
+            print(f"🎵 Fichier audio envoyé : OUI")
+        else:
+            print(f"🎵 Fichier audio envoyé : NON")
+        print("="*50 + "\n")
+        # ==========================================
+
         # 🌟 APPEL GEMINI (Zéro Hallucination)
         config = types.GenerateContentConfig(temperature=0.0)
         reponse_ia = client.models.generate_content(
