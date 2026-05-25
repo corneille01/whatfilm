@@ -10,6 +10,7 @@ python-dotenv
 scenedetect[opencv]
 opencv-python-headless
 numpy
+easyocr
 rapidfuzz
 scikit-learn
 sentence-transformers
@@ -18,5 +19,8 @@ torch
 torchaudio
 torchvision
 transformers
+ffmpeg-python
 aiofiles
 jinja2
+redis
+celery
