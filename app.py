@@ -67,13 +67,18 @@ async def analyser(req: VideoRequest):
         )
 
         print("STEP 2 = EXTRACT AUDIO (MAX 30 SEC)")
-        subprocess.run(
-            [
-                "ffmpeg", "-i", video_path, "-t", "30", "-vn",
-                "-acodec", "mp3", "-y", audio_path
-            ],
-            check=True
-        )
+        audio_exists = False
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-i", video_path, "-t", "30", "-vn",
+                    "-acodec", "mp3", "-y", audio_path
+                ],
+                check=True, capture_output=True
+            )
+            audio_exists = True
+        except subprocess.CalledProcessError:
+            print("VIDÉO MUETTE - Passage en mode muet")
 
         print("STEP 3 = EXTRACT FRAMES")
         frames = extract_keyframes(video_path, frame_dir, max_frames=4)
@@ -83,7 +88,7 @@ async def analyser(req: VideoRequest):
         print("OCR =", ocr_text)
 
         print("STEP 5 = TRANSCRIBE")
-        transcript = transcribe(audio_path, enabled=True)
+        transcript = transcribe(audio_path, enabled=True) if audio_exists else "Aucun audio détecté."
         print("TRANSCRIPT =", transcript)
 
         print("STEP 6 = GEMINI EXTRACTION")
@@ -108,7 +113,6 @@ async def analyser(req: VideoRequest):
                 "message": "Film introuvable"
             }
 
-        # On force toujours la validation par l'IA
         deep_mode = True
         print("DEEP MODE =", deep_mode)
 
@@ -128,21 +132,15 @@ async def analyser(req: VideoRequest):
 
         # Récupération de l'image et du synopsis via les candidats TMDB
         for c in candidates:
-            if c.get("media_type") == "person" and "known_for" in c:
-                for item in c["known_for"]:
-                    title = item.get("title") or item.get("name")
-                    if title == titre_gagnant:
-                        synopsis = item.get("overview", "")
-                        if item.get("poster_path"):
-                            poster_url = f"https://image.tmdb.org/t/p/w500{item.get('poster_path')}"
-                        break
-            else:
-                title = c.get("title") or c.get("name")
-                if title == titre_gagnant:
-                    synopsis = c.get("overview", "")
-                    if c.get("poster_path"):
-                        poster_url = f"https://image.tmdb.org/t/p/w500{c.get('poster_path')}"
+            items = c.get("known_for", []) if c.get("media_type") == "person" else [c]
+            for item in items:
+                title = item.get("title") or item.get("name")
+                if title and title.lower() == titre_gagnant.lower():
+                    synopsis = item.get("overview", "")
+                    if item.get("poster_path"):
+                        poster_url = f"https://image.tmdb.org/t/p/w500{item.get('poster_path')}"
                     break
+            if poster_url: break
 
         confidence = result.get("score", 0)
         is_fake = False
@@ -154,10 +152,10 @@ async def analyser(req: VideoRequest):
         final = {
             "status": "success",
             "title": titre_gagnant,
-            "confidence": max(0, confidence), # Le max(0) évite les scores négatifs !
+            "confidence": max(0, confidence),
             "synopsis": synopsis,
             "image": poster_url,
-            "is_fake": is_fake  # <--- On envoie l'information à la page web
+            "is_fake": is_fake
         }
 
         set_cache(req.url, final)
@@ -171,16 +169,11 @@ async def analyser(req: VideoRequest):
         }
 
     finally:
-        for f in [video_path, audio_path]:
-            if os.path.exists(f):
-                os.remove(f)
-        if os.path.exists(frame_dir):
-            shutil.rmtree(frame_dir)
+        if os.path.exists(video_path): os.remove(video_path)
+        if audio_exists and os.path.exists(audio_path): os.remove(audio_path)
+        if os.path.exists(frame_dir): shutil.rmtree(frame_dir)
 
-# --- NOUVELLES ROUTES SEO INTERNATIONALES ---
+# --- ROUTES SEO INTERNATIONALES ---
 @app.get("/{lang}")
 async def page_multilingue(lang: str):
-    langues_supportees = ["fr", "en", "es", "de", "zh"]
-    if lang in langues_supportees:
-        return FileResponse("frontend/index.html")
     return FileResponse("frontend/index.html")
