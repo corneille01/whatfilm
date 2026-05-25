@@ -26,6 +26,9 @@ app = FastAPI(title="ShadowFrame Optimized")
 class VideoRequest(BaseModel):
     url: str
 
+@app.get("/")
+async def root():
+    return {"message": "ShadowFrame API running"}
 
 @app.post("/analyser")
 async def analyser(req: VideoRequest):
