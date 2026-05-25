@@ -4,485 +4,793 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <title>ShadowFrame — AI Movie Finder</title>
+    <title>🎬 Quel Film ? | Movie Finder for TikTok & Reels</title>
 
     <meta
       name="description"
-      content="Retrouve instantanément un film, anime ou série depuis TikTok, Instagram ou YouTube grâce à l’IA multimodale."
+      content="Trouve le nom d'un film à partir d'une vidéo TikTok, Instagram Reels ou YouTube Shorts. Find any movie or anime from a video link instantly. Shazam for movies!"
+    />
+    <meta
+      name="keywords"
+      content="trouver film avec lien, movie finder bot, shazam pour film, identifier anime tiktok, find movie from instagram reel, nom du film IA, video to movie search, youtube shorts movie finder"
+    />
+    <meta name="author" content="ShadowFrame" />
+
+    <meta
+      property="og:title"
+      content="🎬 Quel Film ? - Shazam for TikTok & Insta Videos"
+    />
+    <meta
+      property="og:description"
+      content="Colle le lien de ton TikTok ou Reel, notre IA trouve le film et te dit où le regarder en streaming. Paste your link, we find the movie!"
+    />
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:image"
+      content="https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=1200&auto=format"
+    />
+    <meta property="og:locale" content="fr_FR" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta property="og:locale:alternate" content="es_ES" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="🎬 Quel Film ? - Movie Finder Bot" />
+    <meta
+      name="twitter:description"
+      content="Find the name of any movie from a TikTok or Instagram video in seconds."
     />
 
-    <link rel="manifest" href="/manifest.json" />
-    <link rel="icon" href="/icon.png" />
-
-    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
 
     <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-
+      /* --- STYLE GLOBAL & CYBERPUNK --- */
       body {
-        background: #050505;
-        font-family: Arial, Helvetica, sans-serif;
-        color: white;
-        overflow-x: hidden;
-        min-height: 100vh;
-      }
-
-      body::before {
-        content: "";
-        position: fixed;
-        inset: 0;
-        background:
-          radial-gradient(circle at top left, #00ffff22 0%, transparent 30%),
-          radial-gradient(circle at bottom right, #ff00aa22 0%, transparent 30%);
-        z-index: -1;
-        pointer-events: none;
-      }
-
-      header {
-        padding: 40px 20px;
-        text-align: center;
-      }
-
-      .logo {
-        font-size: 4rem;
-        font-weight: 900;
-        background: linear-gradient(90deg, #00ffff, #ff00aa);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        text-shadow: 0 0 20px #00ffff66;
-      }
-
-      .subtitle {
-        margin-top: 10px;
-        opacity: 0.8;
-        font-size: 1.1rem;
-      }
-
-      .main-card {
-        width: min(900px, 92%);
-        margin: auto;
-        padding: 30px;
-        background: #111111dd;
-        border-radius: 30px;
-        border: 1px solid #222;
-        backdrop-filter: blur(10px);
-        box-shadow: 0 0 40px #000;
-      }
-
-      .search-box {
+        background-color: #050505;
+        color: #e0e6ed;
+        font-family: "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
         display: flex;
-        gap: 15px;
-        flex-wrap: wrap;
-        justify-content: center;
-        margin-top: 20px;
+        flex-direction: column;
+        align-items: center;
+        margin: 0;
+        padding: 20px 15px;
+        min-height: 100vh;
+        background-image: radial-gradient(
+          circle at 50% 0%,
+          #1a0b2e 0%,
+          #050505 70%
+        );
+      }
+
+      #lang-selector {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        background: rgba(31, 40, 51, 0.8);
+        color: #00ffcc;
+        border: 1px solid #00ffcc;
+        padding: 5px;
+        border-radius: 5px;
+        cursor: pointer;
+        backdrop-filter: blur(5px);
+        font-size: 1rem;
+      }
+
+      h1 {
+        font-size: clamp(2.2rem, 6vw, 4.5rem);
+        color: #00ffcc;
+        text-shadow:
+          2px 2px 0px #ff007f,
+          4px 4px 0px #450892;
+        margin-top: 50px;
+        margin-bottom: 30px;
+        text-align: center;
+        text-transform: uppercase;
+        font-weight: 900;
+        letter-spacing: 2px;
+      }
+
+      .search-container {
+        display: flex;
+        width: 100%;
+        max-width: 600px;
+        gap: 10px;
+        margin-bottom: 20px;
       }
 
       input {
-        flex: 1;
-        min-width: 250px;
-        padding: 18px;
-        border: none;
-        border-radius: 18px;
-        background: #1a1a1a;
-        color: white;
-        font-size: 1rem;
+        flex-grow: 1;
+        padding: 15px 20px;
+        font-size: 1.1rem;
+        background: rgba(20, 20, 25, 0.8);
+        color: #00ffcc;
+        border: 2px solid #333;
+        border-radius: 8px;
         outline: none;
+        transition:
+          border-color 0.3s,
+          box-shadow 0.3s;
+      }
+
+      input:focus {
+        border-color: #00ffcc;
+        box-shadow: 0 0 15px rgba(0, 255, 204, 0.3);
       }
 
       button {
-        padding: 18px 28px;
-        border: none;
-        border-radius: 18px;
-        background: linear-gradient(90deg, #00ffff, #ff00aa);
-        color: black;
+        padding: 0 25px;
+        font-size: 1.1rem;
+        background: #ff007f;
+        color: white;
         font-weight: bold;
-        font-size: 1rem;
+        border: none;
+        border-radius: 8px;
         cursor: pointer;
-        transition: 0.2s;
+        box-shadow: 0 5px 0 #99004d;
+        text-transform: uppercase;
+        transition: all 0.1s;
+        display: flex;
+        align-items: center;
+        gap: 8px;
       }
 
-      button:hover {
-        transform: scale(1.05);
+      button:active {
+        transform: translateY(5px);
+        box-shadow: 0 0 0 #99004d;
       }
 
-      #loading {
-        display: none;
-        margin-top: 30px;
-        text-align: center;
+      @media (max-width: 500px) {
+        .search-container {
+          flex-direction: column;
+        }
+        button {
+          padding: 15px;
+          justify-content: center;
+        }
       }
 
+      /* --- JEU NINJA VS BEAST --- */
       #game-container {
         display: none;
-        margin-top: 30px;
+        margin-top: 20px;
         text-align: center;
+        width: 100%;
+        max-width: 400px;
+      }
+
+      #game-title {
+        color: #ff007f;
+        font-weight: bold;
+        margin-bottom: 10px;
+        letter-spacing: 1px;
       }
 
       canvas {
+        background: #0a0a0a;
+        border: 2px solid #450892;
+        border-radius: 10px;
+        box-shadow: 0 0 20px rgba(69, 8, 146, 0.5);
+        cursor: pointer;
         width: 100%;
-        height: 420px;
-        border-radius: 20px;
-        background: #080808;
-        box-shadow: 0 0 40px #00ffff22;
+        max-width: 400px;
+        height: 200px;
       }
 
-      #instructions {
-        margin-top: 15px;
-        opacity: 0.8;
-      }
-
-      #result {
+      /* --- RÉSULTATS & MONÉTISATION --- */
+      #resultat {
         display: none;
-        margin-top: 40px;
+        margin-top: 30px;
+        text-align: center;
+        background: rgba(15, 15, 20, 0.9);
+        padding: 25px;
+        border-radius: 15px;
+        border: 1px solid #333;
+        max-width: 500px;
+        width: 100%;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+      }
+
+      #affiche_film {
+        width: 100%;
+        max-height: 400px;
+        object-fit: cover;
+        border-radius: 10px;
+        margin-bottom: 15px;
+        display: none;
+      }
+
+      #synopsis_film {
+        font-size: 0.95rem;
+        color: #b0b5ba;
+        line-height: 1.5;
+        margin-bottom: 20px;
+        text-align: justify;
+      }
+
+      .badge-confiance {
+        display: inline-block;
+        padding: 6px 15px;
+        border-radius: 20px;
+        font-weight: bold;
+        margin-bottom: 15px;
+        text-transform: uppercase;
+      }
+      .conf-haute {
+        background: rgba(0, 255, 204, 0.1);
+        color: #00ffcc;
+        border: 1px solid #00ffcc;
+      }
+      .conf-moyenne {
+        background: rgba(255, 204, 0, 0.1);
+        color: #ffcc00;
+        border: 1px solid #ffcc00;
+      }
+      .conf-basse {
+        background: rgba(255, 0, 127, 0.1);
+        color: #ff007f;
+        border: 1px solid #ff007f;
+      }
+
+      /* ALERTE FAKE IA */
+      .fake-alert {
+        background: rgba(255, 0, 0, 0.15);
+        color: #ff3333;
+        border: 1px solid #ff3333;
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        font-weight: bold;
+        display: none;
+        box-shadow: 0 0 10px rgba(255, 0, 0, 0.3);
+      }
+
+      .affiliate-section {
+        margin-top: 25px;
+        padding-top: 20px;
+        border-top: 1px dashed #444;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .affiliate-title {
+        font-size: 0.9rem;
+        color: #888;
+        margin-bottom: 5px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+
+      .btn-stream,
+      .btn-food {
+        display: block;
+        padding: 12px;
+        border-radius: 8px;
+        text-decoration: none;
+        font-weight: bold;
+        transition: transform 0.2s;
         text-align: center;
       }
-
-      #poster {
-        width: 280px;
-        max-width: 100%;
-        margin-top: 20px;
-        border-radius: 20px;
-        box-shadow: 0 0 30px #000;
-      }
-
-      .confidence {
-        display: inline-block;
-        margin-top: 15px;
-        padding: 12px 20px;
-        border-radius: 999px;
-        background: #00ffff22;
-        color: #00ffff;
-        font-weight: bold;
-      }
-
-      .streaming-btn {
-        display: inline-block;
-        margin-top: 20px;
-        padding: 14px 24px;
-        background: #ff00aa;
+      .btn-stream {
+        background: #00a8e1;
         color: white;
-        text-decoration: none;
-        border-radius: 16px;
-        font-weight: bold;
+      }
+      .btn-food {
+        background: #06c167;
+        color: white;
+      }
+      .btn-stream:hover,
+      .btn-food:hover {
+        transform: scale(1.02);
       }
 
-      .faq {
-        margin-top: 70px;
-      }
-
-      .faq h2 {
-        margin-bottom: 25px;
-        font-size: 2rem;
-      }
-
-      .faq-item {
-        margin-bottom: 25px;
-        padding: 25px;
-        background: #151515;
-        border-radius: 20px;
+      /* --- FAQ SEO --- */
+      .faq-section {
+        margin-top: 60px;
+        max-width: 800px;
+        width: 100%;
+        padding: 30px;
+        background: rgba(10, 10, 15, 0.5);
+        border-radius: 15px;
         border: 1px solid #222;
       }
-
-      .faq-item h3 {
-        margin-bottom: 10px;
-        color: #00ffff;
-      }
-
-      footer {
-        margin-top: 60px;
-        padding: 30px;
+      .faq-section h3 {
+        color: #00ffcc;
         text-align: center;
-        opacity: 0.7;
+        margin-bottom: 30px;
       }
-
-      @media (max-width: 700px) {
-        .logo {
-          font-size: 2.7rem;
-        }
-
-        .main-card {
-          padding: 20px;
-        }
-
-        canvas {
-          height: 300px;
-        }
+      .faq-section h4 {
+        color: #ff007f;
+        margin-top: 25px;
+      }
+      .faq-section p {
+        color: #a0aab5;
+        line-height: 1.6;
       }
     </style>
   </head>
-
   <body>
-    <header>
-      <h1 class="logo">ShadowFrame</h1>
+    <select id="lang-selector" onchange="changerLangueManuellement()">
+      <option value="en">🇬🇧 English</option>
+      <option value="fr">🇫🇷 Français</option>
+      <option value="es">🇪🇸 Español</option>
+      <option value="de">🇩🇪 Deutsch</option>
+      <option value="zh">🇨🇳 中文</option>
+    </select>
 
-      <p class="subtitle">
-        Le moteur IA qui retrouve les films depuis TikTok, Reels et Shorts.
+    <h1>
+      <i class="fas fa-video"></i> <span data-i18n="title">QUEL FILM ?</span>
+    </h1>
+
+    <div class="search-container">
+      <input
+        type="url"
+        id="lien_video"
+        data-i18n-ph="placeholder"
+        placeholder="Colle ton lien TikTok, Insta ou YouTube..."
+        required
+      />
+      <button id="ui-btn" onclick="analyserVideo()">
+        <i class="fas fa-search"></i> <span data-i18n="btn">TROUVER</span>
+      </button>
+    </div>
+
+    <div id="game-container">
+      <div id="game-title">
+        <i class="fas fa-gamepad"></i>
+        <span data-i18n="gameTitle">ESCAPE THE NINJA</span><br />
+        <span style="font-size: 0.8rem; color: #00ffcc" data-i18n="gameInstruct"
+          >Touche pour sauter !</span
+        ><br />
+        Score : <span id="score">0</span>
+      </div>
+      <canvas id="gameCanvas" width="400" height="200"></canvas>
+      <p id="ui-loading" style="color: #00ffcc; margin-top: 15px">
+        <i class="fas fa-spinner fa-spin"></i>
+        <span data-i18n="loading">Analyse de l'IA en cours... Survis !</span>
       </p>
-    </header>
+    </div>
 
-    <div class="main-card">
-      <div class="search-box">
-        <input
-          id="videoUrl"
-          type="text"
-          placeholder="Colle un lien TikTok, Reel ou YouTube"
-        />
+    <div id="resultat">
+      <h2 style="margin-top: 0; color: white">
+        <i class="fas fa-film"></i> <span id="titre_film"></span>
+      </h2>
 
-        <button onclick="analyserVideo()">Identifier</button>
-      </div>
+      <div id="alerte_fake" class="fake-alert"></div>
 
-      <div id="loading">
-        <p>Analyse IA en cours...</p>
-      </div>
+      <div id="zone_confiance"></div>
 
-      <div id="game-container">
-        <canvas id="gameCanvas"></canvas>
+      <img id="affiche_film" src="" alt="Affiche du film" />
+      <p id="synopsis_film"></p>
 
-        <p id="instructions">Utilise ESPACE pour sauter et éviter le ninja.</p>
-      </div>
-
-      <div id="result">
-        <h2 id="movieTitle"></h2>
-
-        <div class="confidence" id="confidence"></div>
-
-        <br />
-
-        <img id="poster" src="" />
-
-        <br />
-
-        <a id="streamLink" class="streaming-btn" target="_blank">
-          Voir la fiche TMDB
+      <div
+        class="affiliate-section"
+        id="zone_affiliation"
+        style="display: none"
+      >
+        <div class="affiliate-title">
+          <i class="fas fa-gift"></i>
+          <span data-i18n="affiliateTitle">Pour ta soirée film :</span>
+        </div>
+        <a
+          id="lien_stream"
+          class="btn-stream"
+          href="https://www.primevideo.com/"
+          target="_blank"
+        >
+          <i class="fab fa-amazon"></i>
+          <span data-i18n="affiliateStream">Regarder sur Amazon Prime</span>
         </a>
-      </div>
-
-      <div class="faq">
-        <h2>Questions fréquentes</h2>
-
-        <div class="faq-item">
-          <h3>Comment retrouver un film depuis TikTok ?</h3>
-
-          <p>
-            ShadowFrame analyse les images, voix, sous-titres et scènes grâce à
-            une IA multimodale.
-          </p>
-        </div>
-
-        <div class="faq-item">
-          <h3>Est-ce un Shazam des films ?</h3>
-
-          <p>
-            Oui. ShadowFrame agit comme un moteur intelligent dédié aux films et
-            séries.
-          </p>
-        </div>
-
-        <div class="faq-item">
-          <h3>Quels réseaux sont compatibles ?</h3>
-
-          <p>TikTok, Instagram Reels, YouTube Shorts et vidéos publiques.</p>
-        </div>
+        <a
+          id="lien_food"
+          class="btn-food"
+          href="https://www.ubereats.com/"
+          target="_blank"
+        >
+          <i class="fas fa-pizza-slice"></i>
+          <span data-i18n="affiliateFood">Commander sur UberEats</span>
+        </a>
       </div>
     </div>
 
-    <footer>
-      <p>© ShadowFrame AI</p>
-    </footer>
+    <div class="faq-section">
+      <h3>
+        <i class="fas fa-question-circle"></i>
+        <span data-i18n="faqTitle">Questions Fréquentes (FAQ)</span>
+      </h3>
+
+      <h4>
+        <i class="fas fa-mobile-alt"></i>
+        <span data-i18n="faqQ1"
+          >Comment retrouver un film vu sur TikTok ou Instagram ?</span
+        >
+      </h4>
+      <p data-i18n="faqA1">
+        C'est simple ! Copie le lien de la vidéo contenant le film inconnu,
+        colle-le dans la barre ci-dessus, et notre IA analysera les images et le
+        son pour te donner le titre exact.
+      </p>
+
+      <h4>
+        <i class="fas fa-bolt"></i>
+        <span data-i18n="faqQ2">Est-ce un vrai Shazam pour les vidéos ?</span>
+      </h4>
+      <p data-i18n="faqA2">
+        Oui. Contrairement aux recherches inversées classiques, notre IA écoute
+        les dialogues et reconnaît les visages pour trouver de quel anime, série
+        ou film est tiré l'extrait.
+      </p>
+    </div>
 
     <script>
-      // =========================
-      // 3D GAME
-      // =========================
+      // ==========================================
+      // 1. SYSTÈME DE TRADUCTION DYNAMIQUE COMPLET
+      // ==========================================
+      const dict = {
+        en: {
+          title: "WHICH MOVIE?",
+          placeholder: "Paste TikTok, Insta or YouTube link...",
+          btn: "FIND IT",
+          gameTitle: "ESCAPE THE NINJA",
+          gameInstruct: "Tap/Space to Jump!",
+          loading: "AI analyzing video... Survive!",
+          error: "Analysis failed",
+          conf: "Confidence",
+          fakeAlert:
+            "Warning: This video appears to be an AI-generated Fake or heavily edited.",
+          affiliateTitle: "Perfect for movie night:",
+          affiliateStream: "Watch on Amazon Prime",
+          affiliateFood: "Order on UberEats",
+          faqTitle: "Frequently Asked Questions",
+          faqQ1: "How to find a movie from a TikTok or Instagram video?",
+          faqA1:
+            "Easy! Copy the video link, paste it above, and our AI will analyze the footage and audio to give you the exact title.",
+          faqQ2: "Is this a Shazam for videos?",
+          faqA2:
+            "Yes. Unlike basic reverse image search, our AI listens to dialogues and recognizes faces to identify the movie, series, or anime.",
+        },
+        fr: {
+          title: "QUEL FILM ?",
+          placeholder: "Colle ton lien TikTok, Insta ou YouTube...",
+          btn: "TROUVER",
+          gameTitle: "ÉCHAPPE AU NINJA",
+          gameInstruct: "Touche/Espace pour sauter !",
+          loading: "Analyse de l'IA en cours... Survis !",
+          error: "Échec de l'analyse",
+          conf: "Confiance",
+          fakeAlert:
+            "Attention : Cette vidéo semble être un Fake généré par IA ou lourdement éditée.",
+          affiliateTitle: "Pour ta soirée film :",
+          affiliateStream: "Regarder sur Amazon Prime",
+          affiliateFood: "Commander sur UberEats",
+          faqTitle: "Questions Fréquentes (FAQ)",
+          faqQ1: "Comment retrouver un film vu sur TikTok ou Instagram ?",
+          faqA1:
+            "C'est simple ! Copie le lien de la vidéo, colle-le ici, et notre IA analysera les images et le son pour te donner le titre exact.",
+          faqQ2: "Est-ce un vrai Shazam pour les vidéos ?",
+          faqA2:
+            "Oui. Contrairement aux recherches classiques, notre IA écoute les dialogues et reconnaît les visages pour identifier l'œuvre.",
+        },
+        es: {
+          title: "¿QUÉ PELÍCULA?",
+          placeholder: "Pega el enlace de TikTok, Insta o YouTube...",
+          btn: "BUSCAR",
+          gameTitle: "ESCAPA DEL NINJA",
+          gameInstruct: "¡Toca para saltar!",
+          loading: "IA analizando... ¡Sobrevive!",
+          error: "Error de análisis",
+          conf: "Confianza",
+          fakeAlert:
+            "Atención: Este video parece ser un Fake generado por IA o muy editado.",
+          affiliateTitle: "Perfecto para tu noche de cine:",
+          affiliateStream: "Ver en Amazon Prime",
+          affiliateFood: "Pedir en UberEats",
+          faqTitle: "Preguntas Frecuentes",
+          faqQ1:
+            "¿Cómo encontrar una película de un video de TikTok o Instagram?",
+          faqA1:
+            "¡Es fácil! Copia el enlace del video, pégalo arriba y nuestra IA analizará las imágenes y el sonido para darte el título.",
+          faqQ2: "¿Es esto un Shazam para videos?",
+          faqA2:
+            "Sí. A diferencia de la búsqueda de imágenes, nuestra IA escucha los diálogos y reconoce los rostros para identificar la obra.",
+        },
+        de: {
+          title: "WELCHER FILM?",
+          placeholder: "TikTok, Insta oder YouTube Link einfügen...",
+          btn: "FINDEN",
+          gameTitle: "ENTKOMME DEM NINJA",
+          gameInstruct: "Tippen/Leertaste zum Springen!",
+          loading: "KI analysiert... Überlebe!",
+          error: "Analyse fehlgeschlagen",
+          conf: "Vertrauen",
+          fakeAlert:
+            "Achtung: Dieses Video scheint ein KI-generierter Fake oder stark bearbeitet zu sein.",
+          affiliateTitle: "Perfekt für den Filmabend:",
+          affiliateStream: "Auf Amazon Prime ansehen",
+          affiliateFood: "Bei UberEats bestellen",
+          faqTitle: "Häufig Gestellte Fragen",
+          faqQ1: "Wie finde ich einen Film von TikTok oder Instagram?",
+          faqA1:
+            "Ganz einfach! Link kopieren, hier einfügen, und unsere KI analysiert Bild und Ton für den genauen Titel.",
+          faqQ2: "Ist das ein Shazam für Videos?",
+          faqA2:
+            "Ja. Im Gegensatz zur Bildersuche hört unsere KI auf Dialoge und erkennt Gesichter, um das Werk zu identifizieren.",
+        },
+        zh: {
+          title: "什么电影？",
+          placeholder: "粘贴 TikTok, Insta 或 YouTube 链接...",
+          btn: "识别",
+          gameTitle: "逃离忍者",
+          gameInstruct: "点击/空格键跳跃！",
+          loading: "AI分析中...活下去！",
+          error: "分析失败",
+          conf: "信心",
+          fakeAlert: "警告：此视频似乎是 AI 生成的伪造视频或经过严重编辑。",
+          affiliateTitle: "电影之夜的完美搭配：",
+          affiliateStream: "在 Amazon Prime 观看",
+          affiliateFood: "在 UberEats 点餐",
+          faqTitle: "常见问题",
+          faqQ1: "如何找到 TikTok 或 Instagram 上的电影？",
+          faqA1:
+            "很简单！复制视频链接，粘贴在上方，我们的 AI 会分析图像和声音，为您提供准确的片名。",
+          faqQ2: "这是视频版的 Shazam 吗？",
+          faqA2: "是的。我们的 AI 通过听对话和识别面部来识别电影或动漫。",
+        },
+      };
 
-      const canvas = document.getElementById("gameCanvas");
+      let currentLang = "en";
 
-      const scene = new THREE.Scene();
+      function initLang() {
+        const pathLang = window.location.pathname.replace(/\//g, "");
 
-      scene.background = new THREE.Color(0x080808);
-
-      const camera = new THREE.PerspectiveCamera(
-        75,
-        canvas.clientWidth / canvas.clientHeight,
-        0.1,
-        1000,
-      );
-
-      const renderer = new THREE.WebGLRenderer({
-        canvas,
-        antialias: true,
-      });
-
-      renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-
-      const light = new THREE.PointLight(0xffffff, 2);
-
-      light.position.set(5, 5, 5);
-
-      scene.add(light);
-
-      const ambient = new THREE.AmbientLight(0x404040);
-
-      scene.add(ambient);
-
-      // PLAYER
-
-      const creatureGeometry = new THREE.SphereGeometry(0.5, 32, 32);
-
-      const creatureMaterial = new THREE.MeshStandardMaterial({
-        color: 0x00ffff,
-        emissive: 0x00ffff,
-        emissiveIntensity: 0.5,
-      });
-
-      const creature = new THREE.Mesh(creatureGeometry, creatureMaterial);
-
-      creature.position.set(-2, 0, 0);
-
-      scene.add(creature);
-
-      // ENEMY
-
-      const ninjaGeometry = new THREE.BoxGeometry(1, 1.5, 1);
-
-      const ninjaMaterial = new THREE.MeshStandardMaterial({
-        color: 0xff00aa,
-        emissive: 0xff00aa,
-        emissiveIntensity: 0.4,
-      });
-
-      const ninja = new THREE.Mesh(ninjaGeometry, ninjaMaterial);
-
-      ninja.position.set(2, 0, 0);
-
-      scene.add(ninja);
-
-      // FLOOR
-
-      const floorGeometry = new THREE.PlaneGeometry(20, 20);
-
-      const floorMaterial = new THREE.MeshStandardMaterial({
-        color: 0x111111,
-      });
-
-      const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-
-      floor.rotation.x = -Math.PI / 2;
-
-      floor.position.y = -1;
-
-      scene.add(floor);
-
-      camera.position.z = 6;
-      camera.position.y = 1;
-
-      let velocityY = 0;
-      let jumping = false;
-
-      window.addEventListener("keydown", (e) => {
-        if (e.code === "Space" && !jumping) {
-          velocityY = 0.18;
-          jumping = true;
-        }
-      });
-
-      function animate() {
-        requestAnimationFrame(animate);
-
-        creature.rotation.y += 0.03;
-
-        ninja.rotation.y -= 0.03;
-
-        if (jumping) {
-          creature.position.y += velocityY;
-
-          velocityY -= 0.01;
-
-          if (creature.position.y <= 0) {
-            creature.position.y = 0;
-            jumping = false;
+        if (dict[pathLang]) {
+          currentLang = pathLang;
+        } else {
+          const navLang = navigator.language.slice(0, 2);
+          if (dict[navLang]) {
+            currentLang = navLang;
           }
         }
 
-        ninja.position.x -= 0.03;
-
-        if (ninja.position.x < -4) {
-          ninja.position.x = 4;
-        }
-
-        renderer.render(scene, camera);
+        document.getElementById("lang-selector").value = currentLang;
+        applyLang();
       }
 
-      animate();
+      function changerLangueManuellement() {
+        const selectedLang = document.getElementById("lang-selector").value;
+        window.location.href = "/" + selectedLang;
+      }
 
-      // =========================
-      // API
-      // =========================
+      function applyLang() {
+        const t = dict[currentLang];
+        // Traduction respectant les balises <i> (seul le contenu du <span> change)
+        document.querySelectorAll("[data-i18n]").forEach((el) => {
+          el.innerText = t[el.getAttribute("data-i18n")];
+        });
+        document.querySelectorAll("[data-i18n-ph]").forEach((el) => {
+          el.placeholder = t[el.getAttribute("data-i18n-ph")];
+        });
+      }
 
+      // ==========================================
+      // 2. MINI-JEU : LA CRÉATURE VS LE NINJA
+      // ==========================================
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+      let gameAnim,
+        gameActive = false,
+        score = 0,
+        frames = 0;
+
+      const player = {
+        x: 50,
+        y: 150,
+        size: 25,
+        vy: 0,
+        gravity: 0.8,
+        jump: -12,
+        ground: 150,
+      };
+      let shurikens = [];
+      let ninjaAngle = 0;
+
+      function jump(e) {
+        if (e) e.preventDefault();
+        if (player.y >= player.ground && gameActive) {
+          player.vy = player.jump;
+        }
+      }
+
+      canvas.addEventListener("mousedown", jump);
+      canvas.addEventListener("touchstart", jump);
+      document.addEventListener("keydown", (e) => {
+        if (e.code === "Space") jump(e);
+      });
+
+      function resetGame() {
+        score = 0;
+        frames = 0;
+        shurikens = [];
+        player.y = player.ground;
+        player.vy = 0;
+        document.getElementById("score").innerText = score;
+      }
+
+      function drawNinja() {
+        ctx.fillStyle = "#111";
+        ctx.beginPath();
+        ctx.arc(30, 140, 15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(20, 150, 20, 30);
+        ctx.fillStyle = "#ff007f";
+        ctx.fillRect(20, 135, 25, 4);
+      }
+
+      function drawShuriken(x, y, angle) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(angle);
+        ctx.fillStyle = "#a0aab5";
+        ctx.beginPath();
+        ctx.moveTo(0, -10);
+        ctx.lineTo(3, -3);
+        ctx.lineTo(10, 0);
+        ctx.lineTo(3, 3);
+        ctx.lineTo(0, 10);
+        ctx.lineTo(-3, 3);
+        ctx.lineTo(-10, 0);
+        ctx.lineTo(-3, -3);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+
+      function loopGame() {
+        if (!gameActive) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        player.vy += player.gravity;
+        player.y += player.vy;
+        if (player.y > player.ground) {
+          player.y = player.ground;
+          player.vy = 0;
+        }
+
+        drawNinja();
+
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = "#00ffcc";
+        ctx.fillStyle = "#00ffcc";
+        ctx.fillRect(player.x, player.y, player.size, player.size);
+        ctx.fillStyle = "#000";
+        ctx.fillRect(player.x + 15, player.y + 5, 5, 5);
+        ctx.shadowBlur = 0;
+
+        frames++;
+        ninjaAngle += 0.2;
+
+        if (frames % 70 === 0) {
+          shurikens.push({ x: canvas.width, y: 165, size: 10 });
+        }
+
+        for (let i = shurikens.length - 1; i >= 0; i--) {
+          let sh = shurikens[i];
+          sh.x -= 5 + score * 0.05;
+
+          drawShuriken(sh.x, sh.y, ninjaAngle);
+
+          if (
+            Math.abs(player.x + player.size / 2 - sh.x) < 15 &&
+            Math.abs(player.y + player.size / 2 - sh.y) < 15
+          ) {
+            resetGame();
+          }
+
+          if (sh.x < player.x && !sh.passed) {
+            score += 10;
+            sh.passed = true;
+            document.getElementById("score").innerText = score;
+          }
+          if (sh.x < -20) shurikens.splice(i, 1);
+        }
+
+        ctx.strokeStyle = "#ff007f";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, 176);
+        ctx.lineTo(canvas.width, 176);
+        ctx.stroke();
+
+        gameAnim = requestAnimationFrame(loopGame);
+      }
+
+      // ==========================================
+      // 3. RECHERCHE ET APPEL API
+      // ==========================================
       async function analyserVideo() {
-        const url = document.getElementById("videoUrl").value;
+        const lien = document.getElementById("lien_video").value;
+        const resDiv = document.getElementById("resultat");
+        const gameDiv = document.getElementById("game-container");
+        const confDiv = document.getElementById("zone_confiance");
+        const affDiv = document.getElementById("zone_affiliation");
+        const t = dict[currentLang];
 
-        if (!url) return;
+        if (!lien) return;
 
-        document.getElementById("loading").style.display = "block";
+        resDiv.style.display = "none";
+        gameDiv.style.display = "block";
+        confDiv.innerHTML = "";
 
-        document.getElementById("game-container").style.display = "block";
-
-        document.getElementById("result").style.display = "none";
+        gameActive = true;
+        resetGame();
+        loopGame();
 
         try {
           const response = await fetch("/analyser", {
             method: "POST",
-
-            headers: {
-              "Content-Type": "application/json",
-            },
-
-            body: JSON.stringify({
-              url,
-            }),
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: lien, lang: currentLang }),
           });
 
           const data = await response.json();
+          gameActive = false;
+          cancelAnimationFrame(gameAnim);
+          gameDiv.style.display = "none";
+          resDiv.style.display = "block";
 
-          console.log(data);
+          if (
+            data.status === "error" ||
+            !data.title ||
+            data.title === "inconnu"
+          ) {
+            document.getElementById("titre_film").innerText = t.error;
+            document.getElementById("affiche_film").style.display = "none";
+            document.getElementById("synopsis_film").innerText = "";
+            document.getElementById("alerte_fake").style.display = "none";
+            affDiv.style.display = "none";
+          } else {
+            document.getElementById("titre_film").innerText = data.title;
 
-          document.getElementById("loading").style.display = "none";
+            // --- GESTION DE L'ALERTE FAKE ---
+            const alerteDiv = document.getElementById("alerte_fake");
+            if (data.is_fake) {
+              alerteDiv.innerHTML = `<i class="fas fa-skull-crossbones"></i> ${t.fakeAlert}`;
+              alerteDiv.style.display = "block";
+            } else {
+              alerteDiv.style.display = "none";
+            }
 
-          document.getElementById("result").style.display = "block";
+            let conf = parseInt(data.confidence || 0);
+            let cssClass =
+              conf >= 80
+                ? "conf-haute"
+                : conf >= 50
+                  ? "conf-moyenne"
+                  : "conf-basse";
+            confDiv.innerHTML = `<span class="badge-confiance ${cssClass}">${t.conf} : ${conf}%</span>`;
 
-          if (data.status !== "success") {
-            document.getElementById("movieTitle").innerText =
-              data.message || "Film introuvable";
+            if (data.image) {
+              document.getElementById("affiche_film").src = data.image;
+              document.getElementById("affiche_film").style.display = "block";
+            }
+            if (data.synopsis) {
+              document.getElementById("synopsis_film").innerText =
+                data.synopsis;
+            }
 
-            document.getElementById("confidence").innerText = "";
-
-            return;
+            affDiv.style.display = "flex";
           }
-
-          document.getElementById("movieTitle").innerText = data.title;
-
-          document.getElementById("confidence").innerText =
-            "Confiance IA : " + data.confidence + "%";
-
-          if (data.poster) {
-            document.getElementById("poster").src = data.poster;
-          }
-
-          if (data.streaming) {
-            document.getElementById("streamLink").href = data.streaming;
-          }
-        } catch (err) {
-          console.error(err);
-
-          document.getElementById("loading").style.display = "none";
-
-          alert("Erreur serveur");
+        } catch (error) {
+          gameActive = false;
+          cancelAnimationFrame(gameAnim);
+          document.getElementById("ui-loading").innerHTML =
+            `<i class="fas fa-exclamation-triangle"></i> ` + t.error;
         }
       }
+
+      window.onload = initLang;
     </script>
   </body>
 </html>
