@@ -3,8 +3,6 @@
 import whisper
 
 
-# Chargement du modèle Whisper
-# tiny = plus rapide pour Render free
 model = whisper.load_model("tiny")
 
 
@@ -15,13 +13,13 @@ def transcribe(audio_path, enabled=True):
 
     try:
 
-        print("WHISPER START")
+        print("WHISPER AUDIO =", audio_path)
 
         result = model.transcribe(audio_path)
 
-        text = result.get("text", "").strip()
+        text = result.get("text", "")
 
-        print("WHISPER TEXT =", text[:500])
+        print("WHISPER RESULT =", text)
 
         return text
 
