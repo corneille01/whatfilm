@@ -115,20 +115,21 @@ async def analyser(req: VideoRequest):
         print("STEP 4 = OCR")
 
         ocr_text = extract_text_from_images(
-            frames,
-            max_images=8
+        frames,
+        max_images=8
         )
 
-        print("OCR =", ocr_text[:500])
+        print("OCR =", ocr_text)
+
 
         print("STEP 5 = TRANSCRIBE")
 
         transcript = transcribe(
-            audio_path,
-            enabled=True
+        audio_path,
+        enabled=True
         )
 
-        print("TRANSCRIPT =", transcript[:500])
+        print("TRANSCRIPT =", transcript)
 
         print("STEP 6 = GEMINI EXTRACTION")
 
@@ -151,12 +152,17 @@ async def analyser(req: VideoRequest):
         print("STEP 8 = SEARCH QUERY")
 
         query = await build_search_query(extraction)
+        if not query or len(query.strip()) < 3:
+            return {
+                "status": "unknown",
+                "message": "Impossible d'analyser la vidéo"
+            }
 
         print("QUERY =", query)
 
         print("STEP 9 = TMDB SEARCH")
 
-        candidates = search_candidates(query)
+        candidates = await search_candidates(query)
 
         print("CANDIDATES =", candidates)
 

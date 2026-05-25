@@ -1,10 +1,8 @@
-import json
+# core/extraction.py
 
+import json
 from google import genai
 from config.config import GEMINI_API_KEY
-
-if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY manquante")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -12,7 +10,7 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 async def multimodal_extract(frames, ocr_text, transcript):
 
     prompt = f"""
-Analyse cette vidéo TikTok et identifie le film, anime ou série.
+Analyse cette vidéo TikTok.
 
 OCR:
 {ocr_text}
@@ -20,33 +18,29 @@ OCR:
 TRANSCRIPT:
 {transcript}
 
-Retourne STRICTEMENT un JSON valide avec ce format :
+Retourne STRICTEMENT un JSON valide :
 
 {{
   "description": "...",
-  "objets": ["..."],
-  "actions": ["..."],
-  "genre": ["..."],
-  "possible_titles": ["..."]
+  "objets": [],
+  "actions": [],
+  "genre": [],
+  "possible_titles": []
 }}
-
-Ne retourne AUCUN texte hors JSON.
 """
 
     response = client.models.generate_content(
-       model="gemini-2.5-flash",
+        model="gemini-2.5-flash",
         contents=prompt
     )
-    print(response)
 
     text = response.text.strip()
 
-    # nettoie les ```json
-    text = text.replace("```json", "").replace("```", "").strip()
+    text = text.replace("```json", "")
+    text = text.replace("```", "")
 
     try:
-        data = json.loads(text)
-        return data
+        return json.loads(text)
 
     except Exception:
         return {
