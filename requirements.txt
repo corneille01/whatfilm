@@ -4,7 +4,7 @@ yt-dlp
 pillow
 google-genai
 httpx
-openai-whisper
+
 python-multipart
 python-dotenv
 scenedetect[opencv]
@@ -24,3 +24,4 @@ aiofiles
 jinja2
 redis
 celery
+groq
