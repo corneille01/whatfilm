@@ -17,14 +17,25 @@ async def rerank(extraction, candidates):
         }
 
     # Simplification des résultats TMDB
-    simplified = [
-        {
-            "id": c.get("id"),
-            "title": c.get("title") or c.get("name"),
-            "overview": c.get("overview", ""),
-        }
-        for c in candidates
-    ]
+   # Simplification des résultats TMDB
+    simplified = []
+    
+    for c in candidates:
+        # Si le candidat est une personne, on extrait ses films/séries les plus connus
+        if c.get("media_type") == "person" and "known_for" in c:
+            for item in c["known_for"]:
+                simplified.append({
+                    "id": item.get("id"),
+                    "title": item.get("title") or item.get("name"),
+                    "overview": item.get("overview", "")
+                })
+        else:
+            # Si c'est déjà un film ou une série
+            simplified.append({
+                "id": c.get("id"),
+                "title": c.get("title") or c.get("name"),
+                "overview": c.get("overview", "")
+            })
 
     # Injection des données (en format JSON strict) dans le prompt
     prompt = RERANK_PROMPT.format(
