@@ -159,6 +159,8 @@ async def analyser(req: VideoRequest):
             }
 
         print("QUERY =", query)
+        print("OCR =", ocr_text[:500])
+        print("TRANSCRIPT =", transcript[:500])
 
         print("STEP 9 = TMDB SEARCH")
 
