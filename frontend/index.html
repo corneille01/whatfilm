@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>ShadowFrame — AI Movie Finder</title>
+
+    <meta
+      name="description"
+      content="Retrouve instantanément un film, anime ou série depuis TikTok, Instagram ou YouTube grâce à l’IA multimodale."
+    />
+
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" href="/icon.png" />
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        background: #050505;
+        font-family: Arial, Helvetica, sans-serif;
+        color: white;
+        overflow-x: hidden;
+        min-height: 100vh;
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background:
+          radial-gradient(circle at top left, #00ffff22 0%, transparent 30%),
+          radial-gradient(circle at bottom right, #ff00aa22 0%, transparent 30%);
+        z-index: -1;
+        pointer-events: none;
+      }
+
+      header {
+        padding: 40px 20px;
+        text-align: center;
+      }
+
+      .logo {
+        font-size: 4rem;
+        font-weight: 900;
+        background: linear-gradient(90deg, #00ffff, #ff00aa);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-shadow: 0 0 20px #00ffff66;
+      }
+
+      .subtitle {
+        margin-top: 10px;
+        opacity: 0.8;
+        font-size: 1.1rem;
+      }
+
+      .language-box {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+      }
+
+      select {
+        background: #111;
+        color: white;
+        border: 1px solid #00ffff;
+        padding: 10px;
+        border-radius: 12px;
+        font-size: 1rem;
+        outline: none;
+      }
+
+      .main-card {
+        width: min(900px, 92%);
+        margin: auto;
+        padding: 30px;
+        background: #111111dd;
+        border-radius: 30px;
+        border: 1px solid #222;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 0 40px #000;
+      }
+
+      .search-box {
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+        justify-content: center;
+        margin-top: 20px;
+      }
+
+      input {
+        flex: 1;
+        min-width: 250px;
+        padding: 18px;
+        border: none;
+        border-radius: 18px;
+        background: #1a1a1a;
+        color: white;
+        font-size: 1rem;
+        outline: none;
+      }
+
+      button {
+        padding: 18px 28px;
+        border: none;
+        border-radius: 18px;
+        background: linear-gradient(90deg, #00ffff, #ff00aa);
+        color: black;
+        font-weight: bold;
+        font-size: 1rem;
+        cursor: pointer;
+        transition: 0.2s;
+      }
+
+      button:hover {
+        transform: scale(1.05);
+      }
+
+      #game-container {
+        display: none;
+        margin-top: 40px;
+        text-align: center;
+      }
+
+      canvas {
+        width: 100%;
+        height: 420px;
+        border-radius: 20px;
+        background: #080808;
+        box-shadow: 0 0 40px #00ffff22;
+      }
+
+      #instructions {
+        margin-top: 15px;
+        opacity: 0.8;
+      }
+
+      #result {
+        display: none;
+        margin-top: 40px;
+        text-align: center;
+      }
+
+      #poster {
+        width: 280px;
+        max-width: 100%;
+        margin-top: 20px;
+        border-radius: 20px;
+        box-shadow: 0 0 30px #000;
+      }
+
+      .confidence {
+        display: inline-block;
+        margin-top: 15px;
+        padding: 12px 20px;
+        border-radius: 999px;
+        background: #00ffff22;
+        color: #00ffff;
+        font-weight: bold;
+      }
+
+      .streaming-btn {
+        display: inline-block;
+        margin-top: 20px;
+        padding: 14px 24px;
+        background: #ff00aa;
+        color: white;
+        text-decoration: none;
+        border-radius: 16px;
+        font-weight: bold;
+      }
+
+      .faq {
+        margin-top: 70px;
+      }
+
+      .faq h2 {
+        margin-bottom: 25px;
+        font-size: 2rem;
+      }
+
+      .faq-item {
+        margin-bottom: 25px;
+        padding: 25px;
+        background: #151515;
+        border-radius: 20px;
+        border: 1px solid #222;
+      }
+
+      .faq-item h3 {
+        margin-bottom: 10px;
+        color: #00ffff;
+      }
+
+      footer {
+        margin-top: 60px;
+        padding: 30px;
+        text-align: center;
+        opacity: 0.7;
+      }
+
+      .copy-btn {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: #00ffff;
+        color: black;
+        padding: 14px 18px;
+        border: none;
+        border-radius: 14px;
+        font-weight: bold;
+        cursor: pointer;
+        z-index: 999;
+      }
+
+      @media (max-width: 700px) {
+        .logo {
+          font-size: 2.7rem;
+        }
+
+        .main-card {
+          padding: 20px;
+        }
+
+        canvas {
+          height: 300px;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <button class="copy-btn" onclick="copyAllCode()">📋 Copier</button>
+
+    <div class="language-box">
+      <select id="languageSwitcher">
+        <option value="fr">🇫🇷 Français</option>
+        <option value="en">🇬🇧 English</option>
+        <option value="es">🇪🇸 Español</option>
+        <option value="de">🇩🇪 Deutsch</option>
+        <option value="zh">🇨🇳 中文</option>
+        <option value="ja">🇯🇵 日本語</option>
+      </select>
+    </div>
+
+    <header>
+      <h1 class="logo" data-i18n="title">ShadowFrame</h1>
+
+      <p class="subtitle" data-i18n="subtitle">
+        Le moteur IA qui retrouve les films depuis TikTok, Reels et Shorts.
+      </p>
+    </header>
+
+    <div class="main-card">
+      <div class="search-box">
+        <input
+          id="videoUrl"
+          type="text"
+          placeholder="Colle un lien TikTok, Reel ou YouTube"
+          data-i18n-placeholder="input_placeholder"
+        />
+
+        <button onclick="analyserVideo()" data-i18n="analyze_btn">
+          Identifier
+        </button>
+      </div>
+
+      <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+
+        <p id="instructions" data-i18n="game_instruction">
+          Utilise ESPACE pour sauter et éviter le ninja.
+        </p>
+      </div>
+
+      <div id="result">
+        <h2 id="movieTitle"></h2>
+
+        <div class="confidence" id="confidence"></div>
+
+        <img id="poster" src="" />
+
+        <br />
+
+        <a
+          id="streamLink"
+          class="streaming-btn"
+          target="_blank"
+          data-i18n="watch_btn"
+        >
+          Voir le streaming
+        </a>
+      </div>
+
+      <div class="faq">
+        <h2 data-i18n="faq_title">Questions fréquentes</h2>
+
+        <div class="faq-item">
+          <h3 data-i18n="faq1_q">Comment retrouver un film depuis TikTok ?</h3>
+
+          <p data-i18n="faq1_a">
+            Notre IA analyse les images, les sous-titres, les voix et les
+            scènes.
+          </p>
+        </div>
+
+        <div class="faq-item">
+          <h3 data-i18n="faq2_q">Est-ce un Shazam des films ?</h3>
+
+          <p data-i18n="faq2_a">
+            Oui. ShadowFrame agit comme un Shazam intelligent dédié aux films.
+          </p>
+        </div>
+
+        <div class="faq-item">
+          <h3 data-i18n="faq3_q">Quels réseaux sont compatibles ?</h3>
+
+          <p data-i18n="faq3_a">
+            TikTok, Instagram Reels, YouTube Shorts et vidéos publiques.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <p>© ShadowFrame AI</p>
+    </footer>
+
+    <script>
+      function copyAllCode() {
+        navigator.clipboard.writeText(document.documentElement.outerHTML);
+
+        alert("Code copié.");
+      }
+
+      // ========================
+      // TRANSLATIONS
+      // ========================
+
+      const translations = {
+        fr: {
+          title: "ShadowFrame",
+          subtitle:
+            "Le moteur IA qui retrouve les films depuis TikTok, Reels et Shorts.",
+          input_placeholder: "Colle un lien TikTok, Reel ou YouTube",
+          analyze_btn: "Identifier",
+          game_instruction: "Utilise ESPACE pour sauter et éviter le ninja.",
+          watch_btn: "Voir le streaming",
+          faq_title: "Questions fréquentes",
+          faq1_q: "Comment retrouver un film depuis TikTok ?",
+          faq1_a:
+            "Notre IA analyse les images, les sous-titres, les voix et les scènes.",
+          faq2_q: "Est-ce un Shazam des films ?",
+          faq2_a:
+            "Oui. ShadowFrame agit comme un Shazam intelligent dédié aux films.",
+          faq3_q: "Quels réseaux sont compatibles ?",
+          faq3_a:
+            "TikTok, Instagram Reels, YouTube Shorts et vidéos publiques.",
+        },
+
+        en: {
+          title: "ShadowFrame",
+          subtitle:
+            "AI engine that finds movies from TikTok, Reels and Shorts.",
+          input_placeholder: "Paste a TikTok, Reel or YouTube URL",
+          analyze_btn: "Identify",
+          game_instruction: "Press SPACE to jump and escape the ninja.",
+          watch_btn: "Watch streaming",
+          faq_title: "Frequently asked questions",
+          faq1_q: "How to find a movie from TikTok?",
+          faq1_a: "Our AI analyzes scenes, subtitles, voices and visuals.",
+          faq2_q: "Is this a movie Shazam?",
+          faq2_a: "Yes. ShadowFrame acts like an intelligent Shazam.",
+          faq3_q: "Which platforms are supported?",
+          faq3_a: "TikTok, Instagram Reels, YouTube Shorts and public videos.",
+        },
+      };
+
+      function applyTranslations(lang) {
+        const dict = translations[lang] || translations.fr;
+
+        document.querySelectorAll("[data-i18n]").forEach((el) => {
+          const key = el.getAttribute("data-i18n");
+
+          if (dict[key]) {
+            el.innerText = dict[key];
+          }
+        });
+
+        document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+          const key = el.getAttribute("data-i18n-placeholder");
+
+          if (dict[key]) {
+            el.placeholder = dict[key];
+          }
+        });
+
+        localStorage.setItem("lang", lang);
+      }
+
+      const switcher = document.getElementById("languageSwitcher");
+
+      switcher.addEventListener("change", () => {
+        applyTranslations(switcher.value);
+      });
+
+      const savedLang = localStorage.getItem("lang") || "fr";
+
+      switcher.value = savedLang;
+
+      applyTranslations(savedLang);
+
+      // ========================
+      // 3D GAME
+      // ========================
+
+      const canvas = document.getElementById("gameCanvas");
+
+      const scene = new THREE.Scene();
+
+      scene.background = new THREE.Color(0x080808);
+
+      const camera = new THREE.PerspectiveCamera(
+        75,
+        canvas.clientWidth / canvas.clientHeight,
+        0.1,
+        1000,
+      );
+
+      const renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: true,
+      });
+
+      renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+
+      const light = new THREE.PointLight(0xffffff, 2);
+
+      light.position.set(5, 5, 5);
+
+      scene.add(light);
+
+      const ambient = new THREE.AmbientLight(0x404040);
+
+      scene.add(ambient);
+
+      // PLAYER CREATURE
+
+      const creatureGeometry = new THREE.SphereGeometry(0.5, 32, 32);
+
+      const creatureMaterial = new THREE.MeshStandardMaterial({
+        color: 0x00ffff,
+        emissive: 0x00ffff,
+        emissiveIntensity: 0.5,
+      });
+
+      const creature = new THREE.Mesh(creatureGeometry, creatureMaterial);
+
+      creature.position.set(-2, 0, 0);
+
+      scene.add(creature);
+
+      // NINJA
+
+      const ninjaGeometry = new THREE.BoxGeometry(1, 1.5, 1);
+
+      const ninjaMaterial = new THREE.MeshStandardMaterial({
+        color: 0xff00aa,
+        emissive: 0xff00aa,
+        emissiveIntensity: 0.4,
+      });
+
+      const ninja = new THREE.Mesh(ninjaGeometry, ninjaMaterial);
+
+      ninja.position.set(2, 0, 0);
+
+      scene.add(ninja);
+
+      // FLOOR
+
+      const floorGeometry = new THREE.PlaneGeometry(20, 20);
+
+      const floorMaterial = new THREE.MeshStandardMaterial({
+        color: 0x111111,
+      });
+
+      const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+
+      floor.rotation.x = -Math.PI / 2;
+
+      floor.position.y = -1;
+
+      scene.add(floor);
+
+      camera.position.z = 6;
+      camera.position.y = 1;
+
+      let velocityY = 0;
+      let jumping = false;
+
+      window.addEventListener("keydown", (e) => {
+        if (e.code === "Space" && !jumping) {
+          velocityY = 0.18;
+
+          jumping = true;
+        }
+      });
+
+      function animate() {
+        requestAnimationFrame(animate);
+
+        creature.rotation.y += 0.03;
+
+        ninja.rotation.y -= 0.03;
+
+        if (jumping) {
+          creature.position.y += velocityY;
+
+          velocityY -= 0.01;
+
+          if (creature.position.y <= 0) {
+            creature.position.y = 0;
+
+            jumping = false;
+          }
+        }
+
+        ninja.position.x -= 0.003;
+
+        if (ninja.position.x < -3) {
+          ninja.position.x = 2;
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      animate();
+
+      // ========================
+      // API
+      // ========================
+
+      async function analyserVideo() {
+        const url = document.getElementById("videoUrl").value;
+
+        if (!url) return;
+
+        const game = document.getElementById("game-container");
+
+        const result = document.getElementById("result");
+
+        game.style.display = "block";
+
+        result.style.display = "none";
+
+        try {
+          const response = await fetch("/analyser", {
+            method: "POST",
+
+            headers: {
+              "Content-Type": "application/json",
+            },
+
+            body: JSON.stringify({ url }),
+          });
+
+          const data = await response.json();
+
+          result.style.display = "block";
+
+          if (data.status !== "success") {
+            document.getElementById("movieTitle").innerText =
+              "Film introuvable";
+
+            document.getElementById("confidence").innerText = "";
+
+            return;
+          }
+
+          document.getElementById("movieTitle").innerText = data.title;
+
+          document.getElementById("confidence").innerText =
+            "Confiance IA : " + data.confidence + "%";
+
+          if (data.poster) {
+            document.getElementById("poster").src = data.poster;
+          }
+
+          if (data.streaming) {
+            document.getElementById("streamLink").href = data.streaming;
+          }
+        } catch (err) {
+          console.error(err);
+
+          alert("Erreur serveur");
+        }
+      }
+    </script>
+  </body>
+</html>
