@@ -2,25 +2,32 @@ import os
 from groq import Groq
 
 def transcribe(audio_path: str, enabled: bool = True) -> str:
+    """
+    Transcrit un fichier audio en texte en utilisant l'API ultra-rapide de Groq.
+    Détecte automatiquement la langue parlée.
+    """
     if not enabled:
         return ""
-    
-    # Récupération de la clé API depuis les variables d'environnement
+
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
-        print("Erreur : GROQ_API_KEY non trouvée dans les variables d'environnement.")
+        print("❌ ERREUR : La variable d'environnement GROQ_API_KEY est introuvable.")
         return ""
 
-    client = Groq(api_key=api_key)
-    
     try:
+        client = Groq(api_key=api_key)
+
         with open(audio_path, "rb") as file:
             transcription = client.audio.transcriptions.create(
-              file=(audio_path, file.read()),
-              model="whisper-large-v3", # Modèle Whisper hébergé par Groq
-              response_format="text"
+                file=(audio_path, file.read()),
+                model="whisper-large-v3", 
+                response_format="text"
+                # Le paramètre 'language' a été retiré : 
+                # Whisper va maintenant détecter la langue automatiquement !
             )
+        
         return transcription
+
     except Exception as e:
-        print(f"Erreur lors de la transcription API : {e}")
+        print(f"❌ ERREUR API GROQ (Transcription) : {str(e)}")
         return ""

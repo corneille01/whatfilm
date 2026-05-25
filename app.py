@@ -45,17 +45,16 @@ class VideoRequest(BaseModel):
 
 @app.post("/analyser")
 async def analyser(req: VideoRequest):
-
+    # 1. Vérification du cache
     cached = get_cache(req.url)
-
     if cached:
         return {
             "status": "cached",
             **cached
         }
 
+    # 2. Préparation des dossiers temporaires
     uid = str(uuid.uuid4())[:8]
-
     os.makedirs("temp", exist_ok=True)
 
     video_path = f"temp/{uid}.mp4"
@@ -63,40 +62,25 @@ async def analyser(req: VideoRequest):
     frame_dir = f"temp/{uid}"
 
     try:
-
         print("STEP 1 = DOWNLOAD VIDEO")
-
         subprocess.run(
             [
-                "yt-dlp",
-                "-f",
-                "mp4",
-                "-o",
-                video_path,
-                "--no-playlist",
-                req.url
+                "yt-dlp", "-f", "mp4", "-o", video_path,
+                "--no-playlist", req.url
             ],
             check=True
         )
 
         print("STEP 2 = EXTRACT AUDIO")
-
         subprocess.run(
             [
-                "ffmpeg",
-                "-i",
-                video_path,
-                "-vn",
-                "-acodec",
-                "mp3",
-                "-y",
-                audio_path
+                "ffmpeg", "-i", video_path, "-vn",
+                "-acodec", "mp3", "-y", audio_path
             ],
             check=True
         )
 
         print("STEP 3 = EXTRACT FRAMES")
-
         frames = extract_keyframes(
             video_path,
             frame_dir,
@@ -104,94 +88,51 @@ async def analyser(req: VideoRequest):
         )
 
         print("STEP 4 = OCR")
-
-        ocr_text = extract_text_from_images(
-            frames,
-            max_images=4
-        )
-
+        ocr_text = extract_text_from_images(frames, max_images=4)
         print("OCR =", ocr_text)
 
         print("STEP 5 = TRANSCRIBE")
-
-        transcript = transcribe(
-            audio_path,
-            enabled=True
-        )
+        transcript = transcribe(audio_path, enabled=True)
+        # ---> NOUVEAU LOG POUR DEBUG <---
+        print("TRANSCRIPT =", transcript)
 
         print("STEP 6 = GEMINI EXTRACTION")
-
-        extraction = await multimodal_extract(
-            frames,
-            ocr_text,
-            transcript
-        )
-
+        extraction = await multimodal_extract(frames, ocr_text, transcript)
+        # ---> LOG CRUCIAL POUR VOIR LA RÉPONSE DE L'IA <---
         print("EXTRACTION =", extraction)
 
         print("STEP 7 = FAKE DETECTION")
-
-        fake_score = detect_fake(
-            ocr_text + transcript
-        )
-
+        fake_score = detect_fake(ocr_text + transcript)
         print("FAKE SCORE =", fake_score)
 
         print("STEP 8 = SEARCH QUERY")
-
-        query = await build_search_query(
-            extraction
-        )
-
+        query = await build_search_query(extraction)
         print("QUERY =", query)
 
         print("STEP 9 = TMDB SEARCH")
-
-        candidates = await search_candidates(
-            query
-        )
-
+        candidates = await search_candidates(query)
         print("CANDIDATES =", candidates)
 
         if not candidates:
-
             return {
                 "status": "unknown",
                 "message": "Film introuvable"
             }
 
-        deep_mode = should_use_deep(
-            extraction,
-            fake_score
-        )
-
+        deep_mode = should_use_deep(extraction, fake_score)
         print("DEEP MODE =", deep_mode)
 
         if deep_mode:
-
-            result = await rerank(
-                extraction,
-                candidates
-            )
-
+            result = await rerank(extraction, candidates)
         else:
-
             best = candidates[0]
-
             result = {
-                "meilleur_titre": best.get(
-                    "title",
-                    best.get("name", "unknown")
-                ),
+                "meilleur_titre": best.get("title", best.get("name", "unknown")),
                 "score": 75,
                 "raison": "fast mode"
             }
 
-        confidence = result.get(
-            "score",
-            0
-        )
-
+        confidence = result.get("score", 0)
         if fake_score > 70:
             confidence -= 15
 
@@ -202,24 +143,19 @@ async def analyser(req: VideoRequest):
         }
 
         set_cache(req.url, final)
-
         return final
 
     except Exception as e:
-
         print("ERROR =", str(e))
-
         return {
             "status": "error",
             "message": str(e)
         }
 
     finally:
-
+        # Nettoyage des fichiers temporaires
         for f in [video_path, audio_path]:
-
             if os.path.exists(f):
                 os.remove(f)
-
         if os.path.exists(frame_dir):
             shutil.rmtree(frame_dir)
