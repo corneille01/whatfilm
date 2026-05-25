@@ -7,7 +7,7 @@ httpx
 openai-whisper
 python-multipart
 python-dotenv
-pyscenedetect
+scenedetect[opencv]
 opencv-python-headless
 numpy
 rapidfuzz
@@ -16,6 +16,7 @@ sentence-transformers
 faiss-cpu
 torch
 torchaudio
-ffmpeg-python
+torchvision
+transformers
 aiofiles
 jinja2
