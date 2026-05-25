@@ -119,7 +119,7 @@ async def analyser(req: VideoRequest):
                 "message": "Film introuvable"
             }
 
-        deep_mode = should_use_deep(extraction, fake_score)
+        deep_mode = True
         print("DEEP MODE =", deep_mode)
 
         if deep_mode:

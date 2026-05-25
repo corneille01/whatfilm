@@ -1,22 +1,22 @@
-# core/reranker.py
-
-from google import genai
-from google.genai import types
 import json
 import os
+from google import genai
+from google.genai import types
+
+# On importe le prompt
+from core.prompts import RERANK_PROMPT 
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-
 async def rerank(extraction, candidates):
-
     if not candidates:
         return {
             "meilleur_titre": "inconnu",
             "score": 0,
-            "raison": "no candidates"
+            "raison": "Aucun candidat trouvé sur TMDB"
         }
 
+    # Simplification des résultats TMDB
     simplified = [
         {
             "id": c.get("id"),
@@ -26,19 +26,11 @@ async def rerank(extraction, candidates):
         for c in candidates
     ]
 
-    prompt = f"""
-Compare strictement.
-
-{json.dumps(extraction, ensure_ascii=False)}
-{json.dumps(simplified, ensure_ascii=False)}
-
-Return JSON:
-{{
-  "meilleur_titre": "",
-  "score": 0,
-  "raison": ""
-}}
-"""
+    # Injection des données (en format JSON strict) dans le prompt
+    prompt = RERANK_PROMPT.format(
+        extraction_json=json.dumps(extraction, ensure_ascii=False),
+        candidates_json=json.dumps(simplified, ensure_ascii=False)
+    )
 
     try:
         response = client.models.generate_content(
@@ -49,12 +41,13 @@ Return JSON:
                 response_mime_type="application/json"
             )
         )
-
+        
         return json.loads(response.text)
 
-    except:
+    except Exception as e:
+        print(f"RERANK ERROR: {e}")
         return {
             "meilleur_titre": "inconnu",
             "score": 0,
-            "raison": "error"
+            "raison": "Erreur lors du reranking"
         }
