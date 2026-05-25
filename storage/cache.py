@@ -1,8 +1,6 @@
-import json
 import hashlib
-import redis
 
-r = redis.Redis(host="redis", port=6379, db=0)
+_cache = {}  # fallback RAM (Render safe)
 
 
 def make_key(url: str):
@@ -11,12 +9,9 @@ def make_key(url: str):
 
 def get_cache(url: str):
     key = make_key(url)
-    data = r.get(key)
-    if data:
-        return json.loads(data)
-    return None
+    return _cache.get(key)
 
 
-def set_cache(url: str, value: dict, ttl=3600 * 24 * 7):
+def set_cache(url: str, value):
     key = make_key(url)
-    r.setex(key, ttl, json.dumps(value))
+    _cache[key] = value

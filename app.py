@@ -5,20 +5,21 @@ import subprocess
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from scene_detection import extract_keyframes
-from ocr_engine import extract_text_from_images
-from whisper_engine import transcribe
-from extraction import multimodal_extract
-from retrieval import build_search_query
-from tmdb import search_candidates
-from reranker import rerank
-from fake_detector import detect_fake
+from vision.scene_detection import extract_keyframes
+from vision.ocr_engine import extract_text_from_images
+from vision.whisper_engine import transcribe
 
+from core.extraction import multimodal_extract
+from core.retrieval import build_search_query
+from data.tmdb import search_candidates
+from data.fake_detector import detect_fake
+from core.reranker import rerank
 from storage.cache import get_cache, set_cache
 from core.mode import should_use_deep
 from core.early_exit import early_exit_check
 
-
+import sys
+print(sys.path)
 app = FastAPI(title="ShadowFrame Optimized")
 
 
@@ -123,3 +124,5 @@ async def analyser(req: VideoRequest):
         for f in [video_path, audio_path]:
             if os.path.exists(f):
                 os.remove(f)
+
+
