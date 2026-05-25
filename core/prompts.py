@@ -1,48 +1,35 @@
-# core/prompts.py
-
 EXTRACTION_PROMPT = """
-Analyse ces images tirées d'une vidéo, ainsi que le texte à l'écran (OCR) et la transcription audio.
-Identifie le film ou la série. 
+Tu es un expert en cinéma. Analyse ces images, l'OCR et la transcription audio.
 
-Concentre-toi sur les visages et l'audio. 
-IMPORTANT : Si tu n'es pas certain à 100% de l'identité d'un acteur, NE L'INVENTE PAS, laisse la liste vide. 
-Si le contenu semble être une vidéo truquée, un "fake" ou un montage amateur, indique-le dans la description.
+OBJECTIF : Identifier le film, la série ou le court-métrage.
 
-OCR:
-{ocr_text}
+RÈGLES DE SÉCURITÉ :
+1. ANALYSE CRITIQUE : Si c'est une vidéo virale, amateur, pub ou hoax, indique-le dans "description_courte".
+2. ACTEURS : Si tu n'es pas certain à 100% de l'identité d'un acteur, laisse la liste VIDE. Ne devine jamais.
+3. PORTE DE SORTIE : Si rien ne correspond, laisse "titres_possibles" VIDE.
 
-TRANSCRIPT:
-{transcript}
-
-Réponds STRICTEMENT avec ce format JSON :
+Réponds STRICTEMENT en format JSON :
 {{
   "description_courte": "",
   "personnages": [],
   "acteurs": [],
-  "objets_importants": [],
   "titres_possibles": []
 }}
 """
 
 RERANK_PROMPT = """
-Tu es un vérificateur de films/séries implacable.
-Voici les données extraites de la vidéo :
-{extraction_json}
-
-Voici les résultats potentiels de la base de données TMDB :
-{candidates_json}
+Données extraites: {extraction_json}
+Candidats TMDB: {candidates_json}
 
 Ta mission :
-1. Compare la description de la vidéo avec les résumés TMDB.
-2. Si un candidat correspond, donne-lui un score élevé (80-100).
-3. Si les acteurs détectés dans la vidéo ne jouent PAS dans les films trouvés, le score doit être très bas (<30).
-4. Si tu as un doute, sois prudent. Si aucun film ne correspond, retourne "inconnu".
-5. NE JAMAIS inventer de titre qui n'est pas dans la liste fournie.
+1. Privilégie le titre sur l'acteur.
+2. Si un acteur extrait ne joue PAS dans le film candidat, ignore l'acteur.
+3. Si aucun film ne correspond, retourne 'inconnu'.
 
 Return EXACTLY JSON:
 {{
   "meilleur_titre": "titre exact ou 'inconnu'",
   "score": 0,
-  "raison": "explication courte"
+  "raison": "explication"
 }}
 """
