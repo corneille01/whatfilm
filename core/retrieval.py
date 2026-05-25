@@ -1,28 +1,23 @@
-# core/retrieval.py
-
 async def build_search_query(extraction):
 
     if isinstance(extraction, dict):
 
         terms = []
 
-        if extraction.get("objets"):
-            terms += extraction.get("objets", [])
+        description = extraction.get("description", "")
 
-        if extraction.get("actions"):
-            terms += extraction.get("actions", [])
+        objets = extraction.get("objets", [])
 
-        if extraction.get("genre"):
+        actions = extraction.get("actions", [])
 
-            genre = extraction.get("genre")
+        genre = extraction.get("genre", [])
 
-            if isinstance(genre, list):
-                terms += genre
-            else:
-                terms.append(str(genre))
+        if description:
+            terms.append(description)
 
-        if extraction.get("description"):
-            terms.append(extraction.get("description"))
+        terms += objets
+        terms += actions
+        terms += genre
 
         query = " ".join(terms)
 

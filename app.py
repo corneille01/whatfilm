@@ -13,10 +13,13 @@ from vision.whisper_engine import transcribe
 
 from core.extraction import multimodal_extract
 from core.retrieval import build_search_query
+
 from data.tmdb import search_candidates
 from data.fake_detector import detect_fake
+
 from core.reranker import rerank
 from storage.cache import get_cache, set_cache
+
 from core.mode import should_use_deep
 from core.early_exit import early_exit_check
 
@@ -54,44 +57,64 @@ async def analyser(req: VideoRequest):
     audio_path = f"temp/{uid}.mp3"
     frame_dir = f"temp/{uid}"
 
-    frames = []
-
     try:
 
+        os.makedirs("temp", exist_ok=True)
+
+        # DOWNLOAD VIDEO
         subprocess.run(
-            ["yt-dlp",
-             "-f", "mp4",
-            "-o", video_path,
-            "--no-playlist",
-            req.url],
+            [
+                "yt-dlp",
+                "-f", "mp4",
+                "-o", video_path,
+                "--no-playlist",
+                req.url
+            ],
             check=True
         )
 
+        # EXTRACT AUDIO
         subprocess.run(
-            ["ffmpeg", "-i", video_path, "-y", audio_path],
+            [
+                "ffmpeg",
+                "-i", video_path,
+                "-y",
+                audio_path
+            ],
             check=True
         )
 
+        # KEYFRAMES
         frames = extract_keyframes(
             video_path,
             frame_dir,
             max_frames=10
         )
 
+        # OCR
         ocr_text = extract_text_from_images(
             frames,
             max_images=8
         )
 
-        transcript = transcribe(audio_path, enabled=True)
+        # TRANSCRIPTION
+        transcript = transcribe(
+            audio_path,
+            enabled=True
+        )
 
-        extraction = multimodal_extract(
+        # GEMINI EXTRACTION
+        extraction = await multimodal_extract(
             frames,
             ocr_text,
             transcript
         )
 
-        fake_score = detect_fake(ocr_text + transcript)
+        print("EXTRACTION =", extraction)
+
+        fake_score = detect_fake(
+            ocr_text + transcript
+        )
 
         deep_mode = should_use_deep(
             extraction,
@@ -100,26 +123,35 @@ async def analyser(req: VideoRequest):
 
         query = await build_search_query(extraction)
 
-        candidates = await search_candidates(query)
         print("QUERY =", query)
+
+        candidates = search_candidates(query)
+
         print("CANDIDATES =", candidates)
 
         if not candidates:
             return {
                 "status": "unknown",
-                "message": "no candidates"
+                "message": "Film introuvable"
             }
 
         if deep_mode:
-            result = await rerank(extraction, candidates)
+
+            result = await rerank(
+                extraction,
+                candidates
+            )
 
         else:
+
+            best = candidates[0]
+
             result = {
-                "meilleur_titre": candidates[0].get(
+                "meilleur_titre": best.get(
                     "title",
-                    "unknown"
+                    best.get("name", "unknown")
                 ),
-                "score": 60,
+                "score": 75,
                 "raison": "fast mode"
             }
 
@@ -127,18 +159,6 @@ async def analyser(req: VideoRequest):
 
         if fake_score > 70:
             confidence -= 15
-
-        if early_exit_check(result):
-
-            final = {
-                "status": "success",
-                "title": result["meilleur_titre"],
-                "confidence": confidence
-            }
-
-            set_cache(req.url, final)
-
-            return final
 
         final = {
             "status": "success",
@@ -151,6 +171,9 @@ async def analyser(req: VideoRequest):
         return final
 
     except Exception as e:
+
+        print("ERROR =", str(e))
+
         return {
             "status": "error",
             "message": str(e)
