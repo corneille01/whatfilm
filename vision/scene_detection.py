@@ -1,42 +1,26 @@
 import os
-from scenedetect import detect, ContentDetector
-import cv2
+import subprocess
 
 
 def extract_keyframes(video_path, output_dir, max_frames=10):
 
     os.makedirs(output_dir, exist_ok=True)
 
-    scenes = detect(
-        video_path,
-        ContentDetector(threshold=27.0)
-    )
+    output_pattern = os.path.join(output_dir, "frame_%03d.jpg")
 
-    cap = cv2.VideoCapture(video_path)
+    subprocess.run([
+        "ffmpeg",
+        "-i", video_path,
+        "-vf", f"fps=1",
+        "-frames:v", str(max_frames),
+        output_pattern,
+        "-y"
+    ], check=True)
 
     frames = []
 
-    for i, scene in enumerate(scenes[:max_frames]):
-
-        start_time = scene[0]
-
-        frame_number = start_time.get_frames()
-
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-
-        success, frame = cap.read()
-
-        if success:
-
-            frame_path = os.path.join(
-                output_dir,
-                f"frame_{i}.jpg"
-            )
-
-            cv2.imwrite(frame_path, frame)
-
-            frames.append(frame_path)
-
-    cap.release()
+    for file in sorted(os.listdir(output_dir)):
+        if file.endswith(".jpg"):
+            frames.append(os.path.join(output_dir, file))
 
     return frames

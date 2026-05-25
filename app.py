@@ -59,7 +59,11 @@ async def analyser(req: VideoRequest):
     try:
 
         subprocess.run(
-            ["yt-dlp", "-o", video_path, req.url],
+            ["yt-dlp",
+             "-f", "mp4",
+            "-o", video_path,
+            "--no-playlist",
+            req.url],
             check=True
         )
 
@@ -97,6 +101,8 @@ async def analyser(req: VideoRequest):
         query = await build_search_query(extraction)
 
         candidates = await search_candidates(query)
+        print("QUERY =", query)
+        print("CANDIDATES =", candidates)
 
         if not candidates:
             return {

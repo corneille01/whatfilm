@@ -423,97 +423,114 @@
       // 3D GAME
       // ========================
 
-      const canvas = document.getElementById("gameCanvas");
-
-      const scene = new THREE.Scene();
-
-      scene.background = new THREE.Color(0x080808);
-
-      const camera = new THREE.PerspectiveCamera(
-        75,
-        canvas.clientWidth / canvas.clientHeight,
-        0.1,
-        1000,
-      );
-
-      const renderer = new THREE.WebGLRenderer({
-        canvas,
-        antialias: true,
-      });
-
-      renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-
-      const light = new THREE.PointLight(0xffffff, 2);
-
-      light.position.set(5, 5, 5);
-
-      scene.add(light);
-
-      const ambient = new THREE.AmbientLight(0x404040);
-
-      scene.add(ambient);
-
-      // PLAYER CREATURE
-
-      const creatureGeometry = new THREE.SphereGeometry(0.5, 32, 32);
-
-      const creatureMaterial = new THREE.MeshStandardMaterial({
-        color: 0x00ffff,
-        emissive: 0x00ffff,
-        emissiveIntensity: 0.5,
-      });
-
-      const creature = new THREE.Mesh(creatureGeometry, creatureMaterial);
-
-      creature.position.set(-2, 0, 0);
-
-      scene.add(creature);
-
-      // NINJA
-
-      const ninjaGeometry = new THREE.BoxGeometry(1, 1.5, 1);
-
-      const ninjaMaterial = new THREE.MeshStandardMaterial({
-        color: 0xff00aa,
-        emissive: 0xff00aa,
-        emissiveIntensity: 0.4,
-      });
-
-      const ninja = new THREE.Mesh(ninjaGeometry, ninjaMaterial);
-
-      ninja.position.set(2, 0, 0);
-
-      scene.add(ninja);
-
-      // FLOOR
-
-      const floorGeometry = new THREE.PlaneGeometry(20, 20);
-
-      const floorMaterial = new THREE.MeshStandardMaterial({
-        color: 0x111111,
-      });
-
-      const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-
-      floor.rotation.x = -Math.PI / 2;
-
-      floor.position.y = -1;
-
-      scene.add(floor);
-
-      camera.position.z = 6;
-      camera.position.y = 1;
+      let scene;
+      let camera;
+      let renderer;
+      let creature;
+      let ninja;
 
       let velocityY = 0;
       let jumping = false;
 
-      window.addEventListener("keydown", (e) => {
-        if (e.code === "Space" && !jumping) {
-          velocityY = 0.18;
+      let gameStarted = false;
 
-          jumping = true;
-        }
-      });
+      function initGame() {
+        if (gameStarted) return;
+
+        gameStarted = true;
+
+        const canvas = document.getElementById("gameCanvas");
+
+        scene = new THREE.Scene();
+
+        scene.background = new THREE.Color(0x080808);
+
+        camera = new THREE.PerspectiveCamera(
+          75,
+          canvas.offsetWidth / canvas.offsetHeight,
+          0.1,
+          1000,
+        );
+
+        renderer = new THREE.WebGLRenderer({
+          canvas,
+          antialias: true,
+        });
+
+        renderer.setSize(canvas.offsetWidth, canvas.offsetHeight);
+
+        const light = new THREE.PointLight(0xffffff, 2);
+
+        light.position.set(5, 5, 5);
+
+        scene.add(light);
+
+        const ambient = new THREE.AmbientLight(0x404040);
+
+        scene.add(ambient);
+
+        // CREATURE
+
+        const creatureGeometry = new THREE.SphereGeometry(0.5, 32, 32);
+
+        const creatureMaterial = new THREE.MeshStandardMaterial({
+          color: 0x00ffff,
+          emissive: 0x00ffff,
+          emissiveIntensity: 0.5,
+        });
+
+        creature = new THREE.Mesh(creatureGeometry, creatureMaterial);
+
+        creature.position.set(-2, 0, 0);
+
+        scene.add(creature);
+
+        // NINJA
+
+        const ninjaGeometry = new THREE.BoxGeometry(1, 1.5, 1);
+
+        const ninjaMaterial = new THREE.MeshStandardMaterial({
+          color: 0xff00aa,
+          emissive: 0xff00aa,
+          emissiveIntensity: 0.4,
+        });
+
+        ninja = new THREE.Mesh(ninjaGeometry, ninjaMaterial);
+
+        ninja.position.set(2, 0, 0);
+
+        scene.add(ninja);
+
+        // FLOOR
+
+        const floorGeometry = new THREE.PlaneGeometry(20, 20);
+
+        const floorMaterial = new THREE.MeshStandardMaterial({
+          color: 0x111111,
+        });
+
+        const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+
+        floor.rotation.x = -Math.PI / 2;
+
+        floor.position.y = -1;
+
+        scene.add(floor);
+
+        camera.position.z = 6;
+
+        camera.position.y = 1;
+
+        window.addEventListener("keydown", (e) => {
+          if (e.code === "Space" && !jumping) {
+            velocityY = 0.18;
+
+            jumping = true;
+          }
+        });
+
+        animate();
+      }
 
       function animate() {
         requestAnimationFrame(animate);
@@ -534,16 +551,14 @@
           }
         }
 
-        ninja.position.x -= 0.003;
+        ninja.position.x -= 0.03;
 
-        if (ninja.position.x < -3) {
-          ninja.position.x = 2;
+        if (ninja.position.x < -4) {
+          ninja.position.x = 4;
         }
 
         renderer.render(scene, camera);
       }
-
-      animate();
 
       // ========================
       // API
@@ -559,6 +574,7 @@
         const result = document.getElementById("result");
 
         game.style.display = "block";
+        initGame();
 
         result.style.display = "none";
 

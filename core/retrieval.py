@@ -1,21 +1,31 @@
 # core/retrieval.py
 
-from data.tmdb import search_candidates
+async def build_search_query(extraction):
 
+    if isinstance(extraction, dict):
 
-def build_search_query(extraction):
-    terms = []
-    terms += extraction.get("objets", [])
-    terms += extraction.get("actions", [])
-    terms += extraction.get("genre", [])
-    return " ".join(terms)
+        terms = []
 
+        if extraction.get("objets"):
+            terms += extraction.get("objets", [])
 
-async def search_candidates_from_extraction(extraction):
+        if extraction.get("actions"):
+            terms += extraction.get("actions", [])
 
-    query = build_search_query(extraction)
+        if extraction.get("genre"):
 
-    if not query:
-        return []
+            genre = extraction.get("genre")
 
-    return await search_candidates(query)
+            if isinstance(genre, list):
+                terms += genre
+            else:
+                terms.append(str(genre))
+
+        if extraction.get("description"):
+            terms.append(extraction.get("description"))
+
+        query = " ".join(terms)
+
+        return query[:150]
+
+    return str(extraction)[:150]
