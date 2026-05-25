@@ -2,20 +2,30 @@ import os
 import subprocess
 
 
-def extract_keyframes(video_path, output_dir, max_frames=10):
+def extract_keyframes(
+    video_path,
+    output_dir,
+    max_frames=4
+):
 
     os.makedirs(output_dir, exist_ok=True)
 
-    output_pattern = f"{output_dir}/frame_%03d.jpg"
+    output_pattern = os.path.join(
+        output_dir,
+        "frame_%03d.jpg"
+    )
+
+    command = [
+        "ffmpeg",
+        "-i", video_path,
+        "-vf", f"fps=0.2",
+        "-frames:v", str(max_frames),
+        output_pattern,
+        "-y"
+    ]
 
     subprocess.run(
-        [
-            "ffmpeg",
-            "-i", video_path,
-            "-vf", f"fps={max_frames/10}",
-            "-q:v", "2",
-            output_pattern
-        ],
+        command,
         check=True
     )
 
@@ -27,4 +37,4 @@ def extract_keyframes(video_path, output_dir, max_frames=10):
 
     print("FRAMES =", frames)
 
-    return frames[:max_frames]
+    return frames

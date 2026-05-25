@@ -1,27 +1,31 @@
-# vision/whisper_engine.py
-
 import whisper
 
-
-model = whisper.load_model("tiny")
+model = None
 
 
 def transcribe(audio_path, enabled=True):
+
+    global model
 
     if not enabled:
         return ""
 
     try:
 
-        print("WHISPER AUDIO =", audio_path)
+        if model is None:
+            print("LOADING WHISPER MODEL...")
+            model = whisper.load_model("tiny")
 
-        result = model.transcribe(audio_path)
+        result = model.transcribe(
+            audio_path,
+            fp16=False
+        )
 
         text = result.get("text", "")
 
-        print("WHISPER RESULT =", text)
+        print("TRANSCRIPT =", text)
 
-        return text
+        return text.strip()
 
     except Exception as e:
 

@@ -5,16 +5,38 @@ async def build_search_query(extraction):
 
     terms = []
 
-    terms += extraction.get("objets", [])
-    terms += extraction.get("actions", [])
-    terms += extraction.get("genre", [])
-    terms += extraction.get("possible_titles", [])
+    description = extraction.get("description")
 
-    description = extraction.get("description", "")
+    objets = extraction.get("objets", [])
+
+    actions = extraction.get("actions", [])
+
+    genre = extraction.get("genre", [])
+
+    possible_titles = extraction.get(
+        "possible_titles",
+        []
+    )
 
     if description:
         terms.append(description)
 
-    query = " ".join(terms)
+    if isinstance(objets, list):
+        terms += objets
 
-    return query[:200]
+    if isinstance(actions, list):
+        terms += actions
+
+    if isinstance(genre, list):
+        terms += genre
+
+    if isinstance(possible_titles, list):
+        terms += possible_titles
+
+    query = " ".join([
+        str(t)
+        for t in terms
+        if t
+    ])
+
+    return query[:150]

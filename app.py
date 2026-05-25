@@ -24,12 +24,8 @@ from storage.cache import get_cache, set_cache
 from core.mode import should_use_deep
 
 
-app = FastAPI(title="ShadowFrame AI")
+app = FastAPI(title="ShadowFrame")
 
-
-# =========================
-# FRONTEND
-# =========================
 
 app.mount(
     "/frontend",
@@ -43,22 +39,13 @@ async def root():
     return FileResponse("frontend/index.html")
 
 
-# =========================
-# REQUEST MODEL
-# =========================
-
 class VideoRequest(BaseModel):
     url: str
 
 
-# =========================
-# ANALYSER
-# =========================
-
 @app.post("/analyser")
 async def analyser(req: VideoRequest):
 
-    # CACHE
     cached = get_cache(req.url)
 
     if cached:
@@ -82,8 +69,10 @@ async def analyser(req: VideoRequest):
         subprocess.run(
             [
                 "yt-dlp",
-                "-o", video_path,
-                "-f", "mp4",
+                "-f",
+                "mp4",
+                "-o",
+                video_path,
                 "--no-playlist",
                 req.url
             ],
@@ -95,7 +84,11 @@ async def analyser(req: VideoRequest):
         subprocess.run(
             [
                 "ffmpeg",
-                "-i", video_path,
+                "-i",
+                video_path,
+                "-vn",
+                "-acodec",
+                "mp3",
                 "-y",
                 audio_path
             ],
@@ -107,29 +100,24 @@ async def analyser(req: VideoRequest):
         frames = extract_keyframes(
             video_path,
             frame_dir,
-            max_frames=10
+            max_frames=4
         )
-
-        print("FRAMES =", frames)
 
         print("STEP 4 = OCR")
 
         ocr_text = extract_text_from_images(
-        frames,
-        max_images=8
+            frames,
+            max_images=4
         )
 
         print("OCR =", ocr_text)
 
-
         print("STEP 5 = TRANSCRIBE")
 
         transcript = transcribe(
-        audio_path,
-        enabled=True
+            audio_path,
+            enabled=True
         )
-
-        print("TRANSCRIPT =", transcript)
 
         print("STEP 6 = GEMINI EXTRACTION")
 
@@ -151,20 +139,17 @@ async def analyser(req: VideoRequest):
 
         print("STEP 8 = SEARCH QUERY")
 
-        query = await build_search_query(extraction)
-        if not query or len(query.strip()) < 3:
-            return {
-                "status": "unknown",
-                "message": "Impossible d'analyser la vidéo"
-            }
+        query = await build_search_query(
+            extraction
+        )
 
         print("QUERY =", query)
-        print("OCR =", ocr_text[:500])
-        print("TRANSCRIPT =", transcript[:500])
 
         print("STEP 9 = TMDB SEARCH")
 
-        candidates = await search_candidates(query)
+        candidates = await search_candidates(
+            query
+        )
 
         print("CANDIDATES =", candidates)
 
@@ -182,10 +167,6 @@ async def analyser(req: VideoRequest):
 
         print("DEEP MODE =", deep_mode)
 
-        # =========================
-        # RERANK
-        # =========================
-
         if deep_mode:
 
             result = await rerank(
@@ -193,82 +174,34 @@ async def analyser(req: VideoRequest):
                 candidates
             )
 
-            title = result.get(
-                "meilleur_titre",
-                "Unknown"
-            )
-
-            confidence = result.get(
-                "score",
-                70
-            )
-
         else:
 
             best = candidates[0]
 
-            title = best.get(
-                "title",
-                best.get("name", "Unknown")
-            )
+            result = {
+                "meilleur_titre": best.get(
+                    "title",
+                    best.get("name", "unknown")
+                ),
+                "score": 75,
+                "raison": "fast mode"
+            }
 
-            confidence = 75
-
-        # =========================
-        # POSTER
-        # =========================
-
-        best = candidates[0]
-
-        poster = None
-
-        if best.get("poster_path"):
-
-            poster = (
-                "https://image.tmdb.org/t/p/w500"
-                + best["poster_path"]
-            )
-
-        # =========================
-        # STREAMING URL
-        # =========================
-
-        media_type = best.get("media_type", "movie")
-
-        if media_type == "tv":
-            stream_url = (
-                f"https://www.themoviedb.org/tv/{best['id']}"
-            )
-
-        else:
-            stream_url = (
-                f"https://www.themoviedb.org/movie/{best['id']}"
-            )
-
-        # =========================
-        # FAKE PENALTY
-        # =========================
+        confidence = result.get(
+            "score",
+            0
+        )
 
         if fake_score > 70:
             confidence -= 15
 
-        confidence = max(1, confidence)
-
-        # =========================
-        # FINAL RESPONSE
-        # =========================
-
         final = {
             "status": "success",
-            "title": title,
-            "confidence": confidence,
-            "poster": poster,
-            "streaming": stream_url
+            "title": result["meilleur_titre"],
+            "confidence": confidence
         }
 
         set_cache(req.url, final)
-
-        print("FINAL =", final)
 
         return final
 
@@ -282,8 +215,6 @@ async def analyser(req: VideoRequest):
         }
 
     finally:
-
-        # DELETE FILES
 
         for f in [video_path, audio_path]:
 
