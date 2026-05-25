@@ -10,7 +10,7 @@ python-dotenv
 scenedetect[opencv]
 opencv-python-headless
 numpy
-easyocr
+pytesseract
 rapidfuzz
 scikit-learn
 sentence-transformers

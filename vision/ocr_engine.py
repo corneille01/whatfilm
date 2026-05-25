@@ -1,16 +1,22 @@
-import easyocr
+import pytesseract
+from PIL import Image
 
-reader = easyocr.Reader(['fr', 'en'])
 
 def extract_text_from_images(images, max_images=8):
 
     texts = []
 
-    for img in images[:max_images]:
+    for img_path in images[:max_images]:
 
-        result = reader.readtext(img)
+        try:
+            image = Image.open(img_path)
 
-        for detection in result:
-            texts.append(detection[1])
+            text = pytesseract.image_to_string(image)
+
+            if text.strip():
+                texts.append(text)
+
+        except Exception as e:
+            print("OCR error:", e)
 
     return "\n".join(texts)
