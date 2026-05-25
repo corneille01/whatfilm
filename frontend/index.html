@@ -62,22 +62,6 @@
         font-size: 1.1rem;
       }
 
-      .language-box {
-        position: absolute;
-        top: 20px;
-        right: 20px;
-      }
-
-      select {
-        background: #111;
-        color: white;
-        border: 1px solid #00ffff;
-        padding: 10px;
-        border-radius: 12px;
-        font-size: 1rem;
-        outline: none;
-      }
-
       .main-card {
         width: min(900px, 92%);
         margin: auto;
@@ -125,9 +109,15 @@
         transform: scale(1.05);
       }
 
+      #loading {
+        display: none;
+        margin-top: 30px;
+        text-align: center;
+      }
+
       #game-container {
         display: none;
-        margin-top: 40px;
+        margin-top: 30px;
         text-align: center;
       }
 
@@ -208,20 +198,6 @@
         opacity: 0.7;
       }
 
-      .copy-btn {
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        background: #00ffff;
-        color: black;
-        padding: 14px 18px;
-        border: none;
-        border-radius: 14px;
-        font-weight: bold;
-        cursor: pointer;
-        z-index: 999;
-      }
-
       @media (max-width: 700px) {
         .logo {
           font-size: 2.7rem;
@@ -239,23 +215,10 @@
   </head>
 
   <body>
-    <button class="copy-btn" onclick="copyAllCode()">📋 Copier</button>
-
-    <div class="language-box">
-      <select id="languageSwitcher">
-        <option value="fr">🇫🇷 Français</option>
-        <option value="en">🇬🇧 English</option>
-        <option value="es">🇪🇸 Español</option>
-        <option value="de">🇩🇪 Deutsch</option>
-        <option value="zh">🇨🇳 中文</option>
-        <option value="ja">🇯🇵 日本語</option>
-      </select>
-    </div>
-
     <header>
-      <h1 class="logo" data-i18n="title">ShadowFrame</h1>
+      <h1 class="logo">ShadowFrame</h1>
 
-      <p class="subtitle" data-i18n="subtitle">
+      <p class="subtitle">
         Le moteur IA qui retrouve les films depuis TikTok, Reels et Shorts.
       </p>
     </header>
@@ -266,20 +229,19 @@
           id="videoUrl"
           type="text"
           placeholder="Colle un lien TikTok, Reel ou YouTube"
-          data-i18n-placeholder="input_placeholder"
         />
 
-        <button onclick="analyserVideo()" data-i18n="analyze_btn">
-          Identifier
-        </button>
+        <button onclick="analyserVideo()">Identifier</button>
+      </div>
+
+      <div id="loading">
+        <p>Analyse IA en cours...</p>
       </div>
 
       <div id="game-container">
         <canvas id="gameCanvas"></canvas>
 
-        <p id="instructions" data-i18n="game_instruction">
-          Utilise ESPACE pour sauter et éviter le ninja.
-        </p>
+        <p id="instructions">Utilise ESPACE pour sauter et éviter le ninja.</p>
       </div>
 
       <div id="result">
@@ -287,46 +249,42 @@
 
         <div class="confidence" id="confidence"></div>
 
+        <br />
+
         <img id="poster" src="" />
 
         <br />
 
-        <a
-          id="streamLink"
-          class="streaming-btn"
-          target="_blank"
-          data-i18n="watch_btn"
-        >
-          Voir le streaming
+        <a id="streamLink" class="streaming-btn" target="_blank">
+          Voir la fiche TMDB
         </a>
       </div>
 
       <div class="faq">
-        <h2 data-i18n="faq_title">Questions fréquentes</h2>
+        <h2>Questions fréquentes</h2>
 
         <div class="faq-item">
-          <h3 data-i18n="faq1_q">Comment retrouver un film depuis TikTok ?</h3>
+          <h3>Comment retrouver un film depuis TikTok ?</h3>
 
-          <p data-i18n="faq1_a">
-            Notre IA analyse les images, les sous-titres, les voix et les
-            scènes.
+          <p>
+            ShadowFrame analyse les images, voix, sous-titres et scènes grâce à
+            une IA multimodale.
           </p>
         </div>
 
         <div class="faq-item">
-          <h3 data-i18n="faq2_q">Est-ce un Shazam des films ?</h3>
+          <h3>Est-ce un Shazam des films ?</h3>
 
-          <p data-i18n="faq2_a">
-            Oui. ShadowFrame agit comme un Shazam intelligent dédié aux films.
+          <p>
+            Oui. ShadowFrame agit comme un moteur intelligent dédié aux films et
+            séries.
           </p>
         </div>
 
         <div class="faq-item">
-          <h3 data-i18n="faq3_q">Quels réseaux sont compatibles ?</h3>
+          <h3>Quels réseaux sont compatibles ?</h3>
 
-          <p data-i18n="faq3_a">
-            TikTok, Instagram Reels, YouTube Shorts et vidéos publiques.
-          </p>
+          <p>TikTok, Instagram Reels, YouTube Shorts et vidéos publiques.</p>
         </div>
       </div>
     </div>
@@ -336,201 +294,100 @@
     </footer>
 
     <script>
-      function copyAllCode() {
-        navigator.clipboard.writeText(document.documentElement.outerHTML);
+      // =========================
+      // 3D GAME
+      // =========================
 
-        alert("Code copié.");
-      }
+      const canvas = document.getElementById("gameCanvas");
 
-      // ========================
-      // TRANSLATIONS
-      // ========================
+      const scene = new THREE.Scene();
 
-      const translations = {
-        fr: {
-          title: "ShadowFrame",
-          subtitle:
-            "Le moteur IA qui retrouve les films depuis TikTok, Reels et Shorts.",
-          input_placeholder: "Colle un lien TikTok, Reel ou YouTube",
-          analyze_btn: "Identifier",
-          game_instruction: "Utilise ESPACE pour sauter et éviter le ninja.",
-          watch_btn: "Voir le streaming",
-          faq_title: "Questions fréquentes",
-          faq1_q: "Comment retrouver un film depuis TikTok ?",
-          faq1_a:
-            "Notre IA analyse les images, les sous-titres, les voix et les scènes.",
-          faq2_q: "Est-ce un Shazam des films ?",
-          faq2_a:
-            "Oui. ShadowFrame agit comme un Shazam intelligent dédié aux films.",
-          faq3_q: "Quels réseaux sont compatibles ?",
-          faq3_a:
-            "TikTok, Instagram Reels, YouTube Shorts et vidéos publiques.",
-        },
+      scene.background = new THREE.Color(0x080808);
 
-        en: {
-          title: "ShadowFrame",
-          subtitle:
-            "AI engine that finds movies from TikTok, Reels and Shorts.",
-          input_placeholder: "Paste a TikTok, Reel or YouTube URL",
-          analyze_btn: "Identify",
-          game_instruction: "Press SPACE to jump and escape the ninja.",
-          watch_btn: "Watch streaming",
-          faq_title: "Frequently asked questions",
-          faq1_q: "How to find a movie from TikTok?",
-          faq1_a: "Our AI analyzes scenes, subtitles, voices and visuals.",
-          faq2_q: "Is this a movie Shazam?",
-          faq2_a: "Yes. ShadowFrame acts like an intelligent Shazam.",
-          faq3_q: "Which platforms are supported?",
-          faq3_a: "TikTok, Instagram Reels, YouTube Shorts and public videos.",
-        },
-      };
+      const camera = new THREE.PerspectiveCamera(
+        75,
+        canvas.clientWidth / canvas.clientHeight,
+        0.1,
+        1000,
+      );
 
-      function applyTranslations(lang) {
-        const dict = translations[lang] || translations.fr;
-
-        document.querySelectorAll("[data-i18n]").forEach((el) => {
-          const key = el.getAttribute("data-i18n");
-
-          if (dict[key]) {
-            el.innerText = dict[key];
-          }
-        });
-
-        document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
-          const key = el.getAttribute("data-i18n-placeholder");
-
-          if (dict[key]) {
-            el.placeholder = dict[key];
-          }
-        });
-
-        localStorage.setItem("lang", lang);
-      }
-
-      const switcher = document.getElementById("languageSwitcher");
-
-      switcher.addEventListener("change", () => {
-        applyTranslations(switcher.value);
+      const renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: true,
       });
 
-      const savedLang = localStorage.getItem("lang") || "fr";
+      renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 
-      switcher.value = savedLang;
+      const light = new THREE.PointLight(0xffffff, 2);
 
-      applyTranslations(savedLang);
+      light.position.set(5, 5, 5);
 
-      // ========================
-      // 3D GAME
-      // ========================
+      scene.add(light);
 
-      let scene;
-      let camera;
-      let renderer;
-      let creature;
-      let ninja;
+      const ambient = new THREE.AmbientLight(0x404040);
+
+      scene.add(ambient);
+
+      // PLAYER
+
+      const creatureGeometry = new THREE.SphereGeometry(0.5, 32, 32);
+
+      const creatureMaterial = new THREE.MeshStandardMaterial({
+        color: 0x00ffff,
+        emissive: 0x00ffff,
+        emissiveIntensity: 0.5,
+      });
+
+      const creature = new THREE.Mesh(creatureGeometry, creatureMaterial);
+
+      creature.position.set(-2, 0, 0);
+
+      scene.add(creature);
+
+      // ENEMY
+
+      const ninjaGeometry = new THREE.BoxGeometry(1, 1.5, 1);
+
+      const ninjaMaterial = new THREE.MeshStandardMaterial({
+        color: 0xff00aa,
+        emissive: 0xff00aa,
+        emissiveIntensity: 0.4,
+      });
+
+      const ninja = new THREE.Mesh(ninjaGeometry, ninjaMaterial);
+
+      ninja.position.set(2, 0, 0);
+
+      scene.add(ninja);
+
+      // FLOOR
+
+      const floorGeometry = new THREE.PlaneGeometry(20, 20);
+
+      const floorMaterial = new THREE.MeshStandardMaterial({
+        color: 0x111111,
+      });
+
+      const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+
+      floor.rotation.x = -Math.PI / 2;
+
+      floor.position.y = -1;
+
+      scene.add(floor);
+
+      camera.position.z = 6;
+      camera.position.y = 1;
 
       let velocityY = 0;
       let jumping = false;
 
-      let gameStarted = false;
-
-      function initGame() {
-        if (gameStarted) return;
-
-        gameStarted = true;
-
-        const canvas = document.getElementById("gameCanvas");
-
-        scene = new THREE.Scene();
-
-        scene.background = new THREE.Color(0x080808);
-
-        camera = new THREE.PerspectiveCamera(
-          75,
-          canvas.offsetWidth / canvas.offsetHeight,
-          0.1,
-          1000,
-        );
-
-        renderer = new THREE.WebGLRenderer({
-          canvas,
-          antialias: true,
-        });
-
-        renderer.setSize(canvas.offsetWidth, canvas.offsetHeight);
-
-        const light = new THREE.PointLight(0xffffff, 2);
-
-        light.position.set(5, 5, 5);
-
-        scene.add(light);
-
-        const ambient = new THREE.AmbientLight(0x404040);
-
-        scene.add(ambient);
-
-        // CREATURE
-
-        const creatureGeometry = new THREE.SphereGeometry(0.5, 32, 32);
-
-        const creatureMaterial = new THREE.MeshStandardMaterial({
-          color: 0x00ffff,
-          emissive: 0x00ffff,
-          emissiveIntensity: 0.5,
-        });
-
-        creature = new THREE.Mesh(creatureGeometry, creatureMaterial);
-
-        creature.position.set(-2, 0, 0);
-
-        scene.add(creature);
-
-        // NINJA
-
-        const ninjaGeometry = new THREE.BoxGeometry(1, 1.5, 1);
-
-        const ninjaMaterial = new THREE.MeshStandardMaterial({
-          color: 0xff00aa,
-          emissive: 0xff00aa,
-          emissiveIntensity: 0.4,
-        });
-
-        ninja = new THREE.Mesh(ninjaGeometry, ninjaMaterial);
-
-        ninja.position.set(2, 0, 0);
-
-        scene.add(ninja);
-
-        // FLOOR
-
-        const floorGeometry = new THREE.PlaneGeometry(20, 20);
-
-        const floorMaterial = new THREE.MeshStandardMaterial({
-          color: 0x111111,
-        });
-
-        const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-
-        floor.rotation.x = -Math.PI / 2;
-
-        floor.position.y = -1;
-
-        scene.add(floor);
-
-        camera.position.z = 6;
-
-        camera.position.y = 1;
-
-        window.addEventListener("keydown", (e) => {
-          if (e.code === "Space" && !jumping) {
-            velocityY = 0.18;
-
-            jumping = true;
-          }
-        });
-
-        animate();
-      }
+      window.addEventListener("keydown", (e) => {
+        if (e.code === "Space" && !jumping) {
+          velocityY = 0.18;
+          jumping = true;
+        }
+      });
 
       function animate() {
         requestAnimationFrame(animate);
@@ -546,7 +403,6 @@
 
           if (creature.position.y <= 0) {
             creature.position.y = 0;
-
             jumping = false;
           }
         }
@@ -560,23 +416,22 @@
         renderer.render(scene, camera);
       }
 
-      // ========================
+      animate();
+
+      // =========================
       // API
-      // ========================
+      // =========================
 
       async function analyserVideo() {
         const url = document.getElementById("videoUrl").value;
 
         if (!url) return;
 
-        const game = document.getElementById("game-container");
+        document.getElementById("loading").style.display = "block";
 
-        const result = document.getElementById("result");
+        document.getElementById("game-container").style.display = "block";
 
-        game.style.display = "block";
-        initGame();
-
-        result.style.display = "none";
+        document.getElementById("result").style.display = "none";
 
         try {
           const response = await fetch("/analyser", {
@@ -586,16 +441,22 @@
               "Content-Type": "application/json",
             },
 
-            body: JSON.stringify({ url }),
+            body: JSON.stringify({
+              url,
+            }),
           });
 
           const data = await response.json();
 
-          result.style.display = "block";
+          console.log(data);
+
+          document.getElementById("loading").style.display = "none";
+
+          document.getElementById("result").style.display = "block";
 
           if (data.status !== "success") {
             document.getElementById("movieTitle").innerText =
-              "Film introuvable";
+              data.message || "Film introuvable";
 
             document.getElementById("confidence").innerText = "";
 
@@ -616,6 +477,8 @@
           }
         } catch (err) {
           console.error(err);
+
+          document.getElementById("loading").style.display = "none";
 
           alert("Erreur serveur");
         }
