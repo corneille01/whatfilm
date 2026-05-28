@@ -140,16 +140,46 @@ async def trending(lang: str = "fr"):
     return {"status": "success", "results": await get_trending(lang)}
 
 @app.get("/discover/{genre_name}")
-async def discover(genre_name: str, lang: str = "fr"):
+async def discover(genre_name: str, lang: str = "fr", page: int = 1):
     print(f"STEP SEO: Découverte genre {genre_name}")
-    genres = await get_genre_list(lang)
-    genre_id = next((g["id"] for g in genres if g["name"].lower() == genre_name.lower()), None)
+    
+    # Mapping universel des ID de genres TMDB (indépendant de la langue)
+    GENRE_MAP = {
+        "horror": 27, "horreur": 27, "terror": 27,
+        "action": 28,
+        "comedy": 35, "comédie": 35,
+        "science-fiction": 878, "scifi": 878, "科幻": 878
+    }
+    
+    # On récupère l'ID via notre mapping interne plutôt que de demander à TMDB à chaque fois
+    genre_id = GENRE_MAP.get(genre_name.lower())
+    data = await discover_by_genre(genre_id, lang, page)
+    return {"status": "success", "genre": genre_name, **data}
+    
+    if not genre_id:
+        # Fallback : si pas dans le mapping, on essaie quand même la méthode dynamique
+        genres = await get_genre_list(lang)
+        genre_id = next((g["id"] for g in genres if g["name"].lower() == genre_name.lower()), None)
     
     if not genre_id:
         return {"status": "error", "message": "Genre non trouvé"}
     
     movies = await discover_by_genre(genre_id, lang)
     return {"status": "success", "genre": genre_name, "results": movies}
+
+
+
+@app.get("/movie/{movie_id}")
+async def get_movie(movie_id: int, lang: str = "fr"):
+    # get_movie_details est déjà dans ton tmdb.py
+    details = await get_movie_details(movie_id, lang)
+    return details
+
+@app.get("/rechercher")
+async def rechercher_film(query: str, lang: str = "fr"):
+    # On utilise ta fonction search_candidates de tmdb.py
+    results = await search_candidates(query, lang)
+    return {"status": "success", "results": results}
 
 @app.get("/{lang}")
 async def page_multilingue(lang: str):

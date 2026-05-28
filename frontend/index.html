@@ -72,6 +72,13 @@
         backdrop-filter: blur(5px);
       }
 
+      #movie-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 20px;
+        padding-top: 20px;
+      }
+
       /* Barre de navigation dynamique */
       .genre-nav {
         display: flex;
@@ -161,9 +168,75 @@
         display: inline-block;
         font-size: 0.75rem;
       }
+      /* Ajoute ça dans ton bloc <style> */
+      .page-detail {
+        display: none;
+        background: var(--card);
+        padding: 30px;
+        border-radius: 20px;
+        border: 1px solid var(--primary);
+        width: 100%;
+        max-width: 600px;
+      }
+      .btn-back {
+        background: #333;
+        color: white;
+        padding: 10px 20px;
+        border-radius: 5px;
+        cursor: pointer;
+        margin-bottom: 20px;
+        display: inline-block;
+      }
+      button {
+        background: var(--primary);
+        color: #000;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: bold;
+      }
+      button:disabled {
+        background: #444;
+        cursor: not-allowed;
+      }
     </style>
   </head>
   <body>
+    <header
+      id="main-header"
+      style="
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px 20px;
+        box-sizing: border-box;
+      "
+    >
+      <div
+        style="
+          font-weight: 900;
+          color: var(--primary);
+          cursor: pointer;
+          font-size: 1.5rem;
+        "
+        onclick="retourAccueil()"
+      >
+        🎬 QUEL FILM ?
+      </div>
+
+      <div class="search-container" style="margin: 0; width: 500px">
+        <input
+          type="text"
+          id="input_global"
+          placeholder="Colle un lien TikTok/Reel OU tape le nom d'un film..."
+        />
+        <button onclick="gererRechercheGlobal()">
+          <i class="fas fa-search"></i>
+        </button>
+      </div>
+    </header>
     <select id="lang-selector" onchange="changerLangueManuellement()">
       <option value="en">🇬🇧 English</option>
       <option value="fr">🇫🇷 Français</option>
@@ -194,26 +267,21 @@
       <canvas id="gameCanvas" width="300" height="150"></canvas>
     </div>
 
-    <div id="resultat">
-      <h2 id="titre_film" style="color: white; margin-top: 0"></h2>
-      <img id="affiche_film" src="" />
-      <p id="synopsis_film" style="font-size: 0.95rem; color: #aaa"></p>
-      <div
-        id="cast_section"
-        style="font-size: 0.85rem; color: #ccc; margin: 10px 0"
-      ></div>
-      <div id="streaming_section" style="margin: 10px 0"></div>
-      <a
-        id="trailer_link"
-        href="#"
-        target="_blank"
-        style="color: var(--accent); display: block; margin-top: 10px"
-        >🎥 Voir la bande-annonce</a
-      >
-      <div
-        id="similar_section"
-        style="margin-top: 15px; font-size: 0.9rem; color: #888"
-      ></div>
+    <!-- Nouvelle structure de résultat -->
+    <div id="page-film-detail" class="page-detail">
+      <button class="btn-back" onclick="retourAccueil()">← Retour</button>
+      <h2 id="titre_film"></h2>
+      <img id="affiche_film" src="" style="width: 100%; border-radius: 10px" />
+      <p id="synopsis_film"></p>
+      <div id="streaming_section"></div>
+      <iframe
+        id="trailer_iframe"
+        width="100%"
+        height="315"
+        src=""
+        frameborder="0"
+        allowfullscreen
+      ></iframe>
     </div>
 
     <div id="genre-grid">
@@ -324,15 +392,102 @@
         nav.id = "genre-nav";
         nav.className = "genre-nav";
         const t = dict[currentLang].genres;
+
+        // On remplace les href par des appels JS (event.preventDefault)
         nav.innerHTML = `
-          <a href="/discover/horror" class="btn-genre">${t.horror}</a>
-          <a href="/discover/action" class="btn-genre">${t.action}</a>
-          <a href="/discover/comedy" class="btn-genre">${t.comedy}</a>
-          <a href="/discover/science-fiction" class="btn-genre">${t.scifi}</a>
-          <a href="/trending" class="btn-genre" style="border-color: var(--accent);">${t.trending}</a>
+        <a href="#" onclick="chargerGenre('horror'); return false;" class="btn-genre">${t.horror}</a>
+        <a href="#" onclick="chargerGenre('action'); return false;" class="btn-genre">${t.action}</a>
+        <a href="#" onclick="chargerGenre('comedy'); return false;" class="btn-genre">${t.comedy}</a>
+        <a href="#" onclick="chargerGenre('science-fiction'); return false;" class="btn-genre">${t.scifi}</a>
+        <a href="#" onclick="chargerTrending(); return false;" class="btn-genre" style="border-color: var(--accent);">${t.trending}</a>
         `;
         if (!document.getElementById("genre-nav"))
           document.body.insertBefore(nav, document.querySelector("h1"));
+      }
+
+      let currentPage = 1;
+      let currentGenre = "";
+
+      async function chargerGenre(genreName, page = 1) {
+        currentGenre = genreName;
+        currentPage = page;
+
+        // 1. Masquer les éléments inutiles
+        document.querySelector(".search-container").style.display = "none";
+        document.getElementById("page-film-detail").style.display = "none";
+        document.getElementById("genre-grid").style.display = "block";
+        document.getElementById("genre-title").innerText =
+          genreName.toUpperCase();
+
+        // 2. Appel unique à l'API
+        const res = await fetch(
+          `/discover/${genreName}?lang=${currentLang}&page=${page}`,
+        );
+        const data = await res.json();
+
+        if (data.status === "success") {
+          const container = document.getElementById("movie-cards");
+          container.innerHTML = ""; // Vider le contenu précédent
+
+          // 3. Génération des cartes
+          data.results.forEach((m) => {
+            const year = m.release_date ? m.release_date.split("-")[0] : "N/A";
+            const rating = m.vote_average ? m.vote_average.toFixed(1) : "0";
+
+            // Remplace le div de la carte par ceci :
+            // Dans chargerGenre, boucle forEach :
+            container.innerHTML += `
+<div onclick="afficherDetails(${m.id})" 
+     style="background:#1a1a24; padding:10px; border-radius:10px; transition:0.3s; cursor:pointer;" 
+     onmouseover="this.style.transform='scale(1.05)'" 
+     onmouseout="this.style.transform='scale(1)'">
+    <img src="https://image.tmdb.org/t/p/w300${m.poster_path}" style="width:100%; border-radius:8px;">
+    <h4 style="margin:10px 0 5px 0; font-size:0.9rem; height:40px; overflow:hidden;">${m.title}</h4>
+    <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.8rem; color:#aaa;">
+        <span>📅 ${year}</span>
+        <span style="color:var(--primary);">⭐ ${rating}</span>
+    </div>
+</div>`;
+          });
+
+          // 4. Ajout de la pagination (Proprement à la fin)
+          container.innerHTML += `
+            <div style="grid-column: 1/-1; text-align:center; margin-top:20px; padding-bottom:20px;">
+                <button onclick="chargerGenre('${genreName}', ${currentPage - 1})" 
+                        ${currentPage === 1 ? "disabled" : ""}>Précédent</button>
+                <span style="margin: 0 15px;">Page ${currentPage}</span>
+                <button onclick="chargerGenre('${genreName}', ${currentPage + 1})">Suivant</button>
+            </div>
+        `;
+
+          // Remonter en haut de la page pour bien voir les résultats
+          window.scrollTo(0, 0);
+        } else {
+          alert("Genre introuvable pour le moment.");
+        }
+      }
+
+      async function afficherDetails(movieId) {
+        // 1. Cacher la grille et le reste
+        document.getElementById("genre-grid").style.display = "none";
+
+        // 2. Appel à l'API pour avoir tous les détails
+        // Note: Tu devras peut-être ajouter une route dans app.py pour /movie/{id}
+        // ou réutiliser ton analyseur si nécessaire.
+        const res = await fetch(`/movie/${movieId}?lang=${currentLang}`);
+        const data = await res.json();
+
+        if (data) {
+          // 3. Remplir ton bloc détail
+          document.getElementById("titre_film").innerText = data.title;
+          document.getElementById("affiche_film").src =
+            `https://image.tmdb.org/t/p/w500${data.poster_path}`;
+          document.getElementById("synopsis_film").innerText = data.overview;
+
+          // Afficher le bloc détail
+          document.getElementById("page-film-detail").style.display = "block";
+          window.scrollTo(0, 0);
+        }
       }
 
       // --- LOGIQUE JEU (Ninja) ---
@@ -366,14 +521,37 @@
           "/" + document.getElementById("lang-selector").value;
       }
 
+      function retourGrille() {
+        document.getElementById("page-film-detail").style.display = "none";
+        document.getElementById("genre-grid").style.display = "block";
+      }
+
+      async function gererRecherche() {
+        const input = document.getElementById("input_recherche").value.trim();
+        if (!input) return;
+
+        // Masquer tout le contenu actuel pour laisser place au résultat
+        document.getElementById("genre-grid").style.display = "none";
+        document.getElementById("page-film-detail").style.display = "none";
+
+        // Détection : Est-ce un lien ?
+        if (input.startsWith("http")) {
+          // Appeler ta fonction d'analyse IA existante
+          analyserVideo(input);
+        } else {
+          // Recherche simple par nom
+          const res = await fetch(
+            `/rechercher?query=${encodeURIComponent(input)}`,
+          );
+          const data = await res.json();
+          afficherResultatsRecherche(data);
+        }
+      }
       // ==========================================
       // 2. ANALYSE ET AFFICHAGE DYNAMIQUE
       // ==========================================
-      async function analyserVideo() {
-        const lien = document.getElementById("lien_video").value;
-        if (!lien) return;
-
-        // Active le jeu
+      async function analyserVideo(lien) {
+        // Affiche l'écran de chargement (le ninja)
         document.getElementById("game-container").style.display = "block";
         gameActive = true;
         drawNinja();
@@ -384,27 +562,75 @@
           body: JSON.stringify({ url: lien, lang: currentLang }),
         });
         const data = await res.json();
+
+        // Arrêt du jeu
         gameActive = false;
         document.getElementById("game-container").style.display = "none";
-        document.getElementById("resultat").style.display = "block";
+
+        if (data.status === "success") {
+          afficherDetailFilm(data);
+        } else {
+          alert("Erreur: " + data.message);
+          retourAccueil();
+        }
+      }
+
+      function afficherResultatsRecherche(data) {
+        const container = document.getElementById("movie-cards");
+        container.innerHTML = "";
+        document.getElementById("genre-grid").style.display = "block";
+        document.getElementById("genre-title").innerText =
+          "RÉSULTATS DE RECHERCHE";
+
+        data.results.forEach((m) => {
+          container.innerHTML += `
+        <div onclick="afficherDetails(${m.id})" style="background:#1a1a24; padding:10px; border-radius:10px; cursor:pointer;">
+          <img src="https://image.tmdb.org/t/p/w300${m.poster_path}" style="width:100%; border-radius:8px;">
+          <h4 style="margin:10px 0 0 0; font-size:0.9rem;">${m.title}</h4>
+        </div>`;
+        });
+      }
+      function afficherDetailFilm(data) {
+        document.getElementById("page-film-detail").style.display = "block";
         document.getElementById("titre_film").innerText = data.title;
         document.getElementById("affiche_film").src = data.image;
-        document.getElementById("affiche_film").style.display = "block";
         document.getElementById("synopsis_film").innerText = data.synopsis;
+        // Conversion youtube watch en embed pour l'iframe
+        const embedUrl = data.trailer.replace("watch?v=", "embed/");
+        document.getElementById("trailer_iframe").src = embedUrl;
+      }
 
-        // Ajout des nouvelles sections enrichies
-        document.getElementById("cast_section").innerHTML =
-          "<strong>Casting:</strong> " +
-          data.cast.map((c) => c.name).join(", ");
-        document.getElementById("streaming_section").innerHTML =
-          "<strong>Streaming:</strong> " +
-          data.streaming.map((s) => `<span class="badge">${s}</span>`).join("");
-        document.getElementById("trailer_link").href = data.trailer;
-        document.getElementById("similar_section").innerHTML =
-          "<strong>Tu aimeras aussi :</strong> " +
-          data.similar.map((s) => s.title).join(", ");
+      function retourAccueil() {
+        document.getElementById("page-film-detail").style.display = "none";
+        document.getElementById("genre-grid").style.display = "none";
+        document.querySelector("h1").style.display = "block";
+        document.querySelector(".search-container").style.display = "flex";
+      }
 
-        document.getElementById("zone_affiliation").style.display = "grid";
+      async function gererRechercheGlobal() {
+        const input = document.getElementById("input_global").value.trim();
+        if (!input) return;
+
+        // Masquer tout le contenu existant
+        document.getElementById("genre-grid").style.display = "none";
+        document.getElementById("page-film-detail").style.display = "none";
+
+        // --- LOGIQUE DE ROUTAGE ---
+        if (
+          input.includes("tiktok.com") ||
+          input.includes("instagram.com") ||
+          input.includes("youtube.com")
+        ) {
+          // C'est un lien : on appelle l'IA
+          analyserVideo(input);
+        } else {
+          // C'est un texte : on cherche par nom
+          const res = await fetch(
+            `/rechercher?query=${encodeURIComponent(input)}`,
+          );
+          const data = await res.json();
+          afficherResultatsRecherche(data);
+        }
       }
 
       async function chargerGenreSiNecessaire() {
