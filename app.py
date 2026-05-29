@@ -16,7 +16,7 @@ from vision.whisper_engine import transcribe
 
 from core.extraction import multimodal_extract
 from core.retrieval import build_cascade_queries
-from data.tmdb import search_candidates, get_movie_details, get_tv_details, get_genre_list, discover_by_genre, get_trending, search_tv_candidates
+from data.tmdb import search_candidates, get_movie_details, get_tv_details, get_genre_list, discover_by_genre, get_trending, search_tv_candidates, get_season_details
 from data.fake_detector import detect_fake
 from core.reranker import rerank
 from storage.cache import get_cache, set_cache
@@ -381,7 +381,6 @@ async def get_movie(movie_id: int, lang: str = "fr", type: str = "movie"):
 async def get_season(series_id: int, season_number: int, lang: str = "fr"):
     """Retourne les détails d'une saison avec ses épisodes."""
     try:
-        from data.tmdb import get_season_details
         data = await get_season_details(series_id, season_number, lang)
         return data
     except Exception as e:
