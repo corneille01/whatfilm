@@ -3,6 +3,7 @@ import uuid
 import shutil
 import subprocess
 import traceback
+import urllib.parse
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
@@ -130,9 +131,11 @@ async def analyser(req: VideoRequest):
             desc = extraction.get("description_courte", "")
             return {
                 "status": "unknown",
-                "message": f"Film introuvable après {len(queries)} tentatives. "
-                           f"Gemini a identifié : \"{desc[:120]}\"" if desc
-                           else f"Film introuvable. Essaie un autre lien."
+                "message": (
+                    f"Film introuvable après {len(queries)} tentatives. "
+                    f"Gemini a identifié : \"{desc[:120]}\""
+                    if desc else "Film introuvable. Essaie un autre lien."
+                )
             }
 
         # ── 8. Rerank ──────────────────────────────────────────────────
@@ -148,6 +151,24 @@ async def analyser(req: VideoRequest):
                 "score": 35,
             }
             print(f"Rerank fallback → {result}")
+
+        # ── Vérification score — si trop bas on abandonne TMDB ─────────
+        confidence = result.get("score", 0)
+        if confidence < 30:
+            desc         = extraction.get("description_courte", "")
+            titre_gemini = (extraction.get("titres_possibles") or [""])[0]
+            query_yt     = titre_gemini or desc[:80]
+            query_google = titre_gemini or desc[:100]
+            print(f"Score trop bas ({confidence}) → not_found")
+            return {
+                "status":        "not_found",
+                "message":       "Aucun film correspondant trouvé avec certitude.",
+                "description":   desc,
+                "titre_gemini":  titre_gemini,
+                "search_youtube": f"https://www.youtube.com/results?search_query={urllib.parse.quote(query_yt + ' film')}",
+                "search_google":  f"https://www.google.com/search?q={urllib.parse.quote(query_google + ' film')}",
+                "search_tmdb":    f"https://www.themoviedb.org/search?query={urllib.parse.quote(titre_gemini or desc[:60])}",
+            }
 
         movie_id = result.get("id")
 
@@ -192,9 +213,8 @@ async def analyser(req: VideoRequest):
             elif site == "Vimeo":
                 trailer_url = f"https://vimeo.com/{key}"
 
-        # Score de confiance
-        confidence = result.get("score", 0)
-        is_fake    = fake_score > 70
+        # Score de confiance final
+        is_fake = fake_score > 70
         if is_fake:
             confidence = max(0, confidence - 20)
 
@@ -217,10 +237,10 @@ async def analyser(req: VideoRequest):
             "streaming":     [p.get("provider_name") for p in providers_fr   if p.get("provider_name")],
             "streaming_rent":[p.get("provider_name") for p in providers_rent if p.get("provider_name")],
             "similar":       [{"title": s.get("title", s.get("name", "?")),
-                               "id": s.get("id"),
+                               "id":    s.get("id"),
                                "poster_path": s.get("poster_path")} for s in all_similar],
-            "cast":          [{"name": c.get("name"),
-                               "character": c.get("character"),
+            "cast":          [{"name":         c.get("name"),
+                               "character":    c.get("character"),
                                "profile_path": c.get("profile_path")} for c in cast],
             "director":      director.get("name") if director else None,
             "is_fake":       is_fake,
@@ -231,7 +251,7 @@ async def analyser(req: VideoRequest):
             "vote_average":  details.get("vote_average"),
             "vote_count":    details.get("vote_count"),
             "tmdb_id":       movie_id,
-            "search_query":  used_query,   # debug info
+            "search_query":  used_query,
         }
 
         if confidence >= 50:
@@ -249,9 +269,9 @@ async def analyser(req: VideoRequest):
         return {"status": "error", "message": str(e)}
 
     finally:
-        if os.path.exists(video_path):    os.remove(video_path)
-        if audio_exists and os.path.exists(audio_path): os.remove(audio_path)
-        if os.path.exists(frame_dir):     shutil.rmtree(frame_dir)
+        if os.path.exists(video_path):                       os.remove(video_path)
+        if audio_exists and os.path.exists(audio_path):     os.remove(audio_path)
+        if os.path.exists(frame_dir):                        shutil.rmtree(frame_dir)
 
 
 # ── Routes ──────────────────────────────────────────────────────────────────
