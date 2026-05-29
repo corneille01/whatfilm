@@ -375,6 +375,17 @@ async def get_movie(movie_id: int, lang: str = "fr", type: str = "movie"):
         return await get_movie_details(movie_id, lang)
     except Exception as e:
         return {"error": str(e)}
+    
+
+@app.get("/tv/{series_id}/season/{season_number}")
+async def get_season(series_id: int, season_number: int, lang: str = "fr"):
+    """Retourne les détails d'une saison avec ses épisodes."""
+    try:
+        from data.tmdb import get_season_details
+        data = await get_season_details(series_id, season_number, lang)
+        return data
+    except Exception as e:
+        return {"error": str(e), "episodes": []}
 
 
 @app.get("/rechercher")

@@ -1,21 +1,7 @@
-# ══════════════════════════════════════════════════════════════
-# PATCH app.py — Ajouter cette route APRÈS la route /movie/{movie_id}
-# ══════════════════════════════════════════════════════════════
+# data/tmdb.py — AJOUTE à la fin du fichier
 
-@app.get("/tv/{series_id}/season/{season_number}")
-async def get_season(series_id: int, season_number: int, lang: str = "fr"):
-    """Retourne les détails d'une saison avec ses épisodes."""
-    try:
-        from data.tmdb import get_season_details
-        data = await get_season_details(series_id, season_number, lang)
-        return data
-    except Exception as e:
-        return {"error": str(e), "episodes": []}
-
-
-# ══════════════════════════════════════════════════════════════
-# PATCH data/tmdb.py — Ajouter cette fonction dans tmdb.py
-# ══════════════════════════════════════════════════════════════
+import httpx
+from config import API_KEY, BASE_URL   # adapte selon ta config
 
 async def get_season_details(series_id: int, season_number: int, lang: str = "fr") -> dict:
     """
@@ -35,15 +21,3 @@ async def get_season_details(series_id: int, season_number: int, lang: str = "fr
         r = await client.get(url, params=params, timeout=10)
         r.raise_for_status()
         return r.json()
-    # Retourne: { id, name, air_date, episodes: [{...}, ...], poster_path, ... }
-    # Chaque épisode contient: episode_number, name, overview, air_date, still_path, vote_average
-
-
-# ══════════════════════════════════════════════════════════════
-# PATCH data/tmdb.py — get_tv_details doit inclure seasons[]
-# 
-# Vérifier que get_tv_details fait bien:
-#   append_to_response = "credits,videos,similar,recommendations,watch/providers"
-# et que TMDB retourne bien seasons[] dans la réponse de base /tv/{id}
-# (TMDB inclut seasons[] automatiquement dans /tv/{id}, pas besoin d'append)
-# ══════════════════════════════════════════════════════════════
