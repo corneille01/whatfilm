@@ -97,18 +97,17 @@ async def analyser(req: VideoRequest):
         # ── 1. Download ────────────────────────────────────────────────
         print("STEP 1: DOWNLOAD VIDEO")
         dl = subprocess.run(
-            [
-                "yt-dlp",
-                "-f", "best",
-                "-o", video_path,
-                "--no-playlist",
-                "--cookies-from-browser", "chrome",
-                "--extractor-args", "tiktok:app_version=26.2.1;os_version=16;device_platform=android",
-                "--user-agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36",
-                req.url
-            ],
-            capture_output=True, text=True
-        )
+    [
+        "yt-dlp",
+        "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "-o", video_path,
+        "--no-playlist",
+        "--extractor-args", "tiktok:app_version=26.2.1;os_version=16;device_platform=android",
+        "--user-agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36",
+        req.url
+    ],
+    capture_output=True, text=True
+)
         if dl.returncode != 0:
             err = dl.stderr[-400:] if dl.stderr else "unknown error"
             print(f"yt-dlp FAILED: {err}")
