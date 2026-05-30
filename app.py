@@ -17,6 +17,7 @@ from vision.scene_detection import extract_keyframes
 from vision.ocr_engine import extract_text_from_images
 from vision.whisper_engine import transcribe
 
+
 from core.extraction import multimodal_extract
 from core.retrieval import build_cascade_queries
 from data.tmdb import (
@@ -94,25 +95,56 @@ async def analyser(req: VideoRequest):
     use_local_fallback = False
 
     try:
-        # ── 1. Download ────────────────────────────────────────────────
+               # ── 1. Download ────────────────────────────────────────────────
         print("STEP 1: DOWNLOAD VIDEO")
+        # Premier essai avec yt-dlp
         dl = subprocess.run(
-    [
-        "yt-dlp",
-        "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "-o", video_path,
-        "--no-playlist",
-        "--extractor-args", "tiktok:app_version=26.2.1;os_version=16;device_platform=android",
-        "--user-agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36",
-        req.url
-    ],
-    capture_output=True, text=True
-)
+            [
+                "yt-dlp",
+                "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                "-o", video_path,
+                "--no-playlist",
+                "--extractor-args", "tiktok:app_version=26.2.1;os_version=16;device_platform=android",
+                "--user-agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36",
+                req.url
+            ],
+            capture_output=True,
+            text=True
+        )
+
+        # Fallback avec Playwright si yt-dlp échoue
+        if dl.returncode != 0:
+            print("yt-dlp échoué, tentative via Playwright...")
+            try:
+                from vision.tiktok_downloader import get_tiktok_video_url
+
+                video_url = await get_tiktok_video_url(req.url)
+                if not video_url:
+                    raise Exception("Playwright n'a pas trouvé l'URL de la vidéo")
+
+                # Télécharger la vidéo avec httpx (ou requests)
+                import httpx
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(video_url)
+                    if resp.status_code != 200:
+                        raise Exception(f"Erreur téléchargement (status {resp.status_code})")
+                    with open(video_path, "wb") as f:
+                        f.write(resp.content)
+
+                print("Téléchargement via Playwright réussi")
+                # On simule un processus réussi pour la suite
+                dl = subprocess.CompletedProcess(args=[], returncode=0)
+
+            except Exception as e:
+                print(f"Playwright fallback error: {e}")
+                err = str(e)[:400]
+                return {"status": "error", "message": f"Impossible de télécharger la vidéo. ({err})"}
+
+        # Vérification finale
         if dl.returncode != 0:
             err = dl.stderr[-400:] if dl.stderr else "unknown error"
             print(f"yt-dlp FAILED: {err}")
             return {"status": "error", "message": f"Impossible de télécharger la vidéo. ({err})"}
-
         # ── 2. Audio ───────────────────────────────────────────────────
         print("STEP 2: EXTRACT AUDIO")
         try:
@@ -369,6 +401,7 @@ async def analyser(req: VideoRequest):
             if os.path.exists(video_path): os.remove(video_path)
             if audio_exists and os.path.exists(audio_path): os.remove(audio_path)
             if os.path.exists(frame_dir): shutil.rmtree(frame_dir)
+            
 
 # ── Continuer l'analyse après transcription locale ────────────────────
 @app.post("/analyser_continue")

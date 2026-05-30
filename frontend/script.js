@@ -550,6 +550,38 @@ function afficherErreur(msg) {
   el.style.display = "flex";
   setTimeout(cacherErreur, 8000);
 }
+
+function afficherErreurTelechargement() {
+  // Cacher l'overlay et le jeu
+  document.getElementById("loading-overlay").classList.remove("active");
+  stopGame();
+
+  // Construire un message d'erreur clair
+  const msg = `
+    <div style="text-align:center; padding:30px 20px; max-width:600px; margin:0 auto;">
+      <i class="fas fa-exclamation-triangle" style="font-size:3rem; color:#ffaa00;"></i>
+      <h3 style="color:var(--text); margin:16px 0 8px;">Impossible de télécharger la vidéo</h3>
+      <p style="color:var(--muted); font-size:0.9rem; line-height:1.6;">
+        Le lien que vous avez collé ne peut pas être lu. Cela peut arriver si la vidéo est privée, 
+        restreinte à certains pays, ou si elle a été supprimée.<br/>
+        👉 Essayez de <strong>rechercher le film manuellement</strong> en saisissant un titre, un acteur ou une description.
+      </p>
+      <button class="btn-stream" onclick="document.getElementById('input_global').focus()" style="margin-top:16px;">
+        <i class="fas fa-search"></i> Rechercher un film
+      </button>
+    </div>
+  `;
+  
+  // On vide la grille et on affiche ce message
+  document.getElementById("genre-grid").style.display = "block";
+  document.getElementById("genre-title").innerText = "⛔ Vidéo inaccessible";
+  document.getElementById("movie-cards").innerHTML = msg;
+  document.getElementById("filtres-bar").style.display = "none";
+  
+  // Cacher le hero
+  document.getElementById("hero").style.display = "none";
+  document.getElementById("page-film-detail").style.display = "none";
+}
 function cacherErreur() {
   const el = document.getElementById("error-message");
   el.classList.remove("visible");
@@ -824,7 +856,7 @@ async function analyserVideo(lien) {
         afficherErreur("❌ " + (finalData.message || "Film introuvable."));
         retourAccueil();
       }
-    } else {
+        } else {
       clearInterval(interval);
       progressBar.style.width = "100%";
       percentLabel.textContent = "100%";
@@ -838,7 +870,11 @@ async function analyserVideo(lien) {
         afficherDetailFilm(data);
       } else if (data.status === "not_found") {
         afficherNotFound(data);
+      } else if (data.status === "error" && data.message && data.message.includes("télécharger")) {
+        // Échec du téléchargement → message dédié sans retour à l'accueil
+        afficherErreurTelechargement();
       } else {
+        // Autre erreur générique
         afficherErreur("❌ " + (data.message || "Film introuvable."));
         retourAccueil();
       }
