@@ -55,7 +55,7 @@ EXPOSE 10000
 #   - --keep-alive 5 : connexions persistantes pour les health checks
 #   - 1 worker : instance Render free tier = 512 Mo RAM, 1 CPU
 # ─────────────────────────────────────────────────────────────────
-CMD ["gunicorn", "main:app", \
+CMD ["gunicorn", "app:app", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
      "--workers", "1", \
      "--bind", "0.0.0.0:10000", \
