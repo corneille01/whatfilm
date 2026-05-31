@@ -1,3 +1,19 @@
+
+// ════ CACHE ════
+const apiCache = {};
+const CACHE_TTL = 300000; // 5 minutes
+
+function getCached(key) {
+    const entry = apiCache[key];
+    if (entry && (Date.now() - entry.time) < CACHE_TTL) {
+        return entry.data;
+    }
+    return null;
+}
+
+function setCache(key, data) {
+    apiCache[key] = { data, time: Date.now() };
+}
 // ════════════════════════════════════════════════
 // SHADOWFRAME – QUEL FILM ? – JavaScript complet
 // ════════════════════════════════════════════════
@@ -949,19 +965,31 @@ async function chargerGenre(genreName, page = 1, mediaType = "movie") {
   cacherErreur();
   currentGenreName = genreName;
   currentPage = page;
+  
+  const cacheKey = `genre_${genreName}_${page}_${getTMDBLang()}`;
+  const cached = getCached(cacheKey);
+  
   document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
   document.getElementById("page-film-detail").style.display = "none";
   document.getElementById("genre-grid").style.display = "block";
   document.getElementById("platform-nav").classList.remove("visible");
   document.getElementById("genre-title").innerText = genreName.toUpperCase();
-  document.getElementById("movie-cards").innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
   lastGrid = genreName;
   navStack = [];
+  
+  if (cached) {
+    renderCards(cached, genreName, page, 10, mediaType);
+    return;
+  }
+  
+  document.getElementById("movie-cards").innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
+  
   try {
     const url = `/discover/${encodeURIComponent(genreName)}?lang=${getTMDBLang()}&page=${page}${mediaType === "tv" ? "&type=tv" : ""}`;
     const res = await fetch(url);
     const data = await res.json();
     if (data.status === "success") {
+      setCache(cacheKey, data.results);
       renderCards(data.results, genreName, page, data.total_pages, mediaType);
     } else {
       document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px">Genre introuvable.</p>`;
@@ -1002,19 +1030,31 @@ async function chargerTrending() {
   hideHero();
   cacherErreur();
   currentGenreName = "trending";
+  
+  const cacheKey = `trending_${getTMDBLang()}`;
+  const cached = getCached(cacheKey);
+  
   document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
   document.querySelector(".btn-genre.trending")?.classList.add("active");
   document.getElementById("page-film-detail").style.display = "none";
   document.getElementById("genre-grid").style.display = "block";
   document.getElementById("platform-nav").classList.remove("visible");
   document.getElementById("genre-title").innerText = tg("trending").toUpperCase();
+  
+  if (cached) {
+    renderCards(cached, "trending", 1, 1);
+    return;
+  }
+  
   document.getElementById("movie-cards").innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
   lastGrid = "trending";
   navStack = [];
+  
   try {
     const res = await fetch(`/trending?lang=${getTMDBLang()}`);
     const data = await res.json();
     if (data.status === "success") {
+      setCache(cacheKey, data.results);
       renderCards(data.results, "trending", 1, 1);
     } else {
       document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px">Impossible de charger les tendances.</p>`;
@@ -1386,9 +1426,7 @@ window.onload = () => {
     e.preventDefault();
     gameJump();
   });
-  if (!localStorage.getItem('cookies_accepted')) {
-    document.getElementById('cookie-consent').style.display = 'flex';
-  }
+  
   // Construction du canvas de jeu s'il n'est pas déjà rempli
   const gameCanvas = document.getElementById("game-canvas");
   if (gameCanvas && !gameCanvas.querySelector(".game-ground")) {

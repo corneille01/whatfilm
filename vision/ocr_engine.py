@@ -1,4 +1,4 @@
-# vision/ocr_engine.py - VERSION RAPIDE
+# vision/ocr_engine.py
 import easyocr
 import time
 import threading
@@ -11,14 +11,14 @@ _loading_started = False
 _loading_done = False
 _loading_error = None
 
-# Langues principales uniquement (chargement 2x plus rapide)
+# Langues supportées TESTÉES et COMPATIBLES
 SUPPORTED_LANGUAGES = [
     'en', 'fr', 'es', 'de', 'it', 'pt',
     'ch_sim', 'ch_tra', 'ja', 'ko',
     'nl', 'pl', 'sv', 'da', 'no', 'cs', 'sk', 'hu',
     'ro', 'hr', 'sl', 'et', 'lv', 'lt',
     'tr', 'ru', 'bg', 'uk', 'be',
-    'vi', 'th', 'ms', 'id', 'tl',
+    'vi', 'ms', 'id', 'tl',
     'hi', 'bn', 'ta', 'te', 'kn', 'mr', 'ne',
     'ar', 'fa', 'ur', 'sw', 'af'
 ]
