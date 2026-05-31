@@ -169,7 +169,16 @@ async def analyser(req: VideoRequest):
         # ── 3. Frames ──────────────────────────────────────────────────
         print("STEP 3: EXTRACT FRAMES")
         frames = extract_keyframes(video_path, frame_dir, max_frames=6)
+        print(f"STEP 3 DONE: {len(frames)} frames extraites")
+        if not frames:
+            print("Aucune image clé extraite.")
+            return {"status": "error", "message": "Impossible d'extraire les images clés."}
 
+
+        print(f"STEP 3 DONE: {len(frames)} frames, début OCR dans 2 secondes...")
+        import sys
+        sys.stdout.flush()  
+        time.sleep(2)       
         # ── 4. OCR (serveur) ───────────────────────────────────────────
         print("STEP 4: OCR (serveur)")
         ocr_text = extract_text_from_images(frames, max_images=6)

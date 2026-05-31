@@ -4,7 +4,6 @@ yt-dlp
 pillow
 google-genai
 httpx
-
 python-multipart
 python-dotenv
 scenedetect[opencv]
@@ -27,3 +26,4 @@ celery
 groq
 easyocr
 playwright
+curl-cffi

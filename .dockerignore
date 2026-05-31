@@ -1,8 +1,17 @@
-.venv
+# Fichiers inutiles dans l'image Docker
 __pycache__
 *.pyc
-temp
-cache
-embeddings
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
 .git
+.gitignore
+*.md
+temp/
+*.log
+.DS_Store
 .vscode
+.idea
