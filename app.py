@@ -188,7 +188,14 @@ async def analyser(req: VideoRequest):
 
             # ── STEP 3 : Extraction frames ────────────────────────────────
             print("🖼️ FRAMES", flush=True)
-            frames = extract_keyframes(video_path, frame_dir, max_frames=6)
+            try:
+                frames = extract_keyframes(video_path, frame_dir, max_frames=6) or []
+            except Exception as e:
+                print(f"⚠️ extract_keyframes exception: {e}", flush=True)
+                frames = []
+            # Garder uniquement les frames qui existent vraiment sur disque
+            frames = [f for f in frames if os.path.exists(f) and os.path.getsize(f) > 0]
+            print(f"Frames valides: {len(frames)}", flush=True)
             if not frames:
                 return {"status": "error", "code": "no_frames",
                         "message": "Impossible d'extraire des images de cette vidéo."}
@@ -204,7 +211,10 @@ async def analyser(req: VideoRequest):
             if audio_exists:
                 try:
                     transcript = transcribe(audio_path, enabled=True)
-                    print(f"✅ Groq OK ({len(transcript)} chars)", flush=True)
+                    if transcript:
+                        print(f"✅ Groq OK ({len(transcript)} chars)", flush=True)
+                    else:
+                        print("⚠️ Groq KO: réponse vide (clé manquante ?)", flush=True)
                 except Exception as e:
                     print(f"⚠️ Groq KO: {e}", flush=True)
             else:

@@ -3,54 +3,83 @@ import os
 import subprocess
 from typing import List
 
+
 def extract_keyframes(video_path: str, output_dir: str, max_frames: int = 6) -> List[str]:
     """
-    Extrait les frames clés d'une vidéo
+    Extrait max_frames images clés d'une vidéo via ffmpeg.
+    Retourne uniquement les chemins de frames qui existent sur disque.
+    En cas de timeout, tente d'extraire au moins 1 frame.
+    En cas d'échec total, retourne [].
     """
     os.makedirs(output_dir, exist_ok=True)
-    
-    # Supprimer les anciennes frames
+
+    # Nettoyer les anciennes frames
     for f in os.listdir(output_dir):
         if f.endswith(('.jpg', '.png')):
-            os.remove(os.path.join(output_dir, f))
-    
+            try:
+                os.remove(os.path.join(output_dir, f))
+            except Exception:
+                pass
+
+    def _frames_sur_disque() -> List[str]:
+        """Retourne les frames existantes et non-vides dans output_dir."""
+        result = []
+        for f in sorted(os.listdir(output_dir)):
+            if f.endswith(('.jpg', '.png')):
+                path = os.path.join(output_dir, f)
+                if os.path.exists(path) and os.path.getsize(path) > 0:
+                    result.append(path)
+        return result[:max_frames]
+
+    # ── Tentative principale : N frames à intervalles réguliers ──────────
     try:
-        # Utiliser ffmpeg pour extraire des frames à intervalles réguliers
         cmd = [
-            "ffmpeg",
-            "-i", video_path,
-            "-vf", f"fps=1/{max_frames}",  # 1 frame toutes les N secondes
+            "ffmpeg", "-i", video_path,
+            "-vf", f"fps=1/{max(1, max_frames)}",
             "-frames:v", str(max_frames),
             "-q:v", "2",
             f"{output_dir}/frame_%03d.jpg",
             "-y"
         ]
-        
         subprocess.run(cmd, check=True, capture_output=True, timeout=30)
-        
-        # Récupérer les chemins des frames générées
-        frames = []
-        for f in sorted(os.listdir(output_dir)):
-            if f.endswith(('.jpg', '.png')):
-                frames.append(os.path.join(output_dir, f))
-        
-        print(f"Frames extraites: {len(frames)}")
-        return frames[:max_frames]
-        
+        frames = _frames_sur_disque()
+        print(f"Frames extraites: {len(frames)}", flush=True)
+        return frames
+
     except subprocess.TimeoutExpired:
-        print("Timeout lors de l'extraction des frames")
-        # Fallback: extraire juste la première frame
-        cmd = [
+        print("⏱️ Timeout extraction frames → fallback 1 frame", flush=True)
+
+    except subprocess.CalledProcessError as e:
+        print(f"⚠️ ffmpeg erreur (code {e.returncode}) → fallback 1 frame", flush=True)
+
+    except Exception as e:
+        print(f"⚠️ extract_keyframes exception: {e} → fallback 1 frame", flush=True)
+
+    # ── Fallback : extraire au moins 1 frame au milieu de la vidéo ────────
+    try:
+        # D'abord obtenir la durée pour viser le milieu
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+            capture_output=True, text=True, timeout=5
+        )
+        duration = float(probe.stdout.strip()) if probe.stdout.strip() else 0
+        seek = max(0, duration / 2)
+
+        cmd_fallback = [
             "ffmpeg",
+            "-ss", str(seek),
             "-i", video_path,
             "-vframes", "1",
             "-q:v", "2",
             f"{output_dir}/frame_001.jpg",
             "-y"
         ]
-        subprocess.run(cmd, capture_output=True, timeout=10)
-        return [os.path.join(output_dir, "frame_001.jpg")]
-        
+        subprocess.run(cmd_fallback, check=True, capture_output=True, timeout=10)
+        frames = _frames_sur_disque()
+        print(f"Fallback frames: {len(frames)}", flush=True)
+        return frames
+
     except Exception as e:
-        print(f"Erreur extraction frames: {e}")
+        print(f"❌ Fallback frame échoué: {e}", flush=True)
         return []
