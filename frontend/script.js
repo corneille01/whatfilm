@@ -552,13 +552,11 @@ function afficherErreur(msg) {
 }
 
 function afficherErreurTelechargement() {
-  // Cacher l'overlay et le jeu
   document.getElementById("loading-overlay").classList.remove("active");
   stopGame();
 
-  // Construire un message d'erreur clair
   const msg = `
-    <div style="text-align:center; padding:30px 20px; max-width:600px; margin:0 auto;">
+    <div style="grid-column:1/-1; text-align:center; padding:30px 20px; max-width:600px; justify-self:center;">
       <i class="fas fa-exclamation-triangle" style="font-size:3rem; color:#ffaa00;"></i>
       <h3 style="color:var(--text); margin:16px 0 8px;">Impossible de télécharger la vidéo</h3>
       <p style="color:var(--muted); font-size:0.9rem; line-height:1.6;">
@@ -571,14 +569,12 @@ function afficherErreurTelechargement() {
       </button>
     </div>
   `;
-  
-  // On vide la grille et on affiche ce message
+
   document.getElementById("genre-grid").style.display = "block";
   document.getElementById("genre-title").innerText = "⛔ Vidéo inaccessible";
   document.getElementById("movie-cards").innerHTML = msg;
   document.getElementById("filtres-bar").style.display = "none";
-  
-  // Cacher le hero
+
   document.getElementById("hero").style.display = "none";
   document.getElementById("page-film-detail").style.display = "none";
 }

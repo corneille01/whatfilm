@@ -114,6 +114,7 @@ async def analyser(req: VideoRequest):
 
         # Fallback avec Playwright si yt-dlp échoue
         if dl.returncode != 0:
+            print("yt-dlp échoué, STDERR:\n" + dl.stderr)   
             print("yt-dlp échoué, tentative via Playwright...")
             try:
                 from vision.tiktok_downloader import get_tiktok_video_url
