@@ -1,5 +1,6 @@
 fastapi
-uvicorn
+uvicorn[standard]
+gunicorn
 yt-dlp
 pillow
 google-genai
@@ -11,22 +12,9 @@ opencv-python-headless
 numpy
 pytesseract
 rapidfuzz
-scikit-learn
-sentence-transformers
-faiss-cpu
-torch
-torchaudio
-torchvision
-transformers
-ffmpeg-python
-aiofiles
-jinja2
-redis
-celery
 groq
-easyocr
 playwright
 curl-cffi
-# Ajouter ces lignes à votre requirements.txt si absentes :
-gunicorn>=21.2.0
-uvicorn[standard]>=0.27.0
+aiofiles
+jinja2
+ffmpeg-python
