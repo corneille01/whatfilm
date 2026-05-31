@@ -4,7 +4,6 @@ import time
 import threading
 import sys
 import os
-import signal
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
 _reader = None
@@ -12,20 +11,24 @@ _loading_started = False
 _loading_done = False
 _loading_error = None
 
-# ⚠️ 'ar' EST INCOMPATIBLE avec les langues latines dans le même Reader EasyOCR
-# Il faut un Reader séparé pour l'arabe — on le retire du groupe principal
-SUPPORTED_LANGUAGES = [
-    'en', 'fr', 'es', 'de', 'it', 'pt',
-    'nl', 'pl', 'sv', 'da', 'cs', 'hu', 'ro', 'tr',
-    'ru', 'bg', 'uk', 'vi', 'id',
-]
+# ═══════════════════════════════════════════════════════════════════
+# RÈGLE EASYOCR : les scripts ne peuvent PAS être mélangés.
+#   - Latin  (en, fr, es, de…) → un Reader
+#   - Cyrillique (ru, bg, uk…) → Reader séparé INCOMPATIBLE avec Latin
+#   - Arabe (ar…)              → Reader séparé INCOMPATIBLE avec Latin
+#
+# On utilise Latin uniquement : suffisant pour lire les titres de films
+# dans les sous-titres/affiches en TikTok/Reels.
+# ═══════════════════════════════════════════════════════════════════
+SUPPORTED_LANGUAGES = ['en', 'fr', 'es', 'de', 'it', 'pt', 'nl', 'pl', 'sv', 'da', 'cs', 'hu', 'ro', 'tr', 'vi', 'id']
 
 _ocr_executor = ThreadPoolExecutor(max_workers=1)
+
 
 def _load_model():
     global _reader, _loading_done, _loading_error
     try:
-        print("🔄 Chargement EasyOCR...", flush=True)
+        print("🔄 Chargement EasyOCR (latin uniquement)...", flush=True)
         start = time.time()
         _reader = easyocr.Reader(
             SUPPORTED_LANGUAGES,
@@ -33,51 +36,51 @@ def _load_model():
             verbose=False,
             download_enabled=True,
         )
-        print(f"✅ EasyOCR chargé en {time.time() - start:.1f}s", flush=True)
+        print(f"✅ EasyOCR prêt en {time.time() - start:.1f}s", flush=True)
     except Exception as e:
         _loading_error = str(e)
         print(f"❌ EasyOCR échec: {e}", flush=True)
     finally:
         _loading_done = True
 
+
 def start_loading():
     global _loading_started
     if not _loading_started:
         _loading_started = True
-        t = threading.Thread(target=_load_model, daemon=True)
-        t.start()
+        threading.Thread(target=_load_model, daemon=True).start()
+
 
 def get_reader():
     if not _loading_started:
         start_loading()
-    return _reader  # None si pas prêt ou en erreur
+    return _reader  # None si pas encore prêt ou en erreur
+
 
 def _ocr_one_frame(frame_path):
-    """OCR d'une seule frame, appelé dans le ThreadPoolExecutor."""
-    results = _reader.readtext(frame_path, detail=0)
-    return " ".join(results)
+    return " ".join(_reader.readtext(frame_path, detail=0))
+
 
 def extract_text_from_images(frames, max_images=6):
     if not frames:
         return ""
     reader = get_reader()
     if reader is None:
-        print("⚠️ EasyOCR pas prêt → OCR côté client", flush=True)
+        print("⚠️ EasyOCR pas prêt → fallback client", flush=True)
         return ""
 
     texts = []
     for frame_path in frames[:max_images]:
+        if not os.path.exists(frame_path):
+            continue
         try:
-            if not os.path.exists(frame_path):
-                continue
-            # Timeout de 8s par frame pour éviter le blocage total
             future = _ocr_executor.submit(_ocr_one_frame, frame_path)
             text = future.result(timeout=8)
             if text.strip():
                 texts.append(text.strip())
         except FuturesTimeout:
-            print(f"⏱️ OCR timeout sur {os.path.basename(frame_path)}", flush=True)
+            print(f"⏱️ OCR timeout: {os.path.basename(frame_path)}", flush=True)
         except Exception as e:
-            print(f"⚠️ OCR frame error: {str(e)[:80]}", flush=True)
+            print(f"⚠️ OCR erreur: {str(e)[:80]}", flush=True)
 
     return " ".join(texts)

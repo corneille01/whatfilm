@@ -37,7 +37,7 @@ COPY requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir --upgrade yt-dlp && \
-    pip install --no-cache-dir playwright curl-cffi
+    pip install --no-cache-dir gunicorn playwright curl-cffi
 
 RUN playwright install --with-deps chromium
 
@@ -47,5 +47,20 @@ RUN mkdir -p temp
 
 EXPOSE 10000
 
-# Timeout augmenté pour l'analyse
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "10000", "--workers", "1", "--timeout-keep-alive", "600", "--limit-max-requests", "10"]
+# ─────────────────────────────────────────────────────────────────
+# Gunicorn + worker Uvicorn :
+#   - Pas de --limit-max-requests (l'ancien "10" crashait le process
+#     après 10 health checks de Render, avant même un vrai visiteur)
+#   - --timeout 120 : laisse le temps à yt-dlp + EasyOCR de tourner
+#   - --keep-alive 5 : connexions persistantes pour les health checks
+#   - 1 worker : instance Render free tier = 512 Mo RAM, 1 CPU
+# ─────────────────────────────────────────────────────────────────
+CMD ["gunicorn", "main:app", \
+     "--worker-class", "uvicorn.workers.UvicornWorker", \
+     "--workers", "1", \
+     "--bind", "0.0.0.0:10000", \
+     "--timeout", "120", \
+     "--keep-alive", "5", \
+     "--log-level", "info", \
+     "--access-logfile", "-", \
+     "--error-logfile", "-"]
