@@ -11,16 +11,12 @@ _loading_started = False
 _loading_done = False
 _loading_error = None
 
-# ⚠️ Langues 100% compatibles EasyOCR (testées)
+# Langues compatibles dans un seul Reader (Latin + Cyrillic + Arabe)
+# ch_sim / ja / ko retiré — incompatible avec les langues latines en combinaison
 SUPPORTED_LANGUAGES = [
     'en', 'fr', 'es', 'de', 'it', 'pt',
-    'ch_sim', 'ja', 'ko',
-    'nl', 'pl', 'sv', 'da', 'no', 'cs', 'sk', 'hu',
-    'ro', 'hr', 'sl', 'et', 'lv', 'lt',
-    'tr', 'ru', 'bg', 'uk', 'be',
-    'vi', 'ms', 'id', 'tl',
-    'hi', 'bn', 'ta', 'te', 'kn', 'mr', 'ne',
-    'ar', 'fa', 'ur', 'sw', 'af'
+    'nl', 'pl', 'sv', 'da', 'cs', 'hu', 'ro', 'tr',
+    'ru', 'bg', 'uk', 'vi', 'id', 'ar',
 ]
 
 def _load_model():
@@ -29,19 +25,27 @@ def _load_model():
         print("🔄 Chargement EasyOCR...")
         sys.stdout.flush()
         start = time.time()
-        
-        _reader = easyocr.Reader(SUPPORTED_LANGUAGES, gpu=False, verbose=False)
-        
+
+        _reader = easyocr.Reader(
+            SUPPORTED_LANGUAGES,
+            gpu=False,
+            verbose=False,
+            download_enabled=True,
+        )
+
         elapsed = time.time() - start
         print(f"✅ EasyOCR chargé en {elapsed:.1f}s")
         sys.stdout.flush()
-        _loading_done = True
-        
+
     except Exception as e:
-        print(f"❌ EasyOCR: {e}")
+        print(f"❌ EasyOCR échec: {e}")
         sys.stdout.flush()
         _loading_error = str(e)
-        _loading_done = True
+        # Ne pas faire raise — le thread se termine proprement
+        # get_reader() retournera None → fallback client-side
+
+    finally:
+        _loading_done = True  # toujours atteint, même en cas d'erreur
 
 def start_loading():
     global _loading_started, _loading_thread
@@ -51,26 +55,22 @@ def start_loading():
         _loading_thread.start()
 
 def get_reader():
-    global _reader, _loading_done, _loading_error
     if not _loading_started:
         start_loading()
     if _reader is not None:
         return _reader
-    if _loading_error:
-        return None
-    if not _loading_done:
-        return None
-    return _reader
+    # Pas de blocage : si pas prêt ou en erreur, on retourne None
+    return None
 
 def extract_text_from_images(frames, max_images=8):
     if not frames:
         return ""
-    
+
     reader = get_reader()
     if reader is None:
         print("⚠️ EasyOCR pas prêt → OCR côté client")
         return ""
-    
+
     texts = []
     for frame_path in frames[:max_images]:
         try:
@@ -81,6 +81,6 @@ def extract_text_from_images(frames, max_images=8):
             if text.strip():
                 texts.append(text.strip())
         except Exception as e:
-            print(f"OCR: {str(e)[:80]}")
-    
+            print(f"OCR frame error: {str(e)[:80]}")
+
     return " ".join(texts)

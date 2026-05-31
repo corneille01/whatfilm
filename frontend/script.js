@@ -14,6 +14,17 @@ function setCache(key, data) {
     apiCache[key] = { data, time: Date.now() };
 }
 
+// ════ SAFE FETCH ════
+async function safeFetch(url, options = {}) {
+    const res = await fetch(url, options);
+    const contentType = res.headers.get("content-type") || "";
+    if (!res.ok || !contentType.includes("application/json")) {
+        const preview = await res.text();
+        throw new Error(`Serveur indisponible (${res.status}). Réessayez dans quelques secondes.`);
+    }
+    return res.json();
+}
+
 // ════════════════════════════════════════════════
 // SHADOWFRAME – QUEL FILM ? – JavaScript complet
 // ════════════════════════════════════════════════
@@ -376,21 +387,23 @@ function hideHero() { document.getElementById("hero").style.display = "none"; do
 
 // ════ RECHERCHE GLOBALE ════
 async function gererRechercheGlobal() {
-  const input = document.getElementById("input_global").value.trim();
-  if (!input) return;
-  cacherErreur();
-  document.getElementById("genre-grid").style.display = "none";
-  document.getElementById("page-film-detail").style.display = "none";
-  const isLink = /^https?:\/\/|tiktok\.com|instagram\.com|youtube\.com|youtu\.be|vm\.tiktok\.com|vt\.tiktok\.com/i.test(input);
-  if (isLink) { await analyserVideo(input); }
-  else {
-    hideHero();
-    try {
-      const res = await fetch(`/rechercher?query=${encodeURIComponent(input)}&lang=${getTMDBLang()}`);
-      const data = await res.json();
-      afficherResultatsRecherche(data, input);
-    } catch (e) { afficherErreur("Erreur réseau : " + e.message); }
-  }
+    const input = document.getElementById("input_global").value.trim();
+    if (!input) return;
+    cacherErreur();
+    document.getElementById("genre-grid").style.display = "none";
+    document.getElementById("page-film-detail").style.display = "none";
+    const isLink = /^https?:\/\/|tiktok\.com|instagram\.com|youtube\.com|youtu\.be|vm\.tiktok\.com|vt\.tiktok\.com/i.test(input);
+    if (isLink) {
+        await analyserVideo(input);
+    } else {
+        hideHero();
+        try {
+            const data = await safeFetch(`/rechercher?query=${encodeURIComponent(input)}&lang=${getTMDBLang()}`);
+            afficherResultatsRecherche(data, input);
+        } catch (e) {
+            afficherErreur("Erreur réseau : " + e.message);
+        }
+    }
 }
 
 // ════ ANNULER ANALYSE ════
@@ -510,67 +523,103 @@ function afficherNotFound(data) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-// ════ GENRES / TRENDING / SERIES ════
 async function chargerGenre(genreName, page = 1, mediaType = "movie") {
-  hideHero(); cacherErreur(); currentGenreName = genreName; currentPage = page;
-  const cacheKey = `genre_${genreName}_${page}_${getTMDBLang()}`; const cached = getCached(cacheKey);
-  document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
-  document.getElementById("page-film-detail").style.display = "none"; document.getElementById("genre-grid").style.display = "block";
-  document.getElementById("platform-nav").classList.remove("visible"); document.getElementById("genre-title").innerText = genreName.toUpperCase();
-  lastGrid = genreName; navStack = [];
-  if (cached) { renderCards(cached, genreName, page, 10, mediaType); return; }
-  document.getElementById("movie-cards").innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
-  try {
-    const url = `/discover/${encodeURIComponent(genreName)}?lang=${getTMDBLang()}&page=${page}${mediaType === "tv" ? "&type=tv" : ""}`;
-    const res = await fetch(url); const data = await res.json();
-    if (data.status === "success") { setCache(cacheKey, data.results); renderCards(data.results, genreName, page, data.total_pages, mediaType); }
-    else { document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px">Genre introuvable.</p>`; }
-  } catch (e) { afficherErreur("Erreur: " + e.message); }
+    hideHero(); cacherErreur(); currentGenreName = genreName; currentPage = page;
+    const cacheKey = `genre_${genreName}_${page}_${getTMDBLang()}`;
+    const cached = getCached(cacheKey);
+    document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
+    document.getElementById("page-film-detail").style.display = "none";
+    document.getElementById("genre-grid").style.display = "block";
+    document.getElementById("platform-nav").classList.remove("visible");
+    document.getElementById("genre-title").innerText = genreName.toUpperCase();
+    lastGrid = genreName; navStack = [];
+    if (cached) { renderCards(cached, genreName, page, 10, mediaType); return; }
+    document.getElementById("movie-cards").innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
+    try {
+        const url = `/discover/${encodeURIComponent(genreName)}?lang=${getTMDBLang()}&page=${page}${mediaType === "tv" ? "&type=tv" : ""}`;
+        const data = await safeFetch(url);
+        if (data.status === "success") {
+            setCache(cacheKey, data.results);
+            renderCards(data.results, genreName, page, data.total_pages, mediaType);
+        } else {
+            document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px">Genre introuvable.</p>`;
+        }
+    } catch (e) {
+        document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px"><i class="fas fa-exclamation-circle"></i> ${e.message}</p>`;
+    }
 }
 
 async function chargerSeries(page = 1) {
-  hideHero(); cacherErreur(); currentGenreName = "series"; currentPage = page;
-  document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active")); document.querySelector(".btn-genre.series")?.classList.add("active");
-  document.getElementById("page-film-detail").style.display = "none"; document.getElementById("genre-grid").style.display = "block";
-  document.getElementById("platform-nav").classList.remove("visible"); document.getElementById("genre-title").innerText = tg("series").toUpperCase();
-  document.getElementById("movie-cards").innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
-  lastGrid = "series"; navStack = [];
-  try {
-    const res = await fetch(`/trending?lang=${getTMDBLang()}&type=tv`); const data = await res.json();
-    if (data.status === "success") { renderCards(data.results.map(r => ({ ...r, media_type: "tv" })), "series", 1, 1, "tv"); }
-    else { document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px">Impossible de charger les séries.</p>`; }
-  } catch (e) { afficherErreur("Erreur séries: " + e.message); }
+    hideHero(); cacherErreur(); currentGenreName = "series"; currentPage = page;
+    document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
+    document.querySelector(".btn-genre.series")?.classList.add("active");
+    document.getElementById("page-film-detail").style.display = "none";
+    document.getElementById("genre-grid").style.display = "block";
+    document.getElementById("platform-nav").classList.remove("visible");
+    document.getElementById("genre-title").innerText = tg("series").toUpperCase();
+    document.getElementById("movie-cards").innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
+    lastGrid = "series"; navStack = [];
+    try {
+        const data = await safeFetch(`/trending?lang=${getTMDBLang()}&type=tv`);
+        if (data.status === "success") {
+            renderCards(data.results.map(r => ({ ...r, media_type: "tv" })), "series", 1, 1, "tv");
+        } else {
+            document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px">Impossible de charger les séries.</p>`;
+        }
+    } catch (e) {
+        document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px"><i class="fas fa-exclamation-circle"></i> ${e.message}</p>`;
+    }
 }
 
 async function chargerTrending() {
-  hideHero(); cacherErreur(); currentGenreName = "trending";
-  const cacheKey = `trending_${getTMDBLang()}`; const cached = getCached(cacheKey);
-  document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active")); document.querySelector(".btn-genre.trending")?.classList.add("active");
-  document.getElementById("page-film-detail").style.display = "none"; document.getElementById("genre-grid").style.display = "block";
-  document.getElementById("platform-nav").classList.remove("visible"); document.getElementById("genre-title").innerText = tg("trending").toUpperCase();
-  if (cached) { renderCards(cached, "trending", 1, 1); return; }
-  document.getElementById("movie-cards").innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
-  lastGrid = "trending"; navStack = [];
-  try {
-    const res = await fetch(`/trending?lang=${getTMDBLang()}`); const data = await res.json();
-    if (data.status === "success") { setCache(cacheKey, data.results); renderCards(data.results, "trending", 1, 1); }
-    else { document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px">Impossible de charger les tendances.</p>`; }
-  } catch (e) { afficherErreur("Erreur tendances: " + e.message); }
+    hideHero(); cacherErreur(); currentGenreName = "trending";
+    const cacheKey = `trending_${getTMDBLang()}`;
+    const cached = getCached(cacheKey);
+    document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
+    document.querySelector(".btn-genre.trending")?.classList.add("active");
+    document.getElementById("page-film-detail").style.display = "none";
+    document.getElementById("genre-grid").style.display = "block";
+    document.getElementById("platform-nav").classList.remove("visible");
+    document.getElementById("genre-title").innerText = tg("trending").toUpperCase();
+    if (cached) { renderCards(cached, "trending", 1, 1); return; }
+    document.getElementById("movie-cards").innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
+    lastGrid = "trending"; navStack = [];
+    try {
+        const data = await safeFetch(`/trending?lang=${getTMDBLang()}`);
+        if (data.status === "success") {
+            setCache(cacheKey, data.results);
+            renderCards(data.results, "trending", 1, 1);
+        } else {
+            document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px">Impossible de charger les tendances.</p>`;
+        }
+    } catch (e) {
+        document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px"><i class="fas fa-exclamation-circle"></i> ${e.message}</p>`;
+    }
 }
 
 async function chargerParPlateforme(platformKey) {
-  hideHero(); cacherErreur();
-  const nameMap = { netflix: "NETFLIX", amazon: "PRIME VIDEO", disney: "DISNEY+", apple: "APPLE TV+", paramount: "PARAMOUNT+", hulu: "HULU" };
-  currentGenreName = platformKey;
-  document.getElementById("page-film-detail").style.display = "none"; document.getElementById("genre-grid").style.display = "block";
-  document.getElementById("genre-title").innerText = "📺 " + nameMap[platformKey];
-  document.getElementById("movie-cards").innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
-  document.querySelectorAll(".btn-platform").forEach(b => b.classList.remove("active")); event?.currentTarget?.classList.add("active");
-  lastGrid = platformKey; navStack = [];
-  try {
-    const trending = await fetch(`/trending?lang=${getTMDBLang()}`); const data = await trending.json();
-    if (data.status === "success") { renderCards(data.results, platformKey, 1, 1); toast("🎬 Films populaires sur " + nameMap[platformKey]); }
-  } catch (e) { afficherErreur("Erreur plateforme: " + e.message); }
+    hideHero(); cacherErreur();
+    const nameMap = { netflix: "NETFLIX", amazon: "PRIME VIDEO", disney: "DISNEY+", apple: "APPLE TV+", paramount: "PARAMOUNT+", hulu: "HULU" };
+    currentGenreName = platformKey;
+    document.getElementById("page-film-detail").style.display = "none";
+    document.getElementById("genre-grid").style.display = "block";
+    document.getElementById("genre-title").innerText = "📺 " + (nameMap[platformKey] || platformKey.toUpperCase());
+    document.getElementById("movie-cards").innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
+    document.querySelectorAll(".btn-platform").forEach(b => b.classList.remove("active"));
+    event?.currentTarget?.classList.add("active");
+    lastGrid = platformKey; navStack = [];
+    try {
+        const data = await safeFetch(`/trending?lang=${getTMDBLang()}`);
+        if (data.status === "success") {
+            renderCards(data.results, platformKey, 1, 1);
+            toast("🎬 Films populaires sur " + (nameMap[platformKey] || platformKey));
+        } else {
+            document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px">Aucun résultat.</p>`;
+        }
+    } catch (e) {
+        afficherErreur("Erreur plateforme : " + e.message);
+        document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px"><i class="fas fa-exclamation-circle"></i> ${e.message}</p>`;
+    }
 }
 
 // ════ RENDER CARDS ════
