@@ -99,18 +99,26 @@ async def analyser(req: VideoRequest):
         print("STEP 1: DOWNLOAD VIDEO")
         # Premier essai avec yt-dlp
         dl = subprocess.run(
-            [
-                "yt-dlp",
-                "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-                "-o", video_path,
-                "--no-playlist",
-                "--extractor-args", "tiktok:app_version=26.2.1;os_version=16;device_platform=android",
-                "--user-agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36",
-                req.url
-            ],
-            capture_output=True,
-            text=True
-        )
+         [
+        "yt-dlp",
+        "-f", "best[ext=mp4]/best",
+        "-o", video_path,
+        "--no-playlist",
+        "--no-check-certificate",
+        "--force-ipv4",
+        "--extractor-retries", "3",
+        "--retries", "3",
+        "--fragment-retries", "3",
+        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "--add-header", "Accept-Language:fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+        "--extractor-args", "tiktok:api_hostname=api16-normal-c-useast1a.tiktokv.com",
+        req.url
+    ],
+    capture_output=True,
+    text=True,
+    timeout=60
+)
 
         # Fallback avec Playwright si yt-dlp échoue
         if dl.returncode != 0:
