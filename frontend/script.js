@@ -1,15 +1,12 @@
 // ════ CACHE ════
 const apiCache = {};
-const CACHE_TTL = 300000; // 5 minutes
+const CACHE_TTL = 300000;
 
 function getCached(key) {
     const entry = apiCache[key];
-    if (entry && (Date.now() - entry.time) < CACHE_TTL) {
-        return entry.data;
-    }
+    if (entry && (Date.now() - entry.time) < CACHE_TTL) return entry.data;
     return null;
 }
-
 function setCache(key, data) {
     apiCache[key] = { data, time: Date.now() };
 }
@@ -18,16 +15,12 @@ function setCache(key, data) {
 async function safeFetch(url, options = {}) {
     const res = await fetch(url, options);
     const contentType = res.headers.get("content-type") || "";
-    if (!res.ok || !contentType.includes("application/json")) {
-        const preview = await res.text();
-        throw new Error(`Serveur indisponible (${res.status}). Réessayez dans quelques secondes.`);
+    if (!contentType.includes("application/json")) {
+        throw new Error(`Réponse inattendue du serveur (${res.status}). Réessayez dans quelques secondes.`);
     }
-    return res.json();
+    const data = await res.json();
+    return data;
 }
-
-// ════════════════════════════════════════════════
-// SHADOWFRAME – QUEL FILM ? – JavaScript complet
-// ════════════════════════════════════════════════
 
 // ════ DICTIONNAIRE INTERNATIONAL ════
 const dict = {
@@ -36,40 +29,31 @@ const dict = {
     tagline: "Paste a TikTok, Reel or YouTube link — AI identifies the film in seconds",
     placeholder: "Paste TikTok/Insta link or type a movie name...",
     badge: "Shazam for movies",
-    back_home: "Home",
-    back_list: "Back to list",
-    ai_conf: "AI Confidence",
-    reset: "Reset",
-    year: "Year",
-    min_score: "Min score",
-    sort_pop: "🔥 Popularity",
-    sort_top: "⭐ Top rated",
-    sort_asc: "Score ascending",
-    sort_new: "🆕 Newest",
-    sort_old: "📼 Oldest",
-    no_streaming_country: "No streaming available in the US currently.",
-    cancel: "Cancel",
+    back_home: "Home", back_list: "Back to list", ai_conf: "AI Confidence", reset: "Reset",
+    year: "Year", min_score: "Min score", sort_pop: "🔥 Popularity", sort_top: "⭐ Top rated",
+    sort_asc: "Score ascending", sort_new: "🆕 Newest", sort_old: "📼 Oldest",
+    no_streaming_country: "No streaming available in the US currently.", cancel: "Cancel",
     game_hint: "TAP / SPACE to jump",
-    food_title: "Ready to watch?",
-    food_desc: "Order popcorn & snacks via DoorDash!",
-    food_btn: "Order",
-    streaming_title: "Available on",
-    searching: "Manual search",
-    loading_home: "Loading trending...",
-    not_found_title: "Movie not found",
-    similar_title: "🍿 Similar movies",
-    cast_title: "Cast",
-    series_tag: "TV Series",
-    trailer_title: "Trailer",
-    scene_identified: "Scene identified",
-    no_synopsis: "No synopsis available.",
-    see_trailer: "Watch trailer",
-    search_trailer: "Find trailer on YouTube",
-    seasons_title: "Seasons",
-    episodes_title: "Episodes",
-    loading_episodes: "Loading episodes...",
-    providers_country: "US",
-    game_over: "GAME OVER — Score: ",
+    game_playing_msg: "🎬 We're identifying the movie from your link…\nPlay while you wait — it takes about 30 seconds!",
+    food_title: "Ready to watch?", food_desc: "Order popcorn & snacks via DoorDash!", food_btn: "Order",
+    streaming_title: "Available on", searching: "Manual search",
+    loading_home: "Loading trending...", not_found_title: "Movie not found",
+    similar_title: "🍿 Similar movies", cast_title: "Cast", series_tag: "TV Series",
+    trailer_title: "Trailer", scene_identified: "Scene identified", no_synopsis: "No synopsis available.",
+    see_trailer: "Watch trailer", search_trailer: "Find trailer on YouTube",
+    seasons_title: "Seasons", episodes_title: "Episodes", loading_episodes: "Loading episodes...",
+    providers_country: "US", game_over: "GAME OVER — Score: ",
+    err_server_busy: "The server is busy. Please retry in 30 seconds.",
+    err_private: "This video is private or requires a login.",
+    err_geo: "This video is not available in your region.",
+    err_deleted: "This video has been deleted or no longer exists.",
+    err_download: "Unable to download this video. Make sure it's public.",
+    err_no_frames: "Could not extract images from this video.",
+    err_timeout: "Analysis timed out. Try a shorter video.",
+    err_session: "Session expired. Please retry.",
+    err_generic: "An error occurred. Please try again.",
+    err_low_confidence: "Movie not identified with enough confidence. Try searching manually.",
+    search_manually: "Search manually",
     genres: {
       horror: "Horror", action: "Action", comedy: "Comedy", scifi: "Sci-Fi",
       trending: "🔥 Trending", romance: "Romance", animation: "Animation",
@@ -84,14 +68,27 @@ const dict = {
     year: "Year", min_score: "Min score", sort_pop: "🔥 Popularity", sort_top: "⭐ Top rated",
     sort_asc: "Score ascending", sort_new: "🆕 Newest", sort_old: "📼 Oldest",
     no_streaming_country: "No streaming available in the UK currently.", cancel: "Cancel",
-    game_hint: "TAP / SPACE to jump", food_title: "Ready to watch?", food_desc: "Order popcorn & snacks via Deliveroo!",
-    food_btn: "Order", streaming_title: "Available on", searching: "Manual search",
+    game_hint: "TAP / SPACE to jump",
+    game_playing_msg: "🎬 We're identifying the movie from your link…\nPlay while you wait — it takes about 30 seconds!",
+    food_title: "Ready to watch?", food_desc: "Order popcorn & snacks via Deliveroo!", food_btn: "Order",
+    streaming_title: "Available on", searching: "Manual search",
     loading_home: "Loading trending...", not_found_title: "Movie not found",
     similar_title: "🍿 Similar movies", cast_title: "Cast", series_tag: "TV Series",
     trailer_title: "Trailer", scene_identified: "Scene identified", no_synopsis: "No synopsis available.",
     see_trailer: "Watch trailer", search_trailer: "Find trailer on YouTube",
     seasons_title: "Seasons", episodes_title: "Episodes", loading_episodes: "Loading episodes...",
     providers_country: "GB", game_over: "GAME OVER — Score: ",
+    err_server_busy: "The server is busy. Please retry in 30 seconds.",
+    err_private: "This video is private or requires a login.",
+    err_geo: "This video is not available in your region.",
+    err_deleted: "This video has been deleted or no longer exists.",
+    err_download: "Unable to download this video. Make sure it's public.",
+    err_no_frames: "Could not extract images from this video.",
+    err_timeout: "Analysis timed out. Try a shorter video.",
+    err_session: "Session expired. Please retry.",
+    err_generic: "An error occurred. Please try again.",
+    err_low_confidence: "Movie not identified with enough confidence. Try searching manually.",
+    search_manually: "Search manually",
     genres: {
       horror: "Horror", action: "Action", comedy: "Comedy", scifi: "Sci-Fi",
       trending: "🔥 Trending", romance: "Romance", animation: "Animation",
@@ -106,8 +103,9 @@ const dict = {
     year: "Année", min_score: "Note min", sort_pop: "🔥 Popularité", sort_top: "⭐ Mieux notés",
     sort_asc: "Note croissante", sort_new: "🆕 Plus récents", sort_old: "📼 Plus anciens",
     no_streaming_country: "Pas de streaming disponible en France actuellement.", cancel: "Annuler",
-    game_hint: "TAP / ESPACE pour sauter", food_title: "Prêt à regarder ce film ?",
-    food_desc: "Commandez vos snacks via UberEats !", food_btn: "Commander",
+    game_hint: "TAP / ESPACE pour sauter",
+    game_playing_msg: "🎬 On cherche le film de votre lien…\nJouez pendant l'analyse — ça prend environ 30 secondes !",
+    food_title: "Prêt à regarder ce film ?", food_desc: "Commandez vos snacks via UberEats !", food_btn: "Commander",
     streaming_title: "Disponible sur", searching: "Recherche manuelle",
     loading_home: "Chargement des tendances...", not_found_title: "Film non identifié",
     similar_title: "🍿 Films similaires", cast_title: "Au casting", series_tag: "Série TV",
@@ -116,6 +114,17 @@ const dict = {
     search_trailer: "Chercher la bande-annonce", seasons_title: "Saisons",
     episodes_title: "Épisodes", loading_episodes: "Chargement des épisodes...",
     providers_country: "FR", game_over: "GAME OVER — Score : ",
+    err_server_busy: "Le serveur est actuellement surchargé. Réessayez dans 30 secondes.",
+    err_private: "Cette vidéo est privée ou nécessite une connexion.",
+    err_geo: "Cette vidéo n'est pas disponible dans votre région.",
+    err_deleted: "Cette vidéo a été supprimée ou n'existe plus.",
+    err_download: "Impossible de télécharger cette vidéo. Vérifiez qu'elle est publique et accessible.",
+    err_no_frames: "Impossible d'extraire des images de cette vidéo.",
+    err_timeout: "L'analyse a pris trop de temps. Essayez avec une vidéo plus courte.",
+    err_session: "Session expirée. Relancez l'analyse.",
+    err_generic: "Une erreur s'est produite. Réessayez dans quelques instants.",
+    err_low_confidence: "Film non identifié avec certitude. Essayez de le rechercher manuellement.",
+    search_manually: "Rechercher manuellement",
     genres: {
       horror: "Horreur", action: "Action", comedy: "Comédie", scifi: "Sci-Fi",
       trending: "🔥 Tendances", romance: "Romance", animation: "Animation",
@@ -130,15 +139,27 @@ const dict = {
     year: "Año", min_score: "Nota mínima", sort_pop: "🔥 Popularidad", sort_top: "⭐ Mejor valoradas",
     sort_asc: "Nota ascendente", sort_new: "🆕 Más recientes", sort_old: "📼 Más antiguas",
     no_streaming_country: "Sin streaming disponible actualmente.", cancel: "Cancelar",
-    game_hint: "TAP / ESPACIO para saltar", food_title: "¿Listo para ver la película?",
-    food_desc: "¡Pide snacks y palomitas!", food_btn: "Pedir", streaming_title: "Disponible en",
-    searching: "Buscar manualmente", loading_home: "Cargando tendencias...",
-    not_found_title: "Película no encontrada", similar_title: "🍿 Películas similares",
-    cast_title: "Reparto", series_tag: "Serie TV", trailer_title: "Tráiler",
-    scene_identified: "Escena identificada", no_synopsis: "Sin sinopsis disponible.",
+    game_hint: "TAP / ESPACIO para saltar",
+    game_playing_msg: "🎬 Estamos identificando la película…\n¡Juega mientras esperas, tarda unos 30 segundos!",
+    food_title: "¿Listo para ver la película?", food_desc: "¡Pide snacks y palomitas!", food_btn: "Pedir",
+    streaming_title: "Disponible en", searching: "Buscar manualmente",
+    loading_home: "Cargando tendencias...", not_found_title: "Película no encontrada",
+    similar_title: "🍿 Películas similares", cast_title: "Reparto", series_tag: "Serie TV",
+    trailer_title: "Tráiler", scene_identified: "Escena identificada", no_synopsis: "Sin sinopsis disponible.",
     see_trailer: "Ver tráiler", search_trailer: "Buscar tráiler en YouTube",
     seasons_title: "Temporadas", episodes_title: "Episodios", loading_episodes: "Cargando episodios...",
     providers_country: "ES", game_over: "GAME OVER — Puntuación: ",
+    err_server_busy: "El servidor está ocupado. Reintenta en 30 segundos.",
+    err_private: "Este vídeo es privado o requiere inicio de sesión.",
+    err_geo: "Este vídeo no está disponible en tu región.",
+    err_deleted: "Este vídeo fue eliminado o ya no existe.",
+    err_download: "No se puede descargar este vídeo. Verifica que sea público.",
+    err_no_frames: "No se pudieron extraer imágenes del vídeo.",
+    err_timeout: "El análisis tardó demasiado. Prueba con un vídeo más corto.",
+    err_session: "Sesión expirada. Reinicia el análisis.",
+    err_generic: "Ocurrió un error. Inténtalo de nuevo.",
+    err_low_confidence: "Película no identificada con certeza. Busca manualmente.",
+    search_manually: "Buscar manualmente",
     genres: {
       horror: "Terror", action: "Acción", comedy: "Comedia", scifi: "Ciencia Ficción",
       trending: "🔥 Tendencias", romance: "Romance", animation: "Animación",
@@ -153,15 +174,27 @@ const dict = {
     year: "Jahr", min_score: "Mindestbewertung", sort_pop: "🔥 Beliebtheit", sort_top: "⭐ Bestbewertet",
     sort_asc: "Bewertung aufsteigend", sort_new: "🆕 Neueste", sort_old: "📼 Älteste",
     no_streaming_country: "Kein Streaming in Deutschland verfügbar.", cancel: "Abbrechen",
-    game_hint: "TAP / LEERTASTE zum Springen", food_title: "Bereit zum Anschauen?",
-    food_desc: "Bestelle Snacks und Popcorn!", food_btn: "Bestellen", streaming_title: "Verfügbar auf",
-    searching: "Manuell suchen", loading_home: "Trends werden geladen...",
-    not_found_title: "Film nicht gefunden", similar_title: "🍿 Ähnliche Filme",
-    cast_title: "Besetzung", series_tag: "TV-Serie", trailer_title: "Trailer",
-    scene_identified: "Szene identifiziert", no_synopsis: "Keine Beschreibung verfügbar.",
+    game_hint: "TAP / LEERTASTE zum Springen",
+    game_playing_msg: "🎬 Wir identifizieren den Film…\nSpiel während du wartest — dauert ca. 30 Sekunden!",
+    food_title: "Bereit zum Anschauen?", food_desc: "Bestelle Snacks und Popcorn!", food_btn: "Bestellen",
+    streaming_title: "Verfügbar auf", searching: "Manuell suchen",
+    loading_home: "Trends werden geladen...", not_found_title: "Film nicht gefunden",
+    similar_title: "🍿 Ähnliche Filme", cast_title: "Besetzung", series_tag: "TV-Serie",
+    trailer_title: "Trailer", scene_identified: "Szene identifiziert", no_synopsis: "Keine Beschreibung verfügbar.",
     see_trailer: "Trailer ansehen", search_trailer: "Trailer auf YouTube suchen",
     seasons_title: "Staffeln", episodes_title: "Folgen", loading_episodes: "Folgen werden geladen...",
     providers_country: "DE", game_over: "GAME OVER — Punkte: ",
+    err_server_busy: "Der Server ist ausgelastet. Versuche es in 30 Sekunden.",
+    err_private: "Dieses Video ist privat oder erfordert einen Login.",
+    err_geo: "Dieses Video ist in deiner Region nicht verfügbar.",
+    err_deleted: "Dieses Video wurde gelöscht oder existiert nicht mehr.",
+    err_download: "Video kann nicht heruntergeladen werden. Stelle sicher, dass es öffentlich ist.",
+    err_no_frames: "Bilder konnten nicht aus dem Video extrahiert werden.",
+    err_timeout: "Analyse hat zu lange gedauert. Versuche ein kürzeres Video.",
+    err_session: "Sitzung abgelaufen. Starte die Analyse neu.",
+    err_generic: "Ein Fehler ist aufgetreten. Versuche es erneut.",
+    err_low_confidence: "Film nicht sicher identifiziert. Suche manuell.",
+    search_manually: "Manuell suchen",
     genres: {
       horror: "Horror", action: "Action", comedy: "Komödie", scifi: "Science-Fiction",
       trending: "🔥 Trends", romance: "Romantik", animation: "Animation",
@@ -175,7 +208,9 @@ const dict = {
     back_home: "首页", back_list: "返回列表", ai_conf: "AI 置信度", reset: "重置",
     year: "年份", min_score: "最低评分", sort_pop: "🔥 热度", sort_top: "⭐ 最高评分",
     sort_asc: "评分升序", sort_new: "🆕 最新", sort_old: "📼 最早",
-    no_streaming_country: "暂无可用的流媒体。", cancel: "取消", game_hint: "点击 / 空格键跳跃",
+    no_streaming_country: "暂无可用的流媒体。", cancel: "取消",
+    game_hint: "点击 / 空格键跳跃",
+    game_playing_msg: "🎬 正在识别您的视频中的电影…\n请玩游戏等待，大约需要30秒！",
     food_title: "准备好看电影了吗？", food_desc: "立即订购爆米花和零食！", food_btn: "下单",
     streaming_title: "可在以下平台观看", searching: "手动搜索", loading_home: "加载热门中...",
     not_found_title: "未找到影片", similar_title: "🍿 相似影片", cast_title: "演员表",
@@ -183,6 +218,17 @@ const dict = {
     no_synopsis: "暂无简介。", see_trailer: "观看预告片", search_trailer: "在 YouTube 上搜索预告片",
     seasons_title: "季", episodes_title: "集", loading_episodes: "加载剧集中...",
     providers_country: "CN", game_over: "游戏结束 — 得分：",
+    err_server_busy: "服务器繁忙，请30秒后重试。",
+    err_private: "该视频为私密视频或需要登录。",
+    err_geo: "该视频在您所在地区不可用。",
+    err_deleted: "该视频已被删除或不再存在。",
+    err_download: "无法下载此视频，请确认视频为公开状态。",
+    err_no_frames: "无法从视频中提取图像。",
+    err_timeout: "分析超时，请尝试较短的视频。",
+    err_session: "会话已过期，请重新分析。",
+    err_generic: "发生错误，请重试。",
+    err_low_confidence: "无法确定识别电影，请手动搜索。",
+    search_manually: "手动搜索",
     genres: {
       horror: "恐怖", action: "动作", comedy: "喜剧", scifi: "科幻",
       trending: "🔥 热门", romance: "爱情", animation: "动画",
@@ -195,9 +241,9 @@ const dict = {
 // ════ CONFIG STREAMING ════
 const STREAMING_META = {
   Netflix: { color: "#e50914", logo: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Netflix_2015_logo.svg/24px-Netflix_2015_logo.svg.png" },
-  "Amazon Prime Video": { color: "#00a8e0", logo: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Amazon_Prime_Video_logo.svg/24px-Amazon_Prime_Video_logo.svg.png" },
-  "Disney+": { color: "#113ccf", logo: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/Disney%2B_logo.svg/24px-Disney%2B_logo.svg.png" },
-  "Apple TV+": { color: "#a2aaad", logo: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/28/Apple_TV_Plus_Logo.svg/24px-Apple_TV_Plus_Logo.svg.png" },
+  "Amazon Prime Video": { color: "#00a8e0", logo: "" },
+  "Disney+": { color: "#113ccf", logo: "" },
+  "Apple TV+": { color: "#a2aaad", logo: "" },
   "Paramount+": { color: "#0064ff", logo: "" }, "Canal+": { color: "#000", logo: "" },
   OCS: { color: "#e85d04", logo: "" }, Crunchyroll: { color: "#f47521", logo: "" },
   Mubi: { color: "#2196f3", logo: "" }, Hulu: { color: "#1ce783", logo: "" }
@@ -227,23 +273,46 @@ let currentMediaType = "movie";
 let analysisAbortController = null;
 let navStack = [];
 
+// ════ TRADUCTIONS ERREURS ════
+function tErr(code) {
+  const d = dict[currentLang] || dict.fr;
+  const map = {
+    server_busy: d.err_server_busy,
+    video_private: d.err_private,
+    video_geo: d.err_geo,
+    video_deleted: d.err_deleted,
+    download_failed: d.err_download,
+    download_empty: d.err_download,
+    no_frames: d.err_no_frames,
+    timeout: d.err_timeout,
+    session_expired: d.err_session,
+    unexpected: d.err_generic,
+    low_confidence: d.err_low_confidence,
+  };
+  return map[code] || d.err_generic;
+}
+
 // ════ AUDIO ════
 let audioCtx = null, bgMusicGain = null, bgMusicInterval = null;
 function initAudio() {
   if (audioCtx) return;
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  bgMusicGain = audioCtx.createGain();
-  bgMusicGain.gain.value = 0.15;
-  bgMusicGain.connect(audioCtx.destination);
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    bgMusicGain = audioCtx.createGain();
+    bgMusicGain.gain.value = 0.12;
+    bgMusicGain.connect(audioCtx.destination);
+  } catch(e) {}
 }
 function playTone(freq, duration, type = 'square', volume = 0.1) {
   if (!audioCtx) return;
-  const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
-  osc.type = type; osc.frequency.value = freq;
-  gain.gain.setValueAtTime(volume, audioCtx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
-  osc.connect(gain); gain.connect(audioCtx.destination);
-  osc.start(); osc.stop(audioCtx.currentTime + duration);
+  try {
+    const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+    osc.type = type; osc.frequency.value = freq;
+    gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + duration);
+  } catch(e) {}
 }
 function playCoinSound() { playTone(988, 0.08); setTimeout(() => playTone(1319, 0.1), 60); }
 function playGameOverSound() {
@@ -258,12 +327,14 @@ function startBgMusic() {
   let i = 0;
   bgMusicInterval = setInterval(() => {
     const freq = notes[i % notes.length], dur = durations[i % durations.length];
-    const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
-    osc.type = 'square'; osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
-    osc.connect(gain); gain.connect(bgMusicGain);
-    osc.start(); osc.stop(audioCtx.currentTime + dur);
+    try {
+      const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+      osc.type = 'square'; osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+      osc.connect(gain); gain.connect(bgMusicGain);
+      osc.start(); osc.stop(audioCtx.currentTime + dur);
+    } catch(e) {}
     i++;
   }, 250);
 }
@@ -296,8 +367,10 @@ function applyLang() {
     const key = optMap[opt.value];
     if (key && langData[key]) opt.textContent = langData[key];
   });
-  document.querySelector("#filtre-note option").textContent = "⭐ " + (langData.min_score || "Note min");
-  document.querySelector("#filtre-annee option").textContent = "📅 " + (langData.year || "Année");
+  const selNote = document.querySelector("#filtre-note option");
+  if (selNote) selNote.textContent = "⭐ " + (langData.min_score || "Note min");
+  const selAnnee = document.querySelector("#filtre-annee option");
+  if (selAnnee) selAnnee.textContent = "📅 " + (langData.year || "Année");
   const btr = document.getElementById("btn-reset");
   if (btr) btr.innerHTML = `<i class="fas fa-times"></i> ${langData.reset || "Reset"}`;
 }
@@ -340,29 +413,69 @@ function changerLangueManuellement() {
   chargerTrending().then(() => { document.getElementById("hero").style.display = "block"; document.getElementById("genre-nav").style.display = "flex"; });
 }
 
-// ════ ERREURS, TOAST ════
+// ════ ERREURS ════
 function afficherErreur(msg) {
   const el = document.getElementById("error-message");
   document.getElementById("error-text").textContent = msg;
   el.classList.add("visible"); el.style.display = "flex";
-  setTimeout(cacherErreur, 8000);
-}
-function afficherErreurTelechargement() {
-  document.getElementById("loading-overlay").classList.remove("active"); stopGame();
-  const msg = `<div style="grid-column:1/-1;text-align:center;padding:30px 20px;max-width:600px;justify-self:center;">
-    <i class="fas fa-exclamation-triangle" style="font-size:3rem;color:#ffaa00;"></i>
-    <h3 style="color:var(--text);margin:16px 0 8px;">Impossible de télécharger la vidéo</h3>
-    <p style="color:var(--muted);font-size:0.9rem;line-height:1.6;">Le lien que vous avez collé ne peut pas être lu. Cela peut arriver si la vidéo est privée, restreinte à certains pays, ou si elle a été supprimée.<br/>👉 Essayez de <strong>rechercher le film manuellement</strong> en saisissant un titre, un acteur ou une description.</p>
-    <button class="btn-stream" onclick="document.getElementById('input_global').focus()" style="margin-top:16px;"><i class="fas fa-search"></i> Rechercher un film</button></div>`;
-  document.getElementById("genre-grid").style.display = "block";
-  document.getElementById("genre-title").innerText = "⛔ Vidéo inaccessible";
-  document.getElementById("movie-cards").innerHTML = msg;
-  document.getElementById("filtres-bar").style.display = "none";
-  document.getElementById("hero").style.display = "none";
-  document.getElementById("page-film-detail").style.display = "none";
+  setTimeout(cacherErreur, 10000);
 }
 function cacherErreur() { const el = document.getElementById("error-message"); el.classList.remove("visible"); el.style.display = "none"; }
 function toast(msg, dur = 3000) { const t = document.getElementById("toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), dur); }
+
+/**
+ * Affiche une erreur riche, centrée dans la zone de contenu, avec lien de recherche.
+ * Utilisée après annulation de l'overlay d'analyse.
+ */
+function afficherErreurRiche(data) {
+  const d = dict[currentLang] || dict.fr;
+  const code = data.code || "unexpected";
+  const msg = data.message || tErr(code);
+  const searchQ = encodeURIComponent(document.getElementById("input_global").value.trim() || "");
+
+  document.getElementById("loading-overlay").classList.remove("active");
+  stopGame();
+  document.getElementById("genre-grid").style.display = "block";
+  document.getElementById("page-film-detail").style.display = "none";
+  document.getElementById("hero").style.display = "none";
+  document.getElementById("filtres-bar").style.display = "none";
+  document.getElementById("genre-title").innerText = "";
+
+  const icon = {
+    video_private: "🔒",
+    video_geo: "🌍",
+    video_deleted: "🗑️",
+    download_failed: "📵",
+    server_busy: "⏳",
+    no_frames: "🖼️",
+    timeout: "⏱️",
+    session_expired: "🔄",
+    low_confidence: "🔍",
+  }[code] || "⚠️";
+
+  const retryBtn = (code === "server_busy" || code === "timeout" || code === "unexpected")
+    ? `<button class="btn-stream" style="margin-top:8px" onclick="retourAccueil()"><i class="fas fa-redo"></i> Réessayer</button>`
+    : "";
+
+  document.getElementById("movie-cards").innerHTML = `
+    <div style="grid-column:1/-1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:48px 24px; max-width:520px; margin:0 auto; gap:16px;">
+      <div style="font-size:3.5rem; line-height:1;">${icon}</div>
+      <h3 style="color:var(--text); font-size:1.2rem; margin:0;">${msg}</h3>
+      <p style="color:var(--muted); font-size:0.85rem; margin:0; line-height:1.6;">
+        ${d.search_manually || "Recherchez le film manuellement :"}
+      </p>
+      <div class="streaming-buttons" style="gap:10px; flex-wrap:wrap; justify-content:center;">
+        <button class="btn-stream" onclick="document.getElementById('input_global').value=''; document.getElementById('input_global').focus();">
+          <i class="fas fa-search"></i> ${d.search_manually || "Rechercher"}
+        </button>
+        ${searchQ ? `<a href="https://www.google.com/search?q=${searchQ}+film" target="_blank" rel="noopener" class="btn-stream"><i class="fab fa-google"></i> Google</a>
+        <a href="https://www.youtube.com/results?search_query=${searchQ}+film+trailer" target="_blank" rel="noopener" class="btn-stream" style="border-color:#ff0000"><i class="fab fa-youtube"></i> YouTube</a>
+        <a href="https://www.themoviedb.org/search?query=${searchQ}" target="_blank" rel="noopener" class="btn-stream"><i class="fas fa-film"></i> TMDB</a>` : ""}
+        ${retryBtn}
+      </div>
+    </div>`;
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
 
 // ════ BARRE DE RECHERCHE ════
 function majBtnClear() { document.getElementById("btn-clear").classList.toggle("visible", document.getElementById("input_global").value.length > 0); }
@@ -399,130 +512,368 @@ async function gererRechercheGlobal() {
         hideHero();
         try {
             const data = await safeFetch(`/rechercher?query=${encodeURIComponent(input)}&lang=${getTMDBLang()}`);
+            if (data.status === "error") {
+                afficherErreur(data.message || t("err_generic"));
+                return;
+            }
             afficherResultatsRecherche(data, input);
         } catch (e) {
-            afficherErreur("Erreur réseau : " + e.message);
+            afficherErreur(t("err_generic") + " — " + e.message);
         }
     }
 }
 
 // ════ ANNULER ANALYSE ════
-function annulerAnalyse() { if (analysisAbortController) analysisAbortController.abort(); document.getElementById("loading-overlay").classList.remove("active"); stopGame(); retourAccueil(); }
-
-// ════ MINI-JEU ════
-let gameState = { running: false, score: 0, lives: 3, level: 1, heroY: 0, heroVY: 0, jumping: false, obstacles: [], coins: [], frame: 0, speed: 3, gTimer: null, dead: false, started: false };
-function gameJump() { if (!gameState.running || gameState.dead) { startGame(); return; } if (!gameState.jumping) { gameState.heroVY = -9; gameState.jumping = true; } }
-function startGame() {
-  if (gameState.gTimer) clearInterval(gameState.gTimer);
-  Object.assign(gameState, { running: true, score: 0, lives: 3, level: 1, heroY: 0, heroVY: 0, jumping: false, obstacles: [], coins: [], frame: 0, speed: 3, dead: false, started: true });
-  const isMobile = /Android|iPhone|iPad|iPod|webOS/i.test(navigator.userAgent);
-  const hint = document.getElementById("game-hint");
-  hint.textContent = isMobile ? "TAPE sur l'écran pour sauter !" : "Clique sur le personnage ou appuie sur ESPACE pour sauter";
-  hint.style.display = "block"; initAudio(); startBgMusic();
-  gameState.gTimer = setInterval(gameLoop, 16);
+function annulerAnalyse() {
+  if (analysisAbortController) analysisAbortController.abort();
+  document.getElementById("loading-overlay").classList.remove("active");
+  stopGame();
+  retourAccueil();
 }
-function stopGame() { clearInterval(gameState.gTimer); gameState.running = false; stopBgMusic(); }
-function gameLoop() {
+
+// ════ MINI-JEU (requestAnimationFrame — pas de setInterval, 0 fuite mémoire) ════
+let gameState = {
+  running: false, score: 0, lives: 3, level: 1,
+  heroY: 0, heroVY: 0, jumping: false,
+  obstacles: [], coins: [], frame: 0, speed: 3,
+  rafId: null, dead: false, started: false,
+  lastTime: 0
+};
+
+function gameJump() {
+  if (!gameState.running || gameState.dead) { startGame(); return; }
+  if (!gameState.jumping) { gameState.heroVY = -9; gameState.jumping = true; }
+}
+
+function startGame() {
+  stopGame();
+  Object.assign(gameState, {
+    running: true, score: 0, lives: 3, level: 1,
+    heroY: 0, heroVY: 0, jumping: false,
+    obstacles: [], coins: [], frame: 0, speed: 3,
+    dead: false, started: true, lastTime: 0
+  });
+  // Nettoyer obstacles/coins du DOM
+  const canvas = document.getElementById("game-canvas");
+  if (canvas) {
+    canvas.querySelectorAll(".game-obstacle, .game-coin").forEach(el => el.remove());
+  }
+  const hint = document.getElementById("game-hint");
+  if (hint) {
+    hint.innerHTML = (t("game_playing_msg") || "🎬 On cherche votre film… Jouez en attendant !").replace(/\n/g, "<br>");
+    hint.style.display = "block";
+  }
+  initAudio();
+  startBgMusic();
+  gameState.rafId = requestAnimationFrame(gameLoop);
+}
+
+function stopGame() {
+  if (gameState.rafId) { cancelAnimationFrame(gameState.rafId); gameState.rafId = null; }
+  gameState.running = false;
+  stopBgMusic();
+  // Nettoyer les éléments dynamiques du jeu
+  const canvas = document.getElementById("game-canvas");
+  if (canvas) canvas.querySelectorAll(".game-obstacle, .game-coin").forEach(el => el.remove());
+}
+
+let _lastFrameTime = 0;
+const TARGET_FPS = 60;
+const FRAME_MS = 1000 / TARGET_FPS;
+
+function gameLoop(timestamp) {
   if (!gameState.running) return;
+
+  // Limiter à 60fps pour économiser le CPU
+  const delta = timestamp - _lastFrameTime;
+  if (delta < FRAME_MS - 2) {
+    gameState.rafId = requestAnimationFrame(gameLoop);
+    return;
+  }
+  _lastFrameTime = timestamp;
+
   gameState.frame++;
-  const canvas = document.getElementById("game-canvas"); if (!canvas) return;
+  const canvas = document.getElementById("game-canvas");
+  if (!canvas) return;
   const W = canvas.offsetWidth || 380;
-  const hero = document.getElementById("game-hero"); if (!hero) return;
-  if (gameState.jumping) { gameState.heroVY += 0.6; gameState.heroY -= gameState.heroVY; if (gameState.heroY <= 0) { gameState.heroY = 0; gameState.heroVY = 0; gameState.jumping = false; } }
-  hero.style.bottom = 28 + gameState.heroY + "px"; hero.style.left = "60px";
-  gameState.speed = 3 + Math.floor(gameState.score / 50) * 0.5;
+  const hero = document.getElementById("game-hero");
+  if (!hero) return;
+
+  // Physique héros
+  if (gameState.jumping) {
+    gameState.heroVY += 0.55;
+    gameState.heroY -= gameState.heroVY;
+    if (gameState.heroY <= 0) { gameState.heroY = 0; gameState.heroVY = 0; gameState.jumping = false; }
+  }
+  hero.style.bottom = 28 + gameState.heroY + "px";
+
+  // Vitesse & niveau
+  gameState.speed = 3 + Math.floor(gameState.score / 50) * 0.4;
   gameState.level = Math.floor(gameState.score / 50) + 1;
-  document.getElementById("game-level").textContent = "LVL " + gameState.level;
-  if (gameState.frame % Math.max(60, 120 - gameState.level * 5) === 0) {
-    const obs = document.createElement("div"); obs.className = "game-obstacle";
+  const lvlEl = document.getElementById("game-level");
+  if (lvlEl) lvlEl.textContent = "LVL " + gameState.level;
+
+  // Spawner obstacles
+  const obsInterval = Math.max(55, 110 - gameState.level * 4);
+  if (gameState.frame % obsInterval === 0) {
+    const obs = document.createElement("div");
+    obs.className = "game-obstacle";
     obs.textContent = ["🌵", "🧱", "🔮", "💀", "⚡"][Math.floor(Math.random() * 5)];
-    obs.style.left = W + "px"; obs.style.bottom = "28px"; canvas.appendChild(obs);
+    obs.style.cssText = `left:${W}px; bottom:28px;`;
+    canvas.appendChild(obs);
     gameState.obstacles.push({ el: obs, x: W });
   }
+
+  // Spawner pièces
   if (gameState.frame % 80 === 40) {
-    const coin = document.createElement("div"); coin.className = "game-coin"; coin.textContent = "🪙";
+    const coin = document.createElement("div");
+    coin.className = "game-coin";
+    coin.textContent = "🪙";
     const cy = 50 + Math.random() * 60;
-    coin.style.left = W + "px"; coin.style.bottom = 28 + cy + "px"; coin.style.animation = "coin-bounce .8s ease infinite";
-    canvas.appendChild(coin); gameState.coins.push({ el: coin, x: W, y: cy });
+    coin.style.cssText = `left:${W}px; bottom:${28 + cy}px;`;
+    canvas.appendChild(coin);
+    gameState.coins.push({ el: coin, x: W, y: cy });
   }
+
+  // Obstacles
   gameState.obstacles = gameState.obstacles.filter(ob => {
-    ob.x -= gameState.speed; ob.el.style.left = ob.x + "px";
-    if (ob.x > 40 && ob.x < 90 && gameState.heroY < 35) { gameState.lives--; document.getElementById("game-lives").textContent = "❤️".repeat(Math.max(0, gameState.lives)); ob.el.remove(); if (gameState.lives <= 0) { gameOver(); return false; } return false; }
-    if (ob.x < -40) { ob.el.remove(); return false; } return true;
+    ob.x -= gameState.speed;
+    ob.el.style.left = ob.x + "px";
+    const hit = ob.x > 40 && ob.x < 90 && gameState.heroY < 35;
+    if (hit) {
+      gameState.lives--;
+      const livesEl = document.getElementById("game-lives");
+      if (livesEl) livesEl.textContent = "❤️".repeat(Math.max(0, gameState.lives));
+      ob.el.remove();
+      if (gameState.lives <= 0) { gameOver(); return false; }
+      return false;
+    }
+    if (ob.x < -40) { ob.el.remove(); return false; }
+    return true;
   });
+
+  // Pièces
   gameState.coins = gameState.coins.filter(c => {
-    c.x -= gameState.speed; c.el.style.left = c.x + "px";
-    if (c.x > 40 && c.x < 90 && gameState.heroY > c.y - 15 && gameState.heroY < c.y + 15 + 20) { gameState.score += 5; c.el.remove(); playCoinSound(); return false; }
-    if (c.x < -40) { c.el.remove(); return false; } return true;
+    c.x -= gameState.speed;
+    c.el.style.left = c.x + "px";
+    const hit = c.x > 40 && c.x < 90 && gameState.heroY > c.y - 15 && gameState.heroY < c.y + 35;
+    if (hit) { gameState.score += 5; c.el.remove(); playCoinSound(); return false; }
+    if (c.x < -40) { c.el.remove(); return false; }
+    return true;
   });
+
+  // Score
   if (gameState.frame % 10 === 0) gameState.score++;
-  document.getElementById("game-score").textContent = gameState.score;
+  const scoreEl = document.getElementById("game-score");
+  if (scoreEl) scoreEl.textContent = gameState.score;
+
+  gameState.rafId = requestAnimationFrame(gameLoop);
 }
-function gameOver() { gameState.running = false; gameState.dead = true; clearInterval(gameState.gTimer); playGameOverSound(); stopBgMusic(); document.getElementById("game-hint").textContent = t("game_over") + gameState.score + " — TAP"; document.getElementById("game-hint").style.display = "block"; }
+
+function gameOver() {
+  gameState.running = false;
+  gameState.dead = true;
+  if (gameState.rafId) { cancelAnimationFrame(gameState.rafId); gameState.rafId = null; }
+  playGameOverSound();
+  stopBgMusic();
+  const hint = document.getElementById("game-hint");
+  if (hint) { hint.textContent = t("game_over") + gameState.score + " — TAP"; hint.style.display = "block"; }
+}
 
 // ════ ANALYSE VIDÉO ════
 async function analyserVideo(lien) {
   hideHero();
-  const overlay = document.getElementById("loading-overlay"); overlay.classList.add("active"); startGame();
+  const overlay = document.getElementById("loading-overlay");
+  overlay.classList.add("active");
+  startGame();
+
   let progress = 0;
-  const progressBar = document.getElementById("prog-fill"), percentLabel = document.getElementById("prog-percent");
-  const interval = setInterval(() => { if (progress < 90) { progress += Math.random() * 15 + 5; if (progress > 90) progress = 90; progressBar.style.width = progress + "%"; percentLabel.textContent = Math.round(progress) + "%"; } }, 800);
+  const progressBar = document.getElementById("prog-fill");
+  const percentLabel = document.getElementById("prog-percent");
+
+  // Progression simulée fluide
+  let progInterval = setInterval(() => {
+    if (progress < 88) {
+      progress += Math.random() * 8 + 3;
+      if (progress > 88) progress = 88;
+      if (progressBar) progressBar.style.width = progress + "%";
+      if (percentLabel) percentLabel.textContent = Math.round(progress) + "%";
+    }
+  }, 900);
+
   analysisAbortController = new AbortController();
+  const signal = analysisAbortController.signal;
+
   try {
-    const res = await fetch("/analyser", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: lien, lang: getTMDBLang() }), signal: analysisAbortController.signal });
-    const data = await res.json();
-    
-    // Gérer les erreurs sans retour à l'accueil
+    const res = await fetch("/analyser", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: lien, lang: getTMDBLang() }),
+      signal
+    });
+
+    if (!res.ok) {
+      throw new Error(`http_${res.status}`);
+    }
+
+    let data;
+    try { data = await res.json(); }
+    catch(e) { throw new Error("json_parse"); }
+
     if (data.status === "error") {
-      clearInterval(interval); overlay.classList.remove("active"); stopGame();
-      if (data.message && data.message.includes("télécharger")) { afficherErreurTelechargement(); }
-      else { afficherErreur("❌ " + (data.message || "Erreur inconnue")); }
+      clearInterval(progInterval);
+      afficherErreurRiche(data);
       return;
     }
-    
+
     if (data.status === "transcription_needed") {
-      const ocrText = await runLocalOCR(data.frames_base64);
-      const transcript = await runLocalWhisper(data.audio_base64);
-      const continueRes = await fetch("/analyser_continue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: data.session_id, ocr_text: ocrText, transcript: transcript }) });
-      const finalData = await continueRes.json();
-      clearInterval(interval); progressBar.style.width = "100%"; percentLabel.textContent = "100%";
-      setTimeout(() => overlay.classList.remove("active"), 600); stopGame();
+      // Lancer OCR et Whisper côté client en parallèle
+      const [ocrText, transcript] = await Promise.allSettled([
+        data.frames_base64?.length ? runLocalOCR(data.frames_base64) : Promise.resolve(""),
+        data.audio_base64 ? runLocalWhisper(data.audio_base64) : Promise.resolve("")
+      ]);
+
+      const continueRes = await fetch("/analyser_continue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: data.session_id,
+          ocr_text: ocrText.status === "fulfilled" ? ocrText.value : "",
+          transcript: transcript.status === "fulfilled" ? transcript.value : ""
+        }),
+        signal
+      });
+
+      let finalData;
+      try { finalData = await continueRes.json(); }
+      catch(e) { throw new Error("json_parse"); }
+
+      clearInterval(progInterval);
+      if (progressBar) progressBar.style.width = "100%";
+      if (percentLabel) percentLabel.textContent = "100%";
+      setTimeout(() => overlay.classList.remove("active"), 500);
+      stopGame();
+
       if (finalData.status === "success" || finalData.status === "cached") {
-        navStack = []; lastGrid = null; currentMovieId = finalData.tmdb_id; currentMediaType = finalData.media_type || "movie";
+        navStack = []; lastGrid = null;
+        currentMovieId = finalData.tmdb_id;
+        currentMediaType = finalData.media_type || "movie";
         afficherDetailFilm(finalData);
-      } else { afficherErreur("❌ " + (finalData.message || "Film introuvable.")); }
-    } else {
-      clearInterval(interval); progressBar.style.width = "100%"; percentLabel.textContent = "100%";
-      setTimeout(() => overlay.classList.remove("active"), 600); stopGame();
-      if (data.status === "success" || data.status === "cached") {
-        navStack = []; lastGrid = null; currentMovieId = data.tmdb_id; currentMediaType = data.media_type || "movie";
-        afficherDetailFilm(data);
-      } else if (data.status === "not_found") { afficherNotFound(data); }
-      else { afficherErreur("❌ " + (data.message || "Film introuvable.")); }
+      } else if (finalData.status === "not_found") {
+        afficherNotFound(finalData);
+      } else {
+        afficherErreurRiche(finalData);
+      }
+      return;
     }
+
+    clearInterval(progInterval);
+    if (progressBar) progressBar.style.width = "100%";
+    if (percentLabel) percentLabel.textContent = "100%";
+    setTimeout(() => overlay.classList.remove("active"), 500);
+    stopGame();
+
+    if (data.status === "success" || data.status === "cached") {
+      navStack = []; lastGrid = null;
+      currentMovieId = data.tmdb_id;
+      currentMediaType = data.media_type || "movie";
+      afficherDetailFilm(data);
+    } else if (data.status === "not_found") {
+      afficherNotFound(data);
+    } else {
+      afficherErreurRiche(data);
+    }
+
   } catch (e) {
-    clearInterval(interval); overlay.classList.remove("active"); stopGame();
-    if (e.name !== "AbortError") { afficherErreur("Erreur réseau : " + e.message); }
+    clearInterval(progInterval);
+    overlay.classList.remove("active");
+    stopGame();
+    if (e.name === "AbortError") return;
+    if (e.message === "json_parse") {
+      afficherErreurRiche({ code: "unexpected", message: t("err_generic") });
+    } else if (e.message?.startsWith("http_")) {
+      const status = parseInt(e.message.split("_")[1]);
+      if (status === 502 || status === 503) {
+        afficherErreurRiche({ code: "server_busy" });
+      } else {
+        afficherErreurRiche({ code: "unexpected" });
+      }
+    } else {
+      afficherErreurRiche({ code: "unexpected", message: t("err_generic") });
+    }
   }
 }
 
-async function runLocalOCR(framesBase64) { const worker = await Tesseract.createWorker('fra'); let fullText = ""; for (const b64 of framesBase64) { const { data: { text } } = await worker.recognize(`data:image/jpeg;base64,${b64}`); fullText += text + " "; } await worker.terminate(); return fullText.trim(); }
-async function runLocalWhisper(audioBase64) { const audioBlob = base64ToBlob(audioBase64, 'audio/mp3'); const arrayBuffer = await audioBlob.arrayBuffer(); const audioCtxLocal = new AudioContext(); const audioBuffer = await audioCtxLocal.decodeAudioData(arrayBuffer); const pcm = audioBuffer.getChannelData(0); const pipeline = await window.getWhisperPipeline(); const result = await pipeline(pcm, { language: 'french' }); return result.text; }
-function base64ToBlob(base64, mimeType) { const byteChars = atob(base64); const byteArrays = []; for (let offset = 0; offset < byteChars.length; offset += 512) { const slice = byteChars.slice(offset, offset + 512); const byteNumbers = new Array(slice.length); for (let i = 0; i < slice.length; i++) byteNumbers[i] = slice.charCodeAt(i); byteArrays.push(new Uint8Array(byteNumbers)); } return new Blob(byteArrays, { type: mimeType }); }
+// ════ OCR CLIENT ════
+async function runLocalOCR(framesBase64) {
+  try {
+    if (!window.Tesseract) return "";
+    const worker = await Tesseract.createWorker('fra+eng');
+    let fullText = "";
+    for (const b64 of framesBase64.slice(0, 4)) {
+      try {
+        const { data: { text } } = await worker.recognize(`data:image/jpeg;base64,${b64}`);
+        fullText += text + " ";
+      } catch(e) {}
+    }
+    await worker.terminate();
+    return fullText.trim();
+  } catch(e) { return ""; }
+}
+
+// ════ WHISPER CLIENT ════
+async function runLocalWhisper(audioBase64) {
+  try {
+    if (!audioBase64 || !window.getWhisperPipeline) return "";
+    const audioBlob = base64ToBlob(audioBase64, 'audio/mp3');
+    const arrayBuffer = await audioBlob.arrayBuffer();
+    const audioCtxLocal = new AudioContext();
+    const audioBuffer = await audioCtxLocal.decodeAudioData(arrayBuffer);
+    const pcm = audioBuffer.getChannelData(0);
+    const pipeline = await window.getWhisperPipeline();
+    const result = await pipeline(pcm, { language: 'french' });
+    return result.text || "";
+  } catch(e) { return ""; }
+}
+
+function base64ToBlob(base64, mimeType) {
+  const byteChars = atob(base64); const byteArrays = [];
+  for (let offset = 0; offset < byteChars.length; offset += 512) {
+    const slice = byteChars.slice(offset, offset + 512);
+    const byteNumbers = new Array(slice.length);
+    for (let i = 0; i < slice.length; i++) byteNumbers[i] = slice.charCodeAt(i);
+    byteArrays.push(new Uint8Array(byteNumbers));
+  }
+  return new Blob(byteArrays, { type: mimeType });
+}
 
 // ════ NOT FOUND ════
 function afficherNotFound(data) {
-  document.getElementById("page-film-detail").style.display = "block"; document.getElementById("genre-grid").style.display = "none"; document.getElementById("hero").style.display = "none";
+  document.getElementById("page-film-detail").style.display = "block";
+  document.getElementById("genre-grid").style.display = "none";
+  document.getElementById("hero").style.display = "none";
   document.getElementById("back-label").innerText = t("back_home");
-  ["fake_alert", "detail_tags", "detail_rating", "cast_section", "trailer_section", "similar_section", "seasons_section"].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ""; });
-  document.getElementById("confidence_wrap").style.display = "none"; document.getElementById("food-partner").classList.remove("visible");
-  document.getElementById("affiche_film").style.display = "none"; document.getElementById("titre_film").innerText = t("not_found_title");
-  document.getElementById("synopsis_film").innerText = data.description || "";
-  const titreHtml = data.titre_gemini ? `<p style="color:var(--muted);font-size:.85rem;margin-bottom:16px;">Titre potentiel IA : <strong style="color:var(--text)">${data.titre_gemini}</strong><br><small style="font-size:.73rem;">Non trouvé dans TMDB.</small></p>` : "";
-  document.getElementById("streaming_section").innerHTML = `${titreHtml}<h3><i class="fas fa-search"></i> ${t("searching")}</h3><div class="streaming-buttons" style="margin-top:10px;"><a href="${data.search_youtube}" target="_blank" rel="noopener" class="btn-stream"><i class="fab fa-youtube"></i> YouTube</a><a href="${data.search_google}" target="_blank" rel="noopener" class="btn-stream"><i class="fab fa-google"></i> Google</a><a href="${data.search_tmdb}" target="_blank" rel="noopener" class="btn-stream"><i class="fas fa-film"></i> TMDB</a></div>`;
+  ["fake_alert", "detail_tags", "detail_rating", "cast_section", "trailer_section", "similar_section", "seasons_section"].forEach(id => {
+    const el = document.getElementById(id); if (el) el.innerHTML = "";
+  });
+  document.getElementById("confidence_wrap").style.display = "none";
+  document.getElementById("food-partner").classList.remove("visible");
+  document.getElementById("affiche_film").style.display = "none";
+  document.getElementById("titre_film").innerText = t("not_found_title");
+  document.getElementById("synopsis_film").innerText = data.message || "";
+  const titreHtml = data.titre_gemini ? `<p style="color:var(--muted);font-size:.85rem;margin-bottom:16px;">Titre potentiel IA : <strong style="color:var(--text)">${data.titre_gemini}</strong></p>` : "";
+  document.getElementById("streaming_section").innerHTML = `
+    ${titreHtml}
+    <h3 style="margin-bottom:12px"><i class="fas fa-search"></i> ${t("searching")}</h3>
+    <div class="streaming-buttons" style="margin-top:10px;">
+      ${data.search_youtube ? `<a href="${data.search_youtube}" target="_blank" rel="noopener" class="btn-stream"><i class="fab fa-youtube"></i> YouTube</a>` : ""}
+      ${data.search_google ? `<a href="${data.search_google}" target="_blank" rel="noopener" class="btn-stream"><i class="fab fa-google"></i> Google</a>` : ""}
+      ${data.search_tmdb ? `<a href="${data.search_tmdb}" target="_blank" rel="noopener" class="btn-stream"><i class="fas fa-film"></i> TMDB</a>` : ""}
+    </div>`;
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+// ════ GENRES / TRENDING / SERIES / PLATEFORME ════
 async function chargerGenre(genreName, page = 1, mediaType = "movie") {
     hideHero(); cacherErreur(); currentGenreName = genreName; currentPage = page;
     const cacheKey = `genre_${genreName}_${page}_${getTMDBLang()}`;
@@ -542,10 +893,10 @@ async function chargerGenre(genreName, page = 1, mediaType = "movie") {
             setCache(cacheKey, data.results);
             renderCards(data.results, genreName, page, data.total_pages, mediaType);
         } else {
-            document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px">Genre introuvable.</p>`;
+            afficherVideGrid(`<i class="fas fa-exclamation-circle"></i> ${data.message || "Genre introuvable."}`);
         }
     } catch (e) {
-        document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px"><i class="fas fa-exclamation-circle"></i> ${e.message}</p>`;
+        afficherVideGrid(`<i class="fas fa-wifi"></i> ${t("err_generic")}`);
     }
 }
 
@@ -564,10 +915,10 @@ async function chargerSeries(page = 1) {
         if (data.status === "success") {
             renderCards(data.results.map(r => ({ ...r, media_type: "tv" })), "series", 1, 1, "tv");
         } else {
-            document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px">Impossible de charger les séries.</p>`;
+            afficherVideGrid(data.message || "Impossible de charger les séries.");
         }
     } catch (e) {
-        document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px"><i class="fas fa-exclamation-circle"></i> ${e.message}</p>`;
+        afficherVideGrid(t("err_generic"));
     }
 }
 
@@ -590,10 +941,10 @@ async function chargerTrending() {
             setCache(cacheKey, data.results);
             renderCards(data.results, "trending", 1, 1);
         } else {
-            document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px">Impossible de charger les tendances.</p>`;
+            afficherVideGrid(data.message || "Impossible de charger les tendances.");
         }
     } catch (e) {
-        document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px"><i class="fas fa-exclamation-circle"></i> ${e.message}</p>`;
+        afficherVideGrid(t("err_generic"));
     }
 }
 
@@ -612,14 +963,17 @@ async function chargerParPlateforme(platformKey) {
         const data = await safeFetch(`/trending?lang=${getTMDBLang()}`);
         if (data.status === "success") {
             renderCards(data.results, platformKey, 1, 1);
-            toast("🎬 Films populaires sur " + (nameMap[platformKey] || platformKey));
         } else {
-            document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px">Aucun résultat.</p>`;
+            afficherVideGrid(data.message || "Aucun résultat.");
         }
     } catch (e) {
-        afficherErreur("Erreur plateforme : " + e.message);
-        document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px"><i class="fas fa-exclamation-circle"></i> ${e.message}</p>`;
+        afficherVideGrid(t("err_generic"));
     }
+}
+
+function afficherVideGrid(msg) {
+  document.getElementById("filtres-bar").style.display = "none";
+  document.getElementById("movie-cards").innerHTML = `<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px">${msg}</p>`;
 }
 
 // ════ RENDER CARDS ════
@@ -641,128 +995,319 @@ function renderCards(results, genreName, page, totalPages, mediaType = "movie") 
   }
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
-function peuplerFiltreAnnee(results) { const sel = document.getElementById("filtre-annee"); const annees = [...new Set(results.map(m => (m.release_date || m.first_air_date || "").split("-")[0]).filter(Boolean))].sort((a, b) => b - a); sel.innerHTML = `<option value="">📅 ${t("year")}</option>` + annees.map(a => `<option value="${a}">${a}</option>`).join(""); }
+
+function peuplerFiltreAnnee(results) {
+  const sel = document.getElementById("filtre-annee");
+  const annees = [...new Set(results.map(m => (m.release_date || m.first_air_date || "").split("-")[0]).filter(Boolean))].sort((a, b) => b - a);
+  sel.innerHTML = `<option value="">📅 ${t("year")}</option>` + annees.map(a => `<option value="${a}">${a}</option>`).join("");
+}
+
 function appliquerFiltres() {
-  const annee = document.getElementById("filtre-annee").value, note = parseFloat(document.getElementById("filtre-note").value) || 0, tri = document.getElementById("filtre-tri").value;
-  let res = _allResults.filter(m => { const y = (m.release_date || m.first_air_date || "").split("-")[0]; return (!annee || y === annee) && (m.vote_average || 0) >= note; });
+  const annee = document.getElementById("filtre-annee").value;
+  const note = parseFloat(document.getElementById("filtre-note").value) || 0;
+  const tri = document.getElementById("filtre-tri").value;
+  let res = _allResults.filter(m => {
+    const y = (m.release_date || m.first_air_date || "").split("-")[0];
+    return (!annee || y === annee) && (m.vote_average || 0) >= note;
+  });
   if (tri === "note_desc") res.sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
   else if (tri === "note_asc") res.sort((a, b) => (a.vote_average || 0) - (b.vote_average || 0));
   else if (tri === "recent") res.sort((a, b) => (b.release_date || b.first_air_date || "").localeCompare(a.release_date || a.first_air_date || ""));
   else if (tri === "ancien") res.sort((a, b) => (a.release_date || a.first_air_date || "").localeCompare(b.release_date || b.first_air_date || ""));
-  document.getElementById("filtre-count").textContent = res.length + " film" + (res.length > 1 ? "s" : ""); renderCardsFiltered(res);
+  document.getElementById("filtre-count").textContent = res.length + " film" + (res.length > 1 ? "s" : "");
+  renderCardsFiltered(res);
 }
-function reinitFiltres() { document.getElementById("filtre-annee").value = ""; document.getElementById("filtre-note").value = ""; document.getElementById("filtre-tri").value = "pop"; appliquerFiltres(); }
+
+function reinitFiltres() {
+  document.getElementById("filtre-annee").value = "";
+  document.getElementById("filtre-note").value = "";
+  document.getElementById("filtre-tri").value = "pop";
+  appliquerFiltres();
+}
+
 function renderCardsFiltered(results) {
   const container = document.getElementById("movie-cards"), oldPag = container.querySelector(".pagination");
   [...container.children].forEach(c => { if (!c.classList.contains("pagination")) c.remove(); });
-  if (!results || results.length === 0) { const p = document.createElement("p"); p.style.cssText = "color:var(--muted);grid-column:1/-1;text-align:center;padding:40px"; p.textContent = "Aucun résultat avec ces filtres."; if (oldPag) container.insertBefore(p, oldPag); else container.appendChild(p); return; }
+  if (!results || results.length === 0) {
+    const p = document.createElement("p");
+    p.style.cssText = "color:var(--muted);grid-column:1/-1;text-align:center;padding:40px";
+    p.textContent = "Aucun résultat avec ces filtres.";
+    if (oldPag) container.insertBefore(p, oldPag); else container.appendChild(p);
+    return;
+  }
+  const fragment = document.createDocumentFragment();
   results.forEach(m => {
-    const year = (m.release_date || m.first_air_date || "N/A").split("-")[0], rating = m.vote_average ? m.vote_average.toFixed(1) : "0", title = m.title || m.name || "Titre inconnu", isTv = m.media_type === "tv" || m.first_air_date;
-    const poster = m.poster_path ? `https://image.tmdb.org/t/p/w300${m.poster_path}` : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='450' fill='%231a1a24'%3E%3Crect width='300' height='450'/%3E%3Ctext x='50%25' y='50%25' fill='%23444' font-size='40' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E";
-    const div = document.createElement("div"); div.className = "movie-card"; div.setAttribute("role", "button"); div.setAttribute("tabindex", "0"); div.setAttribute("aria-label", title);
-    div.onclick = () => afficherDetails(m.id, isTv ? "tv" : "movie"); div.onkeydown = e => { if (e.key === "Enter") afficherDetails(m.id, isTv ? "tv" : "movie"); };
+    const year = (m.release_date || m.first_air_date || "N/A").split("-")[0];
+    const rating = m.vote_average ? m.vote_average.toFixed(1) : "0";
+    const title = m.title || m.name || "Titre inconnu";
+    const isTv = m.media_type === "tv" || !!m.first_air_date;
+    const poster = m.poster_path
+      ? `https://image.tmdb.org/t/p/w300${m.poster_path}`
+      : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='450' fill='%231a1a24'%3E%3Crect width='300' height='450'/%3E%3Ctext x='50%25' y='50%25' fill='%23444' font-size='40' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E";
+    const div = document.createElement("div");
+    div.className = "movie-card";
+    div.setAttribute("role", "button");
+    div.setAttribute("tabindex", "0");
+    div.setAttribute("aria-label", title);
+    div.onclick = () => afficherDetails(m.id, isTv ? "tv" : "movie");
+    div.onkeydown = e => { if (e.key === "Enter") afficherDetails(m.id, isTv ? "tv" : "movie"); };
     div.innerHTML = `${isTv ? `<span class="card-type-badge">TV</span>` : ""}<img src="${poster}" alt="${title}" loading="lazy"><div class="card-body"><h4>${title}</h4><div class="card-meta"><span><i class="fas fa-calendar" style="font-size:.65rem;opacity:.5"></i> ${year}</span><span class="rating"><i class="fas fa-star" style="font-size:.65rem"></i> ${rating}</span></div></div>`;
-    if (oldPag) container.insertBefore(div, oldPag); else container.appendChild(div);
+    fragment.appendChild(div);
   });
+  if (oldPag) container.insertBefore(fragment, oldPag);
+  else container.appendChild(fragment);
 }
 
 // ════ RÉSULTATS DE RECHERCHE ════
-function afficherResultatsRecherche(data, query) { document.getElementById("genre-grid").style.display = "block"; document.getElementById("genre-title").innerText = `🔍 "${query}"`; lastGrid = "search"; navStack = []; renderCards(data.results || [], "search", 1, 1); }
+function afficherResultatsRecherche(data, query) {
+  document.getElementById("genre-grid").style.display = "block";
+  document.getElementById("genre-title").innerText = `🔍 "${query}"`;
+  lastGrid = "search"; navStack = [];
+  renderCards(data.results || [], "search", 1, 1);
+}
 
 // ════ DÉTAILS DU FILM ════
 async function afficherDetails(movieId, mediaType = "movie") {
-  if (!navStack.length) navStack = []; else { if (currentMovieId) navStack.push({ id: currentMovieId, type: currentMediaType }); }
+  if (currentMovieId && currentMovieId !== movieId) navStack.push({ id: currentMovieId, type: currentMediaType });
   currentMovieId = movieId; currentMediaType = mediaType; cacherErreur();
-  document.getElementById("genre-grid").style.display = "none"; showDetailLoading();
+  document.getElementById("genre-grid").style.display = "none";
+  showDetailLoading();
   try {
-    const res = await fetch(`/movie/${movieId}?lang=${getTMDBLang()}&type=${mediaType}`); const data = await res.json();
-    const region = getRegionCode(), providers = data["watch/providers"]?.results?.[region]?.flatrate || [];
-    const similar = data.similar?.results?.slice(0, 6) || [], cast = data.credits?.cast?.slice(0, 8) || [];
+    const data = await safeFetch(`/movie/${movieId}?lang=${getTMDBLang()}&type=${mediaType}`);
+    if (data.status === "error") {
+      afficherErreur(data.message || t("err_generic"));
+      document.getElementById("page-film-detail").style.display = "none";
+      if (lastGrid) document.getElementById("genre-grid").style.display = "block";
+      return;
+    }
+    const region = getRegionCode();
+    const providers = data["watch/providers"]?.results?.[region]?.flatrate || [];
+    const similar = data.similar?.results?.slice(0, 6) || [];
+    const cast = data.credits?.cast?.slice(0, 8) || [];
     const trailerD = data.videos?.results?.find(v => v.type === "Trailer") || data.videos?.results?.find(v => ["Teaser", "Clip"].includes(v.type));
     const trailerUrl = trailerD?.site === "YouTube" ? `https://www.youtube.com/watch?v=${trailerD.key}` : "";
-    const genres = data.genres?.map(g => g.name) || [], year = (data.release_date || data.first_air_date || "").split("-")[0], isTv = mediaType === "tv" || !!data.first_air_date;
-    afficherDetailFilm({ status: "success", title: data.title || data.name || "Inconnu", synopsis: data.overview || "", image: data.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : "", streaming: providers.map(p => p.provider_name), streaming_logos: providers.map(p => ({ name: p.provider_name, logo_path: p.logo_path })), similar, cast, trailer: trailerUrl, confidence: null, is_fake: false, vote_average: data.vote_average, vote_count: data.vote_count, runtime: data.runtime || data.episode_run_time?.[0], genres, year, tmdb_id: movieId, is_series: isTv, seasons: isTv ? (data.seasons || []) : null });
-  } catch (e) { afficherErreur("Erreur chargement: " + e.message); retourArriere(); }
+    const genres = data.genres?.map(g => g.name) || [];
+    const year = (data.release_date || data.first_air_date || "").split("-")[0];
+    const isTv = mediaType === "tv" || !!data.first_air_date;
+    afficherDetailFilm({
+      status: "success",
+      title: data.title || data.name || "Inconnu",
+      synopsis: data.overview || "",
+      image: data.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : "",
+      streaming: providers.map(p => p.provider_name),
+      streaming_logos: providers.map(p => ({ name: p.provider_name, logo_path: p.logo_path })),
+      similar, cast, trailer: trailerUrl, confidence: null,
+      is_fake: false, vote_average: data.vote_average, vote_count: data.vote_count,
+      runtime: data.runtime || data.episode_run_time?.[0],
+      genres, year, tmdb_id: movieId, is_series: isTv,
+      seasons: isTv ? (data.seasons || []) : null
+    });
+  } catch (e) {
+    afficherErreur(t("err_generic"));
+    document.getElementById("page-film-detail").style.display = "none";
+    if (lastGrid) document.getElementById("genre-grid").style.display = "block";
+  }
 }
+
 function showDetailLoading() {
-  document.getElementById("page-film-detail").style.display = "block"; document.getElementById("titre_film").innerText = "…"; document.getElementById("affiche_film").src = "";
-  ["synopsis_film", "detail_tags", "detail_rating", "streaming_section", "cast_section", "trailer_section", "similar_section", "seasons_section", "fake_alert"].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ""; });
-  document.getElementById("confidence_wrap").style.display = "none"; document.getElementById("food-partner").classList.remove("visible");
+  document.getElementById("page-film-detail").style.display = "block";
+  document.getElementById("titre_film").innerText = "…";
+  document.getElementById("affiche_film").src = "";
+  ["synopsis_film", "detail_tags", "detail_rating", "streaming_section",
+   "cast_section", "trailer_section", "similar_section", "seasons_section", "fake_alert"
+  ].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ""; });
+  document.getElementById("confidence_wrap").style.display = "none";
+  document.getElementById("food-partner").classList.remove("visible");
 }
+
 function afficherDetailFilm(data) {
-  document.getElementById("page-film-detail").style.display = "block"; document.getElementById("genre-grid").style.display = "none"; document.getElementById("hero").style.display = "none";
+  document.getElementById("page-film-detail").style.display = "block";
+  document.getElementById("genre-grid").style.display = "none";
+  document.getElementById("hero").style.display = "none";
   document.getElementById("back-label").innerText = lastGrid ? t("back_list") : t("back_home");
   document.getElementById("fake_alert").innerHTML = data.is_fake ? `<div class="fake-alert"><i class="fas fa-exclamation-triangle"></i> Contenu humoristique possible — résultat peut être imprécis.</div>` : "";
   document.getElementById("titre_film").innerText = data.title || "Inconnu";
-  const imgEl = document.getElementById("affiche_film"); if (data.image) { imgEl.src = data.image; imgEl.style.display = "block"; } else imgEl.style.display = "none";
+  const imgEl = document.getElementById("affiche_film");
+  if (data.image) { imgEl.src = data.image; imgEl.style.display = "block"; } else imgEl.style.display = "none";
+
   const tagsEl = document.getElementById("detail_tags"); tagsEl.innerHTML = "";
   if (data.is_series) tagsEl.innerHTML += `<span class="tag series"><i class="fas fa-tv"></i> ${t("series_tag")}</span>`;
   if (data.year) tagsEl.innerHTML += `<span class="tag year"><i class="fas fa-calendar"></i> ${data.year}</span>`;
   if (data.runtime) tagsEl.innerHTML += `<span class="tag"><i class="fas fa-clock"></i> ${data.runtime} min</span>`;
   (data.genres || []).forEach(g => tagsEl.innerHTML += `<span class="tag genre">${g}</span>`);
+
   const confWrap = document.getElementById("confidence_wrap");
   if (data.confidence !== null && data.confidence !== undefined) {
-    const pct = Math.round(data.confidence), color = pct >= 70 ? "#00ffcc" : pct >= 40 ? "#ffd700" : "#ff4444";
+    const pct = Math.round(data.confidence);
+    const color = pct >= 70 ? "#00ffcc" : pct >= 40 ? "#ffd700" : "#ff4444";
     const lbl = pct >= 70 ? (currentLang.startsWith("en") ? "High confidence" : "Confiance élevée") : pct >= 40 ? (currentLang.startsWith("en") ? "Medium confidence" : "Confiance moyenne") : (currentLang.startsWith("en") ? "Low confidence" : "Confiance faible");
-    confWrap.style.display = "block"; document.getElementById("conf-bar-inner").style.width = pct + "%"; document.getElementById("conf-bar-inner").style.background = color;
-    document.getElementById("conf-pct-label").textContent = pct + "% — " + lbl; document.getElementById("conf-pct-label").style.color = color;
+    confWrap.style.display = "block";
+    document.getElementById("conf-bar-inner").style.width = pct + "%";
+    document.getElementById("conf-bar-inner").style.background = color;
+    document.getElementById("conf-pct-label").textContent = pct + "% — " + lbl;
+    document.getElementById("conf-pct-label").style.color = color;
   } else confWrap.style.display = "none";
-  const ratingEl = document.getElementById("detail_rating"); ratingEl.innerHTML = data.vote_average ? `<i class="fas fa-star" style="color:var(--gold)"></i> ${parseFloat(data.vote_average).toFixed(1)}<small> / 10 · ${data.vote_count ? data.vote_count.toLocaleString() + " votes" : ""}</small>` : "";
+
+  const ratingEl = document.getElementById("detail_rating");
+  ratingEl.innerHTML = data.vote_average ? `<i class="fas fa-star" style="color:var(--gold)"></i> ${parseFloat(data.vote_average).toFixed(1)}<small> / 10 · ${data.vote_count ? data.vote_count.toLocaleString() + " votes" : ""}</small>` : "";
+
   const synEl = document.getElementById("synopsis_film");
-  if (data.scene_description) { synEl.innerHTML = `<div style="background:rgba(0,255,204,.06);border-left:3px solid var(--primary);padding:10px 14px;border-radius:0 8px 8px 0;margin-bottom:14px;font-size:.82rem;color:var(--muted)"><span style="color:var(--primary);font-weight:600;font-size:.73rem;text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:6px"><i class="fas fa-film"></i> ${t("scene_identified")}</span>${data.scene_description}</div><span style="font-size:.73rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:8px">Synopsis</span>${data.synopsis || t("no_synopsis")}`; }
-  else { synEl.textContent = data.synopsis || t("no_synopsis"); }
+  if (data.scene_description) {
+    synEl.innerHTML = `<div style="background:rgba(0,255,204,.06);border-left:3px solid var(--primary);padding:10px 14px;border-radius:0 8px 8px 0;margin-bottom:14px;font-size:.82rem;color:var(--muted)"><span style="color:var(--primary);font-weight:600;font-size:.73rem;text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:6px"><i class="fas fa-film"></i> ${t("scene_identified")}</span>${data.scene_description}</div><span style="font-size:.73rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:8px">Synopsis</span>${data.synopsis || t("no_synopsis")}`;
+  } else {
+    synEl.textContent = data.synopsis || t("no_synopsis");
+  }
+
   setTimeout(() => document.getElementById("food-partner").classList.add("visible"), 400);
-  const streamEl = document.getElementById("streaming_section"), streamList = data.streaming || [], streamLogos = data.streaming_logos || [], noStreamMsg = t("no_streaming_country");
-  if (streamList.length > 0) { const btns = streamList.map((name, i) => { const base = STREAMING_LINKS[name] || "https://www.google.com/search?q=", url = base + encodeURIComponent(data.title || ""), meta = STREAMING_META[name] || { color: "#fff", logo: "" }, logoPath = streamLogos[i]?.logo_path, logoSrc = logoPath ? `https://image.tmdb.org/t/p/w45${logoPath}` : meta.logo || "", aff = name.includes("Amazon") || name.includes("Apple"), logoHtml = logoSrc ? `<img src="${logoSrc}" class="plat-logo" alt="${name}" onerror="this.style.display='none'">` : `<i class="fas fa-play-circle" style="color:${meta.color}"></i>`; return `<a href="${url}" target="_blank" rel="noopener" class="btn-stream ${aff ? "affiliate" : ""}" style="border-color:${meta.color}40">${logoHtml} ${name}</a>`; }).join(""); streamEl.innerHTML = `<h3><i class="fas fa-satellite-dish"></i> ${t("streaming_title")}</h3><div class="streaming-buttons">${btns}</div>`; }
-  else { streamEl.innerHTML = `<h3><i class="fas fa-satellite-dish"></i> Streaming</h3><p style="color:var(--muted);font-size:.85rem">${noStreamMsg}</p><div class="streaming-buttons" style="margin-top:8px"><a href="https://www.amazon.fr/gp/video/search?phrase=${encodeURIComponent(data.title || "")}" target="_blank" class="btn-stream affiliate" style="border-color:#00a8e040"><i class="fas fa-search" style="color:#00a8e0"></i> Amazon Prime</a><a href="https://www.google.com/search?q=${encodeURIComponent((data.title || "") + " streaming")}" target="_blank" class="btn-stream"><i class="fab fa-google"></i> Google</a></div>`; }
+
+  // Streaming
+  const streamEl = document.getElementById("streaming_section");
+  const streamList = data.streaming || [], streamLogos = data.streaming_logos || [];
+  if (streamList.length > 0) {
+    const btns = streamList.map((name, i) => {
+      const base = STREAMING_LINKS[name] || "https://www.google.com/search?q=";
+      const url = base + encodeURIComponent(data.title || "");
+      const meta = STREAMING_META[name] || { color: "#fff", logo: "" };
+      const logoPath = streamLogos[i]?.logo_path;
+      const logoSrc = logoPath ? `https://image.tmdb.org/t/p/w45${logoPath}` : meta.logo || "";
+      const aff = name.includes("Amazon") || name.includes("Apple");
+      const logoHtml = logoSrc ? `<img src="${logoSrc}" class="plat-logo" alt="${name}" onerror="this.style.display='none'">` : `<i class="fas fa-play-circle" style="color:${meta.color}"></i>`;
+      return `<a href="${url}" target="_blank" rel="noopener" class="btn-stream ${aff ? "affiliate" : ""}" style="border-color:${meta.color}40">${logoHtml} ${name}</a>`;
+    }).join("");
+    streamEl.innerHTML = `<h3><i class="fas fa-satellite-dish"></i> ${t("streaming_title")}</h3><div class="streaming-buttons">${btns}</div>`;
+  } else {
+    streamEl.innerHTML = `<h3><i class="fas fa-satellite-dish"></i> Streaming</h3><p style="color:var(--muted);font-size:.85rem">${t("no_streaming_country")}</p><div class="streaming-buttons" style="margin-top:8px"><a href="https://www.amazon.fr/gp/video/search?phrase=${encodeURIComponent(data.title || "")}" target="_blank" class="btn-stream affiliate" style="border-color:#00a8e040"><i class="fas fa-search" style="color:#00a8e0"></i> Amazon Prime</a><a href="https://www.google.com/search?q=${encodeURIComponent((data.title || "") + " streaming")}" target="_blank" class="btn-stream"><i class="fab fa-google"></i> Google</a></div>`;
+  }
+
+  // Saisons
   const seasonsEl = document.getElementById("seasons_section");
-  if (data.is_series && data.seasons && data.seasons.length > 0) { const seasons = data.seasons.filter(s => s.season_number > 0 || s.episode_count > 0); const seasonCards = seasons.map(s => { const poster = s.poster_path ? `https://image.tmdb.org/t/p/w154${s.poster_path}` : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='72' fill='%231a1a24'%3E%3Crect width='48' height='72'/%3E%3Ctext x='50%25' y='50%25' fill='%23444' font-size='16' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E"; const airYear = s.air_date ? s.air_date.split("-")[0] : ""; return `<div class="season-card" id="season-${s.season_number}"><div class="season-header" onclick="toggleSaison(${data.tmdb_id},${s.season_number})"><img class="season-poster" src="${poster}" alt="${s.name || ""}" loading="lazy" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2748%27 height=%2772%27 fill=%27%231a1a24%27%3E%3Crect width=%2748%27 height=%2772%27/%3E%3C/svg%3E'"><div class="season-info"><div class="season-name">${s.name || t("seasons_title") + " " + s.season_number}</div><div class="season-meta">${s.episode_count || 0} ${t("episodes_title")}${airYear ? " · " + airYear : ""}</div></div><i class="fas fa-chevron-down season-chevron"></i></div><div class="episodes-list" id="episodes-${s.season_number}"><div class="episodes-loading"><i class="fas fa-circle-notch fa-spin"></i> ${t("loading_episodes")}</div></div></div>`; }).join(""); seasonsEl.innerHTML = `<h3><i class="fas fa-layer-group"></i> ${t("seasons_title")}</h3>${seasonCards}`; }
-  else seasonsEl.innerHTML = "";
+  if (data.is_series && data.seasons && data.seasons.length > 0) {
+    const seasons = data.seasons.filter(s => s.season_number > 0 || s.episode_count > 0);
+    const seasonCards = seasons.map(s => {
+      const poster = s.poster_path ? `https://image.tmdb.org/t/p/w154${s.poster_path}` : "";
+      const airYear = s.air_date ? s.air_date.split("-")[0] : "";
+      const posterHtml = poster ? `<img class="season-poster" src="${poster}" alt="${s.name || ""}" loading="lazy">` : `<div style="width:48px;height:72px;background:var(--card2);border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.2rem">🎬</div>`;
+      return `<div class="season-card" id="season-${s.season_number}"><div class="season-header" onclick="toggleSaison(${data.tmdb_id},${s.season_number})">${posterHtml}<div class="season-info"><div class="season-name">${s.name || t("seasons_title") + " " + s.season_number}</div><div class="season-meta">${s.episode_count || 0} ${t("episodes_title")}${airYear ? " · " + airYear : ""}</div></div><i class="fas fa-chevron-down season-chevron"></i></div><div class="episodes-list" id="episodes-${s.season_number}"><div class="episodes-loading"><i class="fas fa-circle-notch fa-spin"></i> ${t("loading_episodes")}</div></div></div>`;
+    }).join("");
+    seasonsEl.innerHTML = `<h3><i class="fas fa-layer-group"></i> ${t("seasons_title")}</h3>${seasonCards}`;
+  } else seasonsEl.innerHTML = "";
+
+  // Cast
   const castEl = document.getElementById("cast_section");
-  if ((data.cast || []).length > 0) { const items = data.cast.map(c => { const photo = c.profile_path ? `https://image.tmdb.org/t/p/w185${c.profile_path}` : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Crect width='60' height='60' fill='%231a1a24' rx='30'/%3E%3Ctext x='50%25' y='50%25' fill='%23555' font-size='24' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%91%A4%3C/text%3E%3C/svg%3E"; return `<div class="cast-card"><img src="${photo}" alt="${c.name}" loading="lazy"><p>${c.name}${c.character ? `<br><span style="color:var(--primary);font-size:.58rem">${c.character}</span>` : ""}</p></div>`; }).join(""); castEl.innerHTML = `<h3><i class="fas fa-users"></i> ${t("cast_title")}</h3><div class="cast-list">${items}</div>`; }
-  else castEl.innerHTML = "";
+  if ((data.cast || []).length > 0) {
+    const items = data.cast.map(c => {
+      const photo = c.profile_path ? `https://image.tmdb.org/t/p/w185${c.profile_path}` : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Crect width='60' height='60' fill='%231a1a24' rx='30'/%3E%3Ctext x='50%25' y='50%25' fill='%23555' font-size='24' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%91%A4%3C/text%3E%3C/svg%3E";
+      return `<div class="cast-card"><img src="${photo}" alt="${c.name}" loading="lazy"><p>${c.name}${c.character ? `<br><span style="color:var(--primary);font-size:.58rem">${c.character}</span>` : ""}</p></div>`;
+    }).join("");
+    castEl.innerHTML = `<h3><i class="fas fa-users"></i> ${t("cast_title")}</h3><div class="cast-list">${items}</div>`;
+  } else castEl.innerHTML = "";
+
+  // Trailer
   const trailerEl = document.getElementById("trailer_section");
-  if (data.trailer) { const embedUrl = data.trailer.replace("watch?v=", "embed/").replace("youtu.be/", "www.youtube.com/embed/"); trailerEl.innerHTML = `<h3><i class="fab fa-youtube"></i> ${t("trailer_title")}</h3><button class="btn-trailer" onclick="afficherTrailer(this,'${embedUrl}')"><i class="fas fa-play"></i> ${t("see_trailer")}</button><iframe id="trailer_iframe" allowfullscreen style="display:none;width:100%;aspect-ratio:16/9;border-radius:12px;border:none;margin-top:10px;"></iframe>`; }
-  else { const q = encodeURIComponent((data.title || "") + " trailer"); trailerEl.innerHTML = `<h3><i class="fab fa-youtube"></i> ${t("trailer_title")}</h3><a href="https://www.youtube.com/results?search_query=${q}" target="_blank" rel="noopener" class="btn-trailer"><i class="fas fa-search"></i> ${t("search_trailer")}</a>`; }
-  const similarEl = document.getElementById("similar_section"), similarList = data.similar || [];
-  if (similarList.length > 0) { const cards = similarList.map(s => { const poster = s.poster_path ? `https://image.tmdb.org/t/p/w200${s.poster_path}` : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='300' fill='%231a1a24'%3E%3Crect width='200' height='300'/%3E%3Ctext x='50%25' y='50%25' fill='%23444' font-size='28' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E"; const isTv = s.media_type === "tv" || s.first_air_date; const mediaType = isTv ? "tv" : "movie"; return `<div class="movie-card" onclick="afficherDetails(${s.id},'${mediaType}')" style="cursor:pointer"><img src="${poster}" alt="${s.title || s.name || "?"}" loading="lazy" style="aspect-ratio:2/3;object-fit:cover"><div class="card-body"><h4>${s.title || s.name || "?"}</h4></div></div>`; }).join(""); similarEl.innerHTML = `<h3>${t("similar_title")}</h3><div id="similar_cards">${cards}</div>`; }
-  else similarEl.innerHTML = "";
+  if (data.trailer) {
+    const embedUrl = data.trailer.replace("watch?v=", "embed/").replace("youtu.be/", "www.youtube.com/embed/");
+    trailerEl.innerHTML = `<h3><i class="fab fa-youtube"></i> ${t("trailer_title")}</h3><button class="btn-trailer" onclick="afficherTrailer(this,'${embedUrl}')"><i class="fas fa-play"></i> ${t("see_trailer")}</button><iframe id="trailer_iframe" allowfullscreen style="display:none;width:100%;aspect-ratio:16/9;border-radius:12px;border:none;margin-top:10px;"></iframe>`;
+  } else {
+    const q = encodeURIComponent((data.title || "") + " trailer");
+    trailerEl.innerHTML = `<h3><i class="fab fa-youtube"></i> ${t("trailer_title")}</h3><a href="https://www.youtube.com/results?search_query=${q}" target="_blank" rel="noopener" class="btn-trailer"><i class="fas fa-search"></i> ${t("search_trailer")}</a>`;
+  }
+
+  // Films similaires
+  const similarEl = document.getElementById("similar_section");
+  const similarList = data.similar || [];
+  if (similarList.length > 0) {
+    const cards = similarList.map(s => {
+      const poster = s.poster_path ? `https://image.tmdb.org/t/p/w200${s.poster_path}` : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='300' fill='%231a1a24'%3E%3Crect width='200' height='300'/%3E%3Ctext x='50%25' y='50%25' fill='%23444' font-size='28' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E";
+      const isTv = s.media_type === "tv" || !!s.first_air_date;
+      return `<div class="movie-card" onclick="afficherDetails(${s.id},'${isTv ? "tv" : "movie"}')" style="cursor:pointer"><img src="${poster}" alt="${s.title || s.name || "?"}" loading="lazy" style="aspect-ratio:2/3;object-fit:cover"><div class="card-body"><h4>${s.title || s.name || "?"}</h4></div></div>`;
+    }).join("");
+    similarEl.innerHTML = `<h3>${t("similar_title")}</h3><div id="similar_cards">${cards}</div>`;
+  } else similarEl.innerHTML = "";
+
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
-function afficherTrailer(btn, embedUrl) { const iframe = document.getElementById("trailer_iframe"); if (iframe) { iframe.src = embedUrl; iframe.style.display = "block"; btn.style.display = "none"; } }
+
+function afficherTrailer(btn, embedUrl) {
+  const iframe = document.getElementById("trailer_iframe");
+  if (iframe) { iframe.src = embedUrl; iframe.style.display = "block"; btn.style.display = "none"; }
+}
 
 // ════ SAISONS ════
 const _loadedSeasons = {};
 async function toggleSaison(seriesId, seasonNumber) {
-  const card = document.getElementById(`season-${seasonNumber}`); if (!card) return;
+  const card = document.getElementById(`season-${seasonNumber}`);
+  if (!card) return;
   const episodesList = document.getElementById(`episodes-${seasonNumber}`);
   if (card.classList.contains("open")) { card.classList.remove("open"); return; }
   card.classList.add("open");
   if (_loadedSeasons[`${seriesId}-${seasonNumber}`]) return;
   try {
-    const res = await fetch(`/tv/${seriesId}/season/${seasonNumber}?lang=${getTMDBLang()}`); const data = await res.json();
-    _loadedSeasons[`${seriesId}-${seasonNumber}`] = true; const episodes = data.episodes || [];
-    if (episodes.length === 0) { episodesList.innerHTML = `<p style="padding:16px;color:var(--muted);font-size:.82rem;text-align:center">${t("no_synopsis")}</p>`; return; }
-    episodesList.innerHTML = episodes.map(ep => { const still = ep.still_path ? `https://image.tmdb.org/t/p/w185${ep.still_path}` : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='45' fill='%231a1a24'%3E%3Crect width='80' height='45'/%3E%3Ctext x='50%25' y='50%25' fill='%23444' font-size='16' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E"; const airDate = ep.air_date ? ep.air_date.split("-").reverse().join("/") : "", overview = ep.overview || ""; return `<div class="episode-item"><div class="episode-num">${ep.episode_number}</div><img class="episode-still" src="${still}" alt="" loading="lazy" onerror="this.style.display='none'"><div class="episode-body"><div class="episode-title">${ep.name || "Episode " + ep.episode_number}</div>${airDate ? `<div class="episode-date"><i class="fas fa-calendar" style="font-size:.6rem;opacity:.5"></i> ${airDate}</div>` : ""}${overview ? `<div class="episode-overview">${overview}</div>` : ""}</div></div>`; }).join("");
-  } catch (e) { episodesList.innerHTML = `<p style="padding:16px;color:var(--error-text);font-size:.82rem;text-align:center"><i class="fas fa-exclamation-circle"></i> Erreur chargement épisodes</p>`; }
+    const data = await safeFetch(`/tv/${seriesId}/season/${seasonNumber}?lang=${getTMDBLang()}`);
+    _loadedSeasons[`${seriesId}-${seasonNumber}`] = true;
+    const episodes = data.episodes || [];
+    if (episodes.length === 0) {
+      episodesList.innerHTML = `<p style="padding:16px;color:var(--muted);font-size:.82rem;text-align:center">${t("no_synopsis")}</p>`;
+      return;
+    }
+    episodesList.innerHTML = episodes.map(ep => {
+      const still = ep.still_path ? `https://image.tmdb.org/t/p/w185${ep.still_path}` : "";
+      const airDate = ep.air_date ? ep.air_date.split("-").reverse().join("/") : "";
+      const stillHtml = still ? `<img class="episode-still" src="${still}" alt="" loading="lazy">` : "";
+      return `<div class="episode-item"><div class="episode-num">${ep.episode_number}</div>${stillHtml}<div class="episode-body"><div class="episode-title">${ep.name || "Episode " + ep.episode_number}</div>${airDate ? `<div class="episode-date">${airDate}</div>` : ""}${ep.overview ? `<div class="episode-overview">${ep.overview}</div>` : ""}</div></div>`;
+    }).join("");
+  } catch (e) {
+    episodesList.innerHTML = `<p style="padding:16px;color:var(--muted);font-size:.82rem;text-align:center"><i class="fas fa-exclamation-circle"></i> Erreur chargement épisodes</p>`;
+  }
 }
 
-// ════ POLITIQUE DE CONFIDENTIALITÉ ════
-function afficherPrivacy() { document.getElementById("hero").style.display = "none"; document.getElementById("genre-nav").style.display = "none"; document.getElementById("genre-grid").style.display = "none"; document.getElementById("page-film-detail").style.display = "none"; document.getElementById("privacy-page").style.display = "block"; window.scrollTo({ top: 0, behavior: "smooth" }); }
+// ════ CONFIDENTIALITÉ ════
+function afficherPrivacy() {
+  document.getElementById("hero").style.display = "none"; document.getElementById("genre-nav").style.display = "none";
+  document.getElementById("genre-grid").style.display = "none"; document.getElementById("page-film-detail").style.display = "none";
+  document.getElementById("privacy-page").style.display = "block";
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
 function cacherPrivacy() { document.getElementById("privacy-page").style.display = "none"; retourAccueil(); }
 
-// ════ INITIALISATION ════
-window.addEventListener("scroll", () => { document.getElementById("back-top").classList.toggle("visible", window.scrollY > 400); });
+// ════ INIT ════
+window.addEventListener("scroll", () => {
+  document.getElementById("back-top").classList.toggle("visible", window.scrollY > 400);
+});
+
 window.onload = () => {
   initLang();
-  chargerTrending().then(() => { document.getElementById("hero").style.display = "block"; document.getElementById("genre-nav").style.display = "flex"; });
-  document.addEventListener("keydown", e => { if (e.code === "Space" && document.getElementById("loading-overlay").classList.contains("active")) { e.preventDefault(); gameJump(); } });
-  document.getElementById("game-canvas").addEventListener("touchstart", e => { e.preventDefault(); gameJump(); });
-  const gameCanvas = document.getElementById("game-canvas");
-  if (gameCanvas && !gameCanvas.querySelector(".game-ground")) {
-    gameCanvas.innerHTML = `
-      <div class="game-star" style="top:20px;left:15%"></div><div class="game-star" style="top:40px;left:35%"></div><div class="game-star" style="top:15px;left:55%"></div><div class="game-star" style="top:50px;left:70%"></div><div class="game-star" style="top:28px;left:85%"></div>
-      <div class="game-cloud" style="width:60px;height:16px;top:28px;left:120%;animation-duration:9s"></div><div class="game-cloud" style="width:38px;height:12px;top:48px;left:140%;animation-duration:13s;animation-delay:-5s"></div><div class="game-cloud" style="width:80px;height:18px;top:16px;left:160%;animation-duration:11s;animation-delay:-3s"></div>
-      <div class="game-ground"></div><div class="game-score-display" id="game-score">0</div><div class="game-lives" id="game-lives">❤️❤️❤️</div><div class="game-level-display" id="game-level">LVL 1</div><div id="game-hero" style="left:60px">🥷</div><div class="game-tap-hint" id="game-hint">TAP / ESPACE pour sauter</div>`;
+  chargerTrending().then(() => {
+    document.getElementById("hero").style.display = "block";
+    document.getElementById("genre-nav").style.display = "flex";
+  });
+  document.addEventListener("keydown", e => {
+    if (e.code === "Space" && document.getElementById("loading-overlay").classList.contains("active")) {
+      e.preventDefault(); gameJump();
+    }
+  });
+  const gc = document.getElementById("game-canvas");
+  if (gc) {
+    gc.addEventListener("touchstart", e => { e.preventDefault(); gameJump(); }, { passive: false });
+    if (!gc.querySelector(".game-ground")) {
+      gc.innerHTML = `
+        <div class="game-star" style="top:20px;left:15%"></div>
+        <div class="game-star" style="top:40px;left:35%"></div>
+        <div class="game-star" style="top:15px;left:55%"></div>
+        <div class="game-star" style="top:50px;left:70%"></div>
+        <div class="game-star" style="top:28px;left:85%"></div>
+        <div class="game-cloud" style="width:60px;height:16px;top:28px;left:120%;animation-duration:9s"></div>
+        <div class="game-cloud" style="width:38px;height:12px;top:48px;left:140%;animation-duration:13s;animation-delay:-5s"></div>
+        <div class="game-cloud" style="width:80px;height:18px;top:16px;left:160%;animation-duration:11s;animation-delay:-3s"></div>
+        <div class="game-ground"></div>
+        <div class="game-score-display" id="game-score">0</div>
+        <div class="game-lives" id="game-lives">❤️❤️❤️</div>
+        <div class="game-level-display" id="game-level">LVL 1</div>
+        <div id="game-hero" style="left:60px">🥷</div>
+        <div class="game-tap-hint" id="game-hint">TAP / ESPACE pour sauter</div>`;
+    }
+  }
+  // Cookie consent
+  if (!localStorage.getItem("cookies_accepted")) {
+    setTimeout(() => { document.getElementById("cookie-consent").style.display = "flex"; }, 2000);
   }
 };
