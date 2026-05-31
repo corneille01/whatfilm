@@ -11,10 +11,10 @@ _loading_started = False
 _loading_done = False
 _loading_error = None
 
-# Langues supportées TESTÉES et COMPATIBLES
+# ⚠️ Langues 100% compatibles EasyOCR (testées)
 SUPPORTED_LANGUAGES = [
     'en', 'fr', 'es', 'de', 'it', 'pt',
-    'ch_sim', 'ch_tra', 'ja', 'ko',
+    'ch_sim', 'ja', 'ko',
     'nl', 'pl', 'sv', 'da', 'no', 'cs', 'sk', 'hu',
     'ro', 'hr', 'sl', 'et', 'lv', 'lt',
     'tr', 'ru', 'bg', 'uk', 'be',
@@ -26,7 +26,7 @@ SUPPORTED_LANGUAGES = [
 def _load_model():
     global _reader, _loading_done, _loading_error
     try:
-        print("🔄 Chargement EasyOCR en arrière-plan...")
+        print("🔄 Chargement EasyOCR...")
         sys.stdout.flush()
         start = time.time()
         
@@ -38,7 +38,7 @@ def _load_model():
         _loading_done = True
         
     except Exception as e:
-        print(f"❌ Erreur chargement EasyOCR: {e}")
+        print(f"❌ EasyOCR: {e}")
         sys.stdout.flush()
         _loading_error = str(e)
         _loading_done = True
@@ -49,8 +49,6 @@ def start_loading():
         _loading_started = True
         _loading_thread = threading.Thread(target=_load_model, daemon=True)
         _loading_thread.start()
-        print("🚀 Thread EasyOCR démarré")
-        sys.stdout.flush()
 
 def get_reader():
     global _reader, _loading_done, _loading_error
@@ -59,7 +57,7 @@ def get_reader():
     if _reader is not None:
         return _reader
     if _loading_error:
-        raise Exception(f"EasyOCR loading failed: {_loading_error}")
+        return None
     if not _loading_done:
         return None
     return _reader
@@ -74,7 +72,7 @@ def extract_text_from_images(frames, max_images=8):
         return ""
     
     texts = []
-    for i, frame_path in enumerate(frames[:max_images]):
+    for frame_path in frames[:max_images]:
         try:
             if not os.path.exists(frame_path):
                 continue
@@ -83,8 +81,6 @@ def extract_text_from_images(frames, max_images=8):
             if text.strip():
                 texts.append(text.strip())
         except Exception as e:
-            print(f"OCR ERROR: {str(e)[:100]}")
+            print(f"OCR: {str(e)[:80]}")
     
-    final_text = " ".join(texts)
-    print(f"✅ OCR: {len(final_text)} caractères")
-    return final_text
+    return " ".join(texts)

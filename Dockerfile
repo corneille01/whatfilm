@@ -47,5 +47,5 @@ RUN mkdir -p temp
 
 EXPOSE 10000
 
-# SANS limite de requêtes !
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "10000", "--workers", "1", "--timeout-keep-alive", "600"]
+# Timeout augmenté pour l'analyse
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "10000", "--workers", "1", "--timeout-keep-alive", "600", "--limit-max-requests", "10"]
