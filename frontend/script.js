@@ -54,6 +54,13 @@ const dict = {
     err_generic: "An error occurred. Please try again.",
     err_low_confidence: "Movie not identified with enough confidence. Try searching manually.",
     search_manually: "Search manually",
+    err_rate_limited: "Too many requests. Wait a minute before retrying.",
+err_rate_limited_daily: "Daily limit reached. Come back tomorrow.",
+err_video_too_short: "Video too short. Try a clip of at least 3 seconds.",
+err_file_too_large: "File too large. Try a shorter video.",
+err_video_blocked: "Video blocked for copyright reasons.",
+err_unsupported: "Unsupported platform or format.",
+    
     genres: {
       horror: "Horror", action: "Action", comedy: "Comedy", scifi: "Sci-Fi",
       trending: "🔥 Trending", romance: "Romance", animation: "Animation",
@@ -89,6 +96,12 @@ const dict = {
     err_generic: "An error occurred. Please try again.",
     err_low_confidence: "Movie not identified with enough confidence. Try searching manually.",
     search_manually: "Search manually",
+    err_rate_limited: "Too many requests. Wait a minute before retrying.",
+err_rate_limited_daily: "Daily limit reached. Come back tomorrow.",
+err_video_too_short: "Video too short. Try a clip of at least 3 seconds.",
+err_file_too_large: "File too large. Try a shorter video.",
+err_video_blocked: "Video blocked for copyright reasons.",
+err_unsupported: "Unsupported platform or format.",
     genres: {
       horror: "Horror", action: "Action", comedy: "Comedy", scifi: "Sci-Fi",
       trending: "🔥 Trending", romance: "Romance", animation: "Animation",
@@ -125,6 +138,12 @@ const dict = {
     err_generic: "Une erreur s'est produite. Réessayez dans quelques instants.",
     err_low_confidence: "Film non identifié avec certitude. Essayez de le rechercher manuellement.",
     search_manually: "Rechercher manuellement",
+    err_rate_limited: "Trop de requêtes. Attendez une minute avant de réessayer.",
+    err_rate_limited_daily: "Limite journalière atteinte. Revenez demain.",
+    err_video_too_short: "Vidéo trop courte. Essayez un extrait d'au moins 3 secondes.",
+    err_file_too_large: "Fichier trop volumineux. Essayez une vidéo plus courte.",
+    err_video_blocked: "Vidéo bloquée pour droits d'auteur.",
+    err_unsupported: "Plateforme ou format non supporté.",
     genres: {
       horror: "Horreur", action: "Action", comedy: "Comédie", scifi: "Sci-Fi",
       trending: "🔥 Tendances", romance: "Romance", animation: "Animation",
@@ -160,6 +179,13 @@ const dict = {
     err_generic: "Ocurrió un error. Inténtalo de nuevo.",
     err_low_confidence: "Película no identificada con certeza. Busca manualmente.",
     search_manually: "Buscar manualmente",
+    err_rate_limited: "Demasiadas solicitudes. Espera un minuto antes de reintentar.",
+err_rate_limited_daily: "Límite diario alcanzado. Vuelve mañana.",
+err_video_too_short: "Video demasiado corto. Prueba con un clip de al menos 3 segundos.",
+err_file_too_large: "Archivo demasiado grande. Prueba con un video más corto.",
+err_video_blocked: "Video bloqueado por derechos de autor.",
+err_unsupported: "Plataforma o formato no compatible.",
+
     genres: {
       horror: "Terror", action: "Acción", comedy: "Comedia", scifi: "Ciencia Ficción",
       trending: "🔥 Tendencias", romance: "Romance", animation: "Animación",
@@ -195,6 +221,12 @@ const dict = {
     err_generic: "Ein Fehler ist aufgetreten. Versuche es erneut.",
     err_low_confidence: "Film nicht sicher identifiziert. Suche manuell.",
     search_manually: "Manuell suchen",
+    err_rate_limited: "Zu viele Anfragen. Warte eine Minute, bevor du es erneut versuchst.",
+err_rate_limited_daily: "Tägliches Limit erreicht. Komm morgen wieder.",
+err_video_too_short: "Video zu kurz. Versuche einen Clip von mindestens 3 Sekunden.",
+err_file_too_large: "Datei zu groß. Versuche ein kürzeres Video.",
+err_video_blocked: "Video aus urheberrechtlichen Gründen gesperrt.",
+err_unsupported: "Nicht unterstützte Plattform oder Format.",
     genres: {
       horror: "Horror", action: "Action", comedy: "Komödie", scifi: "Science-Fiction",
       trending: "🔥 Trends", romance: "Romantik", animation: "Animation",
@@ -229,6 +261,12 @@ const dict = {
     err_generic: "发生错误，请重试。",
     err_low_confidence: "无法确定识别电影，请手动搜索。",
     search_manually: "手动搜索",
+    err_rate_limited: "请求过多。请等待一分钟后再试。",
+err_rate_limited_daily: "已达每日限额。请明天再来。",
+err_video_too_short: "视频太短。请尝试至少3秒的片段。",
+err_file_too_large: "文件太大。请尝试较短的视频。",
+err_video_blocked: "视频因版权原因被屏蔽。",
+err_unsupported: "不支持的平台或格式。",
     genres: {
       horror: "恐怖", action: "动作", comedy: "喜剧", scifi: "科幻",
       trending: "🔥 热门", romance: "爱情", animation: "动画",
@@ -288,6 +326,14 @@ function tErr(code) {
     session_expired: d.err_session,
     unexpected: d.err_generic,
     low_confidence: d.err_low_confidence,
+    rate_limited: d.err_rate_limited || "Trop de requêtes. Attendez une minute.",
+    rate_limited_daily: d.err_rate_limited_daily || "Limite journalière atteinte.",
+    video_too_short: d.err_video_too_short || "Vidéo trop courte (moins de 3s).",
+    file_too_large: d.err_file_too_large || "Fichier trop volumineux. Essayez une vidéo plus courte.",
+   download_timeout: d.err_timeout,
+   video_blocked: d.err_video_blocked || "Vidéo bloquée pour droits d'auteur.",
+   unsupported_platform: d.err_unsupported || "Plateforme non supportée.",
+   unsupported: d.err_unsupported || "Format non supporté.",
   };
   return map[code] || d.err_generic;
 }
@@ -505,7 +551,23 @@ async function gererRechercheGlobal() {
     cacherErreur();
     document.getElementById("genre-grid").style.display = "none";
     document.getElementById("page-film-detail").style.display = "none";
-    const isLink = /^https?:\/\/|tiktok\.com|instagram\.com|youtube\.com|youtu\.be|vm\.tiktok\.com|vt\.tiktok\.com/i.test(input);
+    // Détection universelle de liens vidéo (toutes plateformes supportées)
+    const isLink = /^https?:\/\//i.test(input) && (
+      /tiktok\.com|vm\.tiktok\.com|vt\.tiktok\.com/.test(input) ||
+      /instagram\.com/.test(input) ||
+      /youtube\.com|youtu\.be/.test(input) ||
+      /twitter\.com|x\.com/.test(input) ||
+      /facebook\.com|fb\.watch/.test(input) ||
+      /dailymotion\.com|dai\.ly/.test(input) ||
+      /bilibili\.com/.test(input) ||
+      /snapchat\.com/.test(input) ||
+      /vimeo\.com/.test(input) ||
+      /twitch\.tv/.test(input) ||
+      /linkedin\.com/.test(input) ||
+      /reddit\.com|redd\.it/.test(input) ||
+      /pinterest\.|pin\.it/.test(input) ||
+     /bit\.ly|t\.co|tinyurl\.com|ow\.ly|buff\.ly|short\.io|lnk\.to/.test(input)
+    ) || /^https?:\/\//i.test(input); 
     if (isLink) {
         await analyserVideo(input);
     } else {
@@ -773,11 +835,14 @@ async function analyserVideo(lien) {
     setTimeout(() => overlay.classList.remove("active"), 500);
     stopGame();
 
-    if (data.status === "success" || data.status === "cached") {
-      navStack = []; lastGrid = null;
-      currentMovieId = data.tmdb_id;
-      currentMediaType = data.media_type || "movie";
-      afficherDetailFilm(data);
+    if (data.status === "success" || data.status === "cached")  {
+        navStack = []; lastGrid = null;
+        currentMovieId = data.tmdb_id;
+        currentMediaType = data.media_type || "movie";
+        if (data.confidence !== null && data.confidence < 50) {
+        data._lowConfWarning = true;
+}
+ afficherDetailFilm(data);
     } else if (data.status === "not_found") {
       afficherNotFound(data);
     } else {
@@ -1126,6 +1191,13 @@ function afficherDetailFilm(data) {
   document.getElementById("hero").style.display = "none";
   document.getElementById("back-label").innerText = lastGrid ? t("back_list") : t("back_home");
   document.getElementById("fake_alert").innerHTML = data.is_fake ? `<div class="fake-alert"><i class="fas fa-exclamation-triangle"></i> Contenu humoristique possible — résultat peut être imprécis.</div>` : "";
+  document.getElementById("fake_alert").innerHTML =
+ data._lowConfWarning
+ ? `<div class="fake-alert"><i class="fas fa-exclamation-triangle"></i> Résultat incertain — ` +
+ `(${Math.round(data.confidence)}% de confiance). Vérifiez manuellement si besoin.</div>`
+ : data.is_fake
+ ? `<div class="fake-alert"><i class="fas fa-exclamation-triangle"></i> Contenu humoristique possible.</div>`
+ : "";
   document.getElementById("titre_film").innerText = data.title || "Inconnu";
   const imgEl = document.getElementById("affiche_film");
   if (data.image) { imgEl.src = data.image; imgEl.style.display = "block"; } else imgEl.style.display = "none";
