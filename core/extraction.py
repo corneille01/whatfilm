@@ -1,156 +1,284 @@
+"""
+core/extraction.py — Extraction multimodale avec logique transcript-first.
+
+Cascade anti-coût (objectif : 0€ jusqu'à ~1M req/mois) :
+
+  0. Regex/heuristique  → si transcript >= 80 chars   (~75% des cas, 0 API call)
+  1. Groq Llama texte   → transcript court mais présent (~20% des cas, gratuit)
+  2. Gemini vision      → vidéo muette / OCR seul       (~5% des cas, gratuit <45K/mois)
+  3. Retour minimal     → pipeline continue via TMDB texte
+
+Le reranker (core/reranker.py) gère la sélection finale — on ne lui envoie
+que ce que l'extraction n'a pas pu résoudre seul.
+"""
+
+import re
 import json
 import os
 import base64
 import httpx
-# from config.config import GEMINI_API_KEY  # gardé pour la bascule rapide
 
-# On importe le prompt
 from core.prompts import EXTRACTION_PROMPT
 
-# ════════════════════════════════════════════════════════════════
-# GEMINI — commenté, décommenter pour revenir
-# ════════════════════════════════════════════════════════════════
-# from google import genai
-# from google.genai import types
-# gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+# ── Clés API ──────────────────────────────────────────────────────
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GROQ_API_KEY   = os.environ.get("GROQ_API_KEY", "")
+
+GEMINI_URLS = [
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+]
+GROQ_TEXT_URL   = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_TEXT_MODEL = "llama-3.3-70b-versatile"
+
+TRANSCRIPT_THRESHOLD = 80   # chars minimum pour tenter le regex
+
 
 # ════════════════════════════════════════════════════════════════
-# GROQ — LLaVA v1.5 7B (gratuit, vision multimodale)
-# https://console.groq.com → créer clé GROQ_API_KEY
+# NIVEAU 0 — Regex (0 API call)
 # ════════════════════════════════════════════════════════════════
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_VISION_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_VISION_MODEL = "llava-v1.5-7b-4096-preview"  # seul modèle vision gratuit sur Groq
+_YEAR_PATTERN   = re.compile(r"\b(19[5-9]\d|20[0-3]\d)\b")
+_QUOTED_TITLE   = re.compile(
+    r'[«»"\u201c\u201d\u201e\u2039\u203a]'
+    r'([^\u00ab\u00bb"\u201c\u201d\u201e\u2039\u203a]{3,60})'
+    r'[«»"\u201c\u201d\u201e\u2039\u203a]'
+)
+_ACTOR_PREFIXES = re.compile(
+    r"(?:avec|starring|avec les acteurs|feat(?:uring)?\.?)\s+"
+    r"([A-ZÀ-Ÿ][a-zà-ÿ]+(?:\s+[A-ZÀ-Ÿ][a-zà-ÿ]+){0,2})",
+    re.IGNORECASE
+)
+_CAPS_TITLE = re.compile(
+    r"(?:[A-ZÀ-Ÿ][A-ZÀ-Ÿa-zà-ÿ'\-]{1,20}\s+){1,5}"
+    r"[A-ZÀ-Ÿ][A-ZÀ-Ÿa-zà-ÿ'\-]{1,20}"
+)
 
-def _encode_image(frame_path: str) -> str | None:
-    """Encode une image en base64 pour l'API Groq."""
-    try:
-        with open(frame_path, "rb") as f:
-            return base64.b64encode(f.read()).decode("utf-8")
-    except Exception as e:
-        print(f"⚠️ Erreur encodage image {frame_path}: {e}")
+
+def _regex_extract(ocr_text: str, transcript: str) -> dict | None:
+    """
+    Extraction sans IA — retourne un dict compatible pipeline ou None.
+
+    Retourne None (→ escalade vers IA) si :
+    - texte total < seuil
+    - aucun titre ET aucun acteur ET aucune année détectés
+    """
+    combined = f"{transcript} {ocr_text}".strip()
+    if len(combined) < TRANSCRIPT_THRESHOLD:
         return None
 
+    years  = _YEAR_PATTERN.findall(combined)
+    quotes = _QUOTED_TITLE.findall(combined)
+    actors = _ACTOR_PREFIXES.findall(combined)
+    caps   = _CAPS_TITLE.findall(ocr_text) if ocr_text else []
+
+    titres_possibles = list(dict.fromkeys(quotes + caps))[:5]
+
+    if not titres_possibles and not actors and not years:
+        return None
+
+    print(
+        f"✅ Extraction regex — titres: {titres_possibles[:2]}, "
+        f"acteurs: {actors[:2]}, années: {years[:1]}",
+        flush=True
+    )
+    return {
+        "titres_possibles":   titres_possibles,
+        "acteurs":            actors[:4],
+        "personnages":        [],
+        "objets_importants":  [],
+        "description_courte": combined[:300],
+        "genre_apparent":     "",
+        "annee_estimee":      years[0] if years else None,
+        "langue_originale":   "",
+        "source":             "regex",
+    }
+
+
+# ════════════════════════════════════════════════════════════════
+# UTILITAIRES
+# ════════════════════════════════════════════════════════════════
+def _clean_json_fences(text: str) -> str:
+    if "```" in text:
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    return text.strip()
+
+
+def _minimal_fallback(source: str) -> dict:
+    return {
+        "titres_possibles":   [],
+        "acteurs":            [],
+        "personnages":        [],
+        "objets_importants":  [],
+        "description_courte": "",
+        "genre_apparent":     "",
+        "annee_estimee":      None,
+        "langue_originale":   "",
+        "source":             source,
+    }
+
+
+# ════════════════════════════════════════════════════════════════
+# NIVEAU 1 — Groq Llama texte (sans vision)
+# ════════════════════════════════════════════════════════════════
+async def _extract_groq_text(prompt: str) -> dict | None:
+    if not GROQ_API_KEY:
+        return None
+
+    try:
+        async with httpx.AsyncClient(timeout=25) as client:
+            resp = await client.post(
+                GROQ_TEXT_URL,
+                json={
+                    "model": GROQ_TEXT_MODEL,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "Tu es un expert en cinéma et séries TV. "
+                                "Réponds UNIQUEMENT en JSON valide, sans markdown, "
+                                "sans texte avant ou après."
+                            )
+                        },
+                        {"role": "user", "content": prompt}
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": 1024,
+                },
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json"
+                }
+            )
+            resp.raise_for_status()
+
+        text = resp.json()["choices"][0]["message"]["content"].strip()
+        text = _clean_json_fences(text)
+        data = json.loads(text)
+        data["source"] = "groq_text"
+        print(f"✅ Groq texte OK ({len(text)} chars)", flush=True)
+        return data
+
+    except json.JSONDecodeError:
+        result = _minimal_fallback("groq_text_partial")
+        result["description_courte"] = text[:300] if "text" in locals() else ""
+        return result
+    except Exception as e:
+        print(f"⚠️ Groq texte KO: {str(e)[:120]}", flush=True)
+        return None
+
+
+# ════════════════════════════════════════════════════════════════
+# NIVEAU 2 — Gemini vision (frames + texte, dernier recours)
+# ════════════════════════════════════════════════════════════════
+def _encode_image(path: str) -> str | None:
+    try:
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except Exception:
+        return None
+
+
+async def _extract_gemini_vision(frames: list, prompt: str) -> dict | None:
+    if not GEMINI_API_KEY:
+        print("⚠️ GEMINI_API_KEY manquante → skip vision", flush=True)
+        return None
+
+    parts = []
+    for fp in frames[:4]:
+        if os.path.exists(fp) and os.path.getsize(fp) > 0:
+            b64 = _encode_image(fp)
+            if b64:
+                parts.append({
+                    "inline_data": {"mime_type": "image/jpeg", "data": b64}
+                })
+
+    if not parts:
+        return None
+
+    parts.append({"text": prompt})
+
+    payload = {
+        "contents": [{"role": "user", "parts": parts}],
+        "generationConfig": {
+            "temperature": 0.2,
+            "maxOutputTokens": 1024,
+            "responseMimeType": "application/json",
+        }
+    }
+
+    for url in GEMINI_URLS:
+        model_name = url.split("/models/")[1].split(":")[0]
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    f"{url}?key={GEMINI_API_KEY}", json=payload
+                )
+                resp.raise_for_status()
+
+            text = (
+                resp.json()
+                .get("candidates", [{}])[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text", "")
+            ).strip()
+
+            if not text:
+                continue
+
+            text = _clean_json_fences(text)
+            data = json.loads(text)
+            data["source"] = "gemini_vision"
+            print(f"✅ Gemini vision OK ({model_name}, {len(text)} chars)", flush=True)
+            return data
+
+        except json.JSONDecodeError:
+            result = _minimal_fallback("gemini_partial")
+            result["description_courte"] = text[:300] if "text" in locals() else ""
+            return result
+        except Exception as e:
+            print(f"⚠️ Gemini KO ({model_name}): {str(e)[:120]}", flush=True)
+            continue
+
+    return None
+
+
+# ════════════════════════════════════════════════════════════════
+# POINT D'ENTRÉE PRINCIPAL
+# ════════════════════════════════════════════════════════════════
 async def multimodal_extract(frames, ocr_text, transcript):
+    ocr_text   = (ocr_text   or "").strip()
+    transcript = (transcript or "").strip()
+
     prompt = EXTRACTION_PROMPT.format(
         ocr_text=ocr_text,
         transcript=transcript
     )
 
-    # ── Construire le message multimodal pour Groq ──────────────
-    # LLaVA sur Groq accepte max 1 image par appel (limitation API)
-    # On prend la meilleure frame (la première valide)
-    content = []
+    # ── 0. Regex (gratuit, ~75% des cas) ─────────────────────────
+    result = _regex_extract(ocr_text, transcript)
+    if result:
+        return result
 
-    # Chercher la première frame valide
-    best_frame = None
-    for frame_path in frames:
-        if os.path.exists(frame_path) and os.path.getsize(frame_path) > 0:
-            best_frame = frame_path
-            break
+    # ── 1. Groq texte (transcript présent mais ambigu) ────────────
+    if ocr_text or transcript:
+        print("🔍 Groq texte...", flush=True)
+        result = await _extract_groq_text(prompt)
+        if result:
+            return result
 
-    if best_frame:
-        b64 = _encode_image(best_frame)
-        if b64:
-            content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/jpeg;base64,{b64}"
-                }
-            })
+    # ── 2. Gemini vision (vidéo muette, dernier recours) ──────────
+    if frames:
+        print("🔍 Gemini vision (dernier recours)...", flush=True)
+        result = await _extract_gemini_vision(frames, prompt)
+        if result:
+            return result
 
-    content.append({
-        "type": "text",
-        "text": prompt
-    })
-
-    payload = {
-        "model": GROQ_VISION_MODEL,
-        "messages": [{"role": "user", "content": content}],
-        "temperature": 0.2,
-        "max_tokens": 1024,
-    }
-
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(GROQ_VISION_URL, json=payload, headers=headers)
-            response.raise_for_status()
-            raw = response.json()
-
-        text = raw["choices"][0]["message"]["content"].strip()
-
-        # Groq ne garantit pas du JSON pur — on nettoie les fences
-        if "```" in text:
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        text = text.strip()
-
-        data = json.loads(text)
-        return data
-
-    except json.JSONDecodeError as e:
-        print(f"⚠️ Groq JSON parse error: {e} — raw: {text[:200]}")
-        # Retour minimal pour que le pipeline continue avec queries texte seul
-        return {
-            "description_courte": text[:300] if text else "Analyse partielle",
-            "personnages": [],
-            "acteurs": [],
-            "objets_importants": [],
-            "titres_possibles": []
-        }
-    except Exception as e:
-        print(f"❌ EXTRACTION ERROR (Groq): {e}")
-        return {
-            "description_courte": "Erreur d'analyse",
-            "personnages": [],
-            "acteurs": [],
-            "objets_importants": [],
-            "titres_possibles": []
-        }
-
-
-# ════════════════════════════════════════════════════════════════
-# BASCULE RAPIDE VERS GEMINI
-# Pour revenir à Gemini :
-#   1. Commenter le bloc Groq ci-dessus
-#   2. Décommenter ce bloc :
-# ════════════════════════════════════════════════════════════════
-#
-# from google import genai
-# from google.genai import types
-# gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-#
-# async def multimodal_extract(frames, ocr_text, transcript):
-#     prompt = EXTRACTION_PROMPT.format(ocr_text=ocr_text, transcript=transcript)
-#     contenu_multimodal = [prompt]
-#     for frame_path in frames:
-#         if os.path.exists(frame_path):
-#             try:
-#                 from PIL import Image
-#                 img = Image.open(frame_path)
-#                 contenu_multimodal.append(img)
-#             except Exception as e:
-#                 print(f"Erreur lecture image {frame_path}: {e}")
-#     try:
-#         response = gemini_client.models.generate_content(
-#             model="gemini-2.5-flash",
-#             contents=contenu_multimodal,
-#             config=types.GenerateContentConfig(
-#                 temperature=0.2,
-#                 response_mime_type="application/json"
-#             )
-#         )
-#         return json.loads(response.text)
-#     except Exception as e:
-#         print("EXTRACTION ERROR =", str(e))
-#         return {
-#             "description_courte": "Erreur d'analyse",
-#             "personnages": [], "acteurs": [],
-#             "objets_importants": [], "titres_possibles": []
-#         }
+    # ── 3. Retour minimal ─────────────────────────────────────────
+    print("⚠️ Extraction totalement échouée → retour minimal", flush=True)
+    combined = f"{transcript} {ocr_text}".strip()
+    result = _minimal_fallback("fallback")
+    result["description_courte"] = combined[:300]
+    return result

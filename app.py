@@ -615,6 +615,14 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
     if detected_script != "latin":
         print(f"🌐 Script détecté: {detected_script}", flush=True)
 
+    # Cache niveau 0.5 : titre extrait → film connu
+# Si le reranker a déjà vu ce titre, on saute toute l'extraction
+    for titre_candidat in (extraction.get("titres_possibles", []) if extraction else []):
+        title_hit = get_cache_by_title(titre_candidat, lang)
+        if title_hit:
+            set_cache(url, title_hit, transcript=transcript, ocr_text=ocr_text)
+            return {"status": "cached", **title_hit}
+
     extraction = await multimodal_extract(frames, ocr_text, transcript) or {}
     # Injecter le script détecté pour affiner l'extraction
     if detected_script != "latin":

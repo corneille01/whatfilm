@@ -19,6 +19,12 @@ import re
 import time
 from typing import Optional
 
+from numpy.char import title
+
+from cv2 import data
+
+
+import data
 # ── Connexion Redis (optionnelle) ─────────────────────────────────
 _redis = None
 _redis_available = False
@@ -70,6 +76,31 @@ def _key_content(transcript: str, ocr_text: str) -> Optional[str]:
     if len(meaningful) < 5:
         return None
     return "content:" + hashlib.sha256(" ".join(meaningful).encode()).hexdigest()[:32]
+
+
+def _key_title(title: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]", "", title.lower().strip())
+    if len(normalized) < 3:
+        return None
+    return "title:" + normalized
+
+def get_cache_by_title(title: str, lang: str) -> Optional[dict]:
+    key = _key_title(title)
+    if not key:
+        return None
+    tmdb_id = _rget(key) or _ramget(key)
+    if not tmdb_id:
+        return None
+    return get_cache_by_film(tmdb_id, lang)
+
+def set_cache_title(title: str, tmdb_id: int) -> None:
+    key = _key_title(title)
+    if not key:
+        return
+    _rset(key, tmdb_id)        # permanent, pas d'expiry
+    _ramset(key, tmdb_id)
+    print(f"💾 Cache titre: '{title}' → {tmdb_id}", flush=True)
+
 
 # ── Redis helpers ─────────────────────────────────────────────────
 def _rget(key: str) -> Optional[dict]:
@@ -177,6 +208,14 @@ def set_cache(url: str, data: dict,
             _rset(content_key, tmdb_id, TTL_CONTENT)
             _ramset(content_key, tmdb_id, TTL_CONTENT)
             print(f"💾 Cache contenu → {tmdb_id} (30j)", flush=True)
+        # Indexer tous les titres connus pour ce film
+        title = data.get("title", "")
+    if title:
+        set_cache_title(title, tmdb_id)
+# Indexer aussi le titre original si différent
+    original_title = data.get("original_title", "")
+    if original_title and original_title != title:
+        set_cache_title(original_title, tmdb_id)
 
 def cache_stats() -> dict:
     stats = {
@@ -204,3 +243,4 @@ def purge_expired() -> int:
     if expired:
         print(f"🧹 RAM purgée: {len(expired)} entrées", flush=True)
     return len(expired)
+

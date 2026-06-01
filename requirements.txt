@@ -3,7 +3,7 @@ uvicorn[standard]
 gunicorn
 yt-dlp
 pillow
-google-genai
+
 httpx
 python-multipart
 python-dotenv
