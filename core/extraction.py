@@ -22,8 +22,8 @@ from core.prompts import EXTRACTION_PROMPT
 # ── Clés API ──────────────────────────────────────────────────────
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GROQ_API_KEY   = os.environ.get("GROQ_API_KEY", "")
-print(f"🔑 GEMINI_API_KEY présente: {bool(GEMINI_API_KEY)}", flush=True)  # ← ici
-print(f"🔑 GROQ_API_KEY présente: {bool(GROQ_API_KEY)}", flush=True)  # ← ici
+print(f"🔑 GEMINI_API_KEY présente: {bool(GEMINI_API_KEY)}", flush=True)
+print(f"🔑 GROQ_API_KEY présente: {bool(GROQ_API_KEY)}", flush=True)
 
 GEMINI_URLS = [
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
@@ -226,6 +226,7 @@ async def _extract_gemini_vision(frames: list, prompt: str) -> dict | None:
             data = json.loads(text)
             data["source"] = "gemini_vision"
             print(f"✅ Gemini vision OK ({model_name}, {len(text)} chars)", flush=True)
+            print(f"🔍 EXTRACTION Gemini raw: {json.dumps(data, ensure_ascii=False)[:300]}", flush=True)  # TEMP
             return data
 
         except json.JSONDecodeError:
@@ -270,11 +271,8 @@ async def multimodal_extract(frames, ocr_text, transcript):
                 f"desc={result.get('description_courte','')[:80]}",
                 flush=True
             )
-            # Si Groq a trouvé des titres ou acteurs → suffisant
             if has_title or has_actors:
                 return result
-            # Sinon on garde le résultat Groq comme base
-            # mais on tente Gemini vision en complément
             groq_result = result
         else:
             groq_result = None
@@ -294,7 +292,6 @@ async def multimodal_extract(frames, ocr_text, transcript):
                 flush=True
             )
             if has_title or has_actors:
-                # Gemini a trouvé quelque chose — fusionne avec Groq si dispo
                 if groq_result:
                     vision_result["description_courte"] = (
                         vision_result.get("description_courte")
