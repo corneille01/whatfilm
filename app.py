@@ -14,7 +14,6 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from storage.cache import get_cache, set_cache, get_cache_by_title
 
 from vision.scene_detection import extract_keyframes
 from vision.universal_downloader import download_video
@@ -32,13 +31,12 @@ from data.fake_detector import detect_fake
 from core.reranker import rerank
 from storage.cache import (
     get_cache, get_cache_by_content, get_cache_by_film,
+    get_cache_by_title,  # <-- AJOUT
     set_cache, purge_expired, cache_stats
 )
 
 # ════════════════════════════════════════════════════════════════
 # NORMALISATION D'URL
-# Supprime les paramètres tracking inutiles pour maximiser les hits
-# de cache URL (même vidéo partagée avec des params différents).
 # ════════════════════════════════════════════════════════════════
 _TRACKING_PARAMS = {
     "_r", "_t", "s", "t", "utm_source", "utm_medium", "utm_campaign",
@@ -47,18 +45,10 @@ _TRACKING_PARAMS = {
 }
 
 def normalize_url(url: str) -> str:
-    """
-    Normalise une URL vidéo pour maximiser les cache hits :
-    - Supprime les paramètres de tracking
-    - Supprime les espaces
-    - Uniformise le schéma
-    """
     url = url.strip()
-    # Séparer base et query string
     if "?" not in url:
         return url
     base, qs = url.split("?", 1)
-    # Garder seulement les params non-tracking
     kept = []
     for part in qs.split("&"):
         if "=" in part:
@@ -69,8 +59,6 @@ def normalize_url(url: str) -> str:
 
 # ════════════════════════════════════════════════════════════════
 # DÉTECTION DE PLATEFORME
-# yt-dlp supporte ~1000 sites mais on veut des messages d'erreur
-# précis par plateforme et détecter les cas non supportés.
 # ════════════════════════════════════════════════════════════════
 SUPPORTED_PLATFORMS = re.compile(
     r"(tiktok\.com|vm\.tiktok\.com|vt\.tiktok\.com"
@@ -89,7 +77,6 @@ SUPPORTED_PLATFORMS = re.compile(
 )
 
 def detect_platform(url: str) -> str:
-    """Retourne le nom de la plateforme ou 'unknown'."""
     patterns = {
         "tiktok":      r"tiktok\.com|vm\.tiktok|vt\.tiktok",
         "instagram":   r"instagram\.com",
@@ -108,10 +95,6 @@ def detect_platform(url: str) -> str:
     return "unknown"
 
 async def _resolve_short_url(url: str) -> str:
-    """
-    Résout les URLs raccourcies (bit.ly, t.co, etc.)
-    Retourne l'URL finale après redirections.
-    """
     short_domains = r"bit\.ly|t\.co|tinyurl\.com|ow\.ly|buff\.ly|short\.io|lnk\.to"
     if not re.search(short_domains, url, re.IGNORECASE):
         return url
@@ -131,19 +114,11 @@ async def _resolve_short_url(url: str) -> str:
 
 # ════════════════════════════════════════════════════════════════
 # TÉLÉCHARGEMENT — PREMIÈRE MINUTE UNIQUEMENT
-# Raison : les extraits TikTok/Reels font rarement >60s.
-# Économise bandwidth + CPU serveur + temps d'analyse.
-# yt-dlp avec --download-sections "*0-60" télécharge seulement
-# les 60 premières secondes sans télécharger tout le fichier.
 # ════════════════════════════════════════════════════════════════
 MAX_VIDEO_SECONDS = 60
-MAX_FILE_SIZE_MB  = 50   # rejet si > 50 MB après téléchargement
+MAX_FILE_SIZE_MB  = 50
 
 async def _download_video(url: str, video_path: str, platform: str) -> dict:
-    """
-    Télécharge les MAX_VIDEO_SECONDS premières secondes de la vidéo.
-    Retourne {"ok": True} ou {"ok": False, "code": ..., "message": ...}
-    """
     base_args = [
         "yt-dlp",
         "--no-playlist",
@@ -156,8 +131,6 @@ async def _download_video(url: str, video_path: str, platform: str) -> dict:
         "--no-warnings",
         "-o", video_path,
     ]
-
-    # User-agents adaptés par plateforme
     ua_map = {
         "tiktok":    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
         "instagram": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
@@ -167,15 +140,10 @@ async def _download_video(url: str, video_path: str, platform: str) -> dict:
     }
     ua = ua_map.get(platform, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
     base_args += ["--user-agent", ua]
-
-    # Format préféré : mp4 léger d'abord, fallback any
     format_args = ["-f", "best[ext=mp4][filesize<50M]/best[filesize<50M]/best"]
-
     cmd = base_args + format_args + [url]
-
     try:
         dl = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-
         if dl.returncode == 0 and os.path.exists(video_path):
             size_mb = os.path.getsize(video_path) / 1024 / 1024
             if size_mb > MAX_FILE_SIZE_MB:
@@ -186,10 +154,7 @@ async def _download_video(url: str, video_path: str, platform: str) -> dict:
                 return {"ok": False, "code": "download_empty",
                         "message": "Le fichier téléchargé est vide ou corrompu."}
             return {"ok": True}
-
-        # Analyser l'erreur yt-dlp
         err = (dl.stderr + dl.stdout).lower()
-
         if "private" in err or "login" in err or "sign in" in err:
             return {"ok": False, "code": "video_private",
                     "message": "Cette vidéo est privée ou nécessite une connexion."}
@@ -211,45 +176,36 @@ async def _download_video(url: str, video_path: str, platform: str) -> dict:
         if "too large" in err or "filesize" in err:
             return {"ok": False, "code": "file_too_large",
                     "message": "Fichier trop volumineux. Essayez une vidéo plus courte."}
-
         return {"ok": False, "code": "download_failed",
                 "message": "Impossible de télécharger cette vidéo. Vérifiez qu'elle est publique."}
-
     except subprocess.TimeoutExpired:
         return {"ok": False, "code": "download_timeout",
                 "message": "Téléchargement trop lent. Réessayez dans quelques instants."}
 
-
 # ── RATE LIMITING ────────────────────────────────────────────────
 from collections import defaultdict
 
-_ip_minute: dict = defaultdict(list)   # ip → [timestamps dernière minute]
-_ip_day: dict    = defaultdict(list)   # ip → [timestamps dernière journée]
+_ip_minute: dict = defaultdict(list)
+_ip_day: dict    = defaultdict(list)
 
 RATE_PER_MINUTE = 10
 RATE_PER_DAY    = 100
 
 def _check_rate_limit(ip: str) -> Optional[dict]:
-    """Vérifie les limites de requêtes par IP. Retourne None si OK."""
     now = time.time()
-    # Nettoyer les anciennes entrées
     _ip_minute[ip] = [t for t in _ip_minute[ip] if now - t < 60]
     _ip_day[ip]    = [t for t in _ip_day[ip]    if now - t < 86400]
-
     if len(_ip_minute[ip]) >= RATE_PER_MINUTE:
         return {"status": "error", "code": "rate_limited",
                 "message": "Trop de requêtes. Attendez une minute avant de réessayer."}
     if len(_ip_day[ip]) >= RATE_PER_DAY:
         return {"status": "error", "code": "rate_limited_daily",
                 "message": "Limite journalière atteinte. Revenez demain."}
-
     _ip_minute[ip].append(now)
     _ip_day[ip].append(now)
     return None
 
 def _get_client_ip(request: Request) -> str:
-    """Récupère l'IP réelle même derrière un proxy/CDN."""
-    # Render/OVH/Cloudflare passent l'IP via ces headers
     for header in ("x-forwarded-for", "x-real-ip", "cf-connecting-ip"):
         val = request.headers.get(header, "")
         if val:
@@ -330,32 +286,20 @@ def cleanup_files(video_path, audio_path, frame_dir, audio_exists):
 
 # ════════════════════════════════════════════════════════════════
 # ANALYSE PRINCIPALE
-# Flux :
-#   0. Normalisation URL + résolution raccourcis
-#   1. Cache URL (niveau 1)
-#   2. yt-dlp : 1re minute uniquement
-#   3. ffmpeg : extraction audio
-#   4. extract_keyframes : frames valides
-#   5. Cascade transcription : Groq → AssemblyAI → Deepgram
-#      OK  → process_analysis() direct
-#      KO  → transcription_needed → navigateur (Tesseract.js + Whisper.js)
 # ════════════════════════════════════════════════════════════════
 @app.post("/analyser")
 async def analyser(req: VideoRequest, request: Request):
-    # ── Rate limiting ──────────────────────────────────────────────
     ip = _get_client_ip(request)
     rate_err = _check_rate_limit(ip)
     if rate_err:
         print(f"🚫 Rate limit [{ip}]", flush=True)
         return rate_err
 
-    # ── 0. Normalisation & résolution URL ─────────────────────────
     url      = await _resolve_short_url(req.url.strip())
     url      = normalize_url(url)
     platform = detect_platform(url)
     print(f"\n📥 ANALYSE [{platform}]: {url[:80]}", flush=True)
 
-    # Plateforme non supportée
     if not SUPPORTED_PLATFORMS.search(url):
         return {"status": "error", "code": "unsupported_platform",
                 "message": "Cette plateforme n'est pas supportée. "
@@ -365,7 +309,6 @@ async def analyser(req: VideoRequest, request: Request):
         return {"status": "error", "code": "server_busy",
                 "message": "Le serveur analyse déjà plusieurs vidéos. Réessayez dans 30 secondes."}
 
-    # ── 1. Cache URL (niveau 1) ───────────────────────────────────
     cached = get_cache(url)
     if cached:
         return {"status": "cached", **cached}
@@ -380,29 +323,17 @@ async def analyser(req: VideoRequest, request: Request):
         need_client_fallback = False
 
         try:
-            # ── 2. Téléchargement (1re minute) ────────────────────
             print(f"📥 DOWNLOAD (max {MAX_VIDEO_SECONDS}s) [{platform}]", flush=True)
             dl_result = await download_video(url, video_path, platform)
-
             if not dl_result["ok"]:
-                return {
-                    "status": "error",
-                    "code":   dl_result["code"],
-                    "message": dl_result["message"]
-                }
+                return {"status": "error", "code": dl_result["code"], "message": dl_result["message"]}
 
-            # Vérification finale taille
             if not os.path.exists(video_path) or os.path.getsize(video_path) < 1000:
                 return {"status": "error", "code": "download_empty",
                         "message": "Le fichier vidéo est vide ou corrompu."}
 
-            # Conversion si format non-MP4 (.webm, .mov, .mkv, etc.)
-            # yt-dlp peut télécharger en webm selon la plateforme
-            actual_path = video_path
-            if not video_path.endswith(".mp4"):
-                actual_path = video_path
-            else:
-                # Vérifier le vrai format via ffprobe (l'extension peut mentir)
+            # Conversion si nécessaire
+            if video_path.endswith(".mp4"):
                 try:
                     probe = subprocess.run(
                         ["ffprobe", "-v", "error", "-select_streams", "v:0",
@@ -426,7 +357,6 @@ async def analyser(req: VideoRequest, request: Request):
                 except Exception as e:
                     print(f"⚠️ Probe/convert: {e}", flush=True)
 
-            # Vérifier durée — rejeter si < 3s (trop court pour identifier)
             try:
                 dur_probe = subprocess.run(
                     ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -436,8 +366,7 @@ async def analyser(req: VideoRequest, request: Request):
                 duration = float(dur_probe.stdout.strip() or 0)
                 if 0 < duration < 3:
                     return {"status": "error", "code": "video_too_short",
-                            "message": f"Vidéo trop courte ({duration:.1f}s). "
-                                       "Essayez un extrait d'au moins 3 secondes."}
+                            "message": f"Vidéo trop courte ({duration:.1f}s). Essayez un extrait d'au moins 3 secondes."}
                 print(f"✅ Durée: {duration:.1f}s", flush=True)
             except Exception:
                 pass
@@ -445,16 +374,16 @@ async def analyser(req: VideoRequest, request: Request):
             file_mb = os.path.getsize(video_path) / 1024 / 1024
             print(f"✅ Vidéo téléchargée ({file_mb:.1f} MB)", flush=True)
 
-            # ── 3. Extraction audio ───────────────────────────────
+            # Extraction audio
             print("🎵 AUDIO", flush=True)
             try:
                 subprocess.run(
                     ["ffmpeg", "-i", video_path,
-                     "-t", str(MAX_VIDEO_SECONDS),   # max 60s d'audio aussi
+                     "-t", str(MAX_VIDEO_SECONDS),
                      "-vn", "-acodec", "mp3",
-                     "-ar", "16000",                  # 16kHz : suffisant pour la parole
-                     "-ac", "1",                      # mono : réduit la taille de moitié
-                     "-b:a", "64k",                   # débit bas : suffisant pour Whisper
+                     "-ar", "16000",
+                     "-ac", "1",
+                     "-b:a", "64k",
                      "-y", audio_path],
                     check=True, capture_output=True, timeout=30
                 )
@@ -462,26 +391,21 @@ async def analyser(req: VideoRequest, request: Request):
             except Exception as e:
                 print(f"⚠️ Audio extraction: {e}", flush=True)
 
-            # ── 4. Extraction frames ──────────────────────────────
+            # Extraction frames
             print("🖼️ FRAMES", flush=True)
             try:
                 frames = extract_keyframes(video_path, frame_dir, max_frames=6) or []
             except Exception as e:
                 print(f"⚠️ Keyframes: {e}", flush=True)
                 frames = []
-
-            frames = [f for f in frames
-                      if os.path.exists(f) and os.path.getsize(f) > 0]
+            frames = [f for f in frames if os.path.exists(f) and os.path.getsize(f) > 0]
             print(f"✅ Frames valides: {len(frames)}", flush=True)
 
-            if not frames:
-                # Pas de frames → on peut quand même tenter avec l'audio seul
-                print("⚠️ Pas de frames → tentative audio seul", flush=True)
-                if not audio_exists:
-                    return {"status": "error", "code": "no_frames",
-                            "message": "Impossible d'extraire des images ou de l'audio de cette vidéo."}
+            if not frames and not audio_exists:
+                return {"status": "error", "code": "no_frames",
+                        "message": "Impossible d'extraire des images ou de l'audio de cette vidéo."}
 
-            # ── 5. Transcription en cascade ───────────────────────
+            # Transcription
             print("🎙️ TRANSCRIPTION", flush=True)
             transcript = ""
             if audio_exists:
@@ -496,9 +420,6 @@ async def analyser(req: VideoRequest, request: Request):
             else:
                 print("⚠️ Pas d'audio → fallback client", flush=True)
 
-            # ── 6. Décision fallback ──────────────────────────────
-            # Si transcript OK → analyse directe serveur (chemin rapide)
-            # Sinon → navigateur (Tesseract.js + Whisper.js)
             need_client_fallback = not bool(transcript)
 
             if need_client_fallback:
@@ -510,7 +431,6 @@ async def analyser(req: VideoRequest, request: Request):
                             frames_b64.append(base64.b64encode(f.read()).decode())
                     except Exception:
                         pass
-
                 audio_b64 = ""
                 if audio_exists:
                     try:
@@ -518,7 +438,6 @@ async def analyser(req: VideoRequest, request: Request):
                             audio_b64 = base64.b64encode(f.read()).decode()
                     except Exception:
                         pass
-
                 session_id = str(uuid.uuid4())[:12]
                 sessions[session_id] = {
                     "url": url, "lang": req.lang,
@@ -533,8 +452,7 @@ async def analyser(req: VideoRequest, request: Request):
                     "audio_base64":  audio_b64
                 }
 
-            return await process_analysis(
-                frames, "", transcript, url, req.lang)
+            return await process_analysis(frames, "", transcript, url, req.lang)
 
         except asyncio.TimeoutError:
             return {"status": "error", "code": "timeout",
@@ -558,7 +476,6 @@ async def analyser_continue(req: ContinueRequest):
         ocr_text   = req.ocr_text or ""
         transcript = req.transcript or ""
         frame_dir  = session["frame_dir"]
-
         frames_paths = []
         if os.path.exists(frame_dir):
             frames_paths = sorted([
@@ -567,16 +484,10 @@ async def analyser_continue(req: ContinueRequest):
                 if f.endswith((".jpg", ".png"))
                 and os.path.getsize(os.path.join(frame_dir, f)) > 0
             ])
-
-        # On continue même sans frames si on a du texte
         if not frames_paths and not ocr_text and not transcript:
             return {"status": "error", "code": "no_data",
                     "message": "Aucune donnée disponible pour l'analyse. Relancez."}
-
-        return await process_analysis(
-            frames_paths, ocr_text, transcript,
-            session["url"], session["lang"])
-
+        return await process_analysis(frames_paths, ocr_text, transcript, session["url"], session["lang"])
     except Exception as e:
         print(f"❌ analyser_continue: {e}", flush=True)
         return {"status": "error", "code": "unexpected",
@@ -591,16 +502,14 @@ async def analyser_continue(req: ContinueRequest):
 
 # ── PROCESS ANALYSIS ──────────────────────────────────────────────
 async def process_analysis(frames, ocr_text, transcript, url, lang):
-
-    # Cache niveau 2 : même contenu, lien différent
+    # Cache niveau contenu
     if transcript or ocr_text:
         content_hit = get_cache_by_content(transcript, ocr_text, lang)
         if content_hit:
-            set_cache(url, content_hit,
-                      transcript=transcript, ocr_text=ocr_text)
+            set_cache(url, content_hit, transcript=transcript, ocr_text=ocr_text)
             return {"status": "cached", **content_hit}
 
-    # Détecter la langue du contenu pour optimiser la recherche TMDB
+    # Détection script
     combined_text = (transcript or "") + " " + (ocr_text or "")
     detected_script = "latin"
     if re.search(r"[؀-ۿݐ-ݿ]", combined_text):
@@ -616,30 +525,26 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
     if detected_script != "latin":
         print(f"🌐 Script détecté: {detected_script}", flush=True)
 
-    # Cache niveau 0.5 : titre extrait → film connu
-# Si le reranker a déjà vu ce titre, on saute toute l'extraction
-    for titre_candidat in (extraction.get("titres_possibles", []) if extraction else []):
+    # EXTRACTION MULTIMODALE (déplacée avant le cache titre)
+    extraction = await multimodal_extract(frames, ocr_text, transcript) or {}
+    if detected_script != "latin":
+        extraction["detected_script"] = detected_script
+
+    # Cache titre : maintenant extraction existe
+    for titre_candidat in extraction.get("titres_possibles", []):
         title_hit = get_cache_by_title(titre_candidat, lang)
         if title_hit:
             set_cache(url, title_hit, transcript=transcript, ocr_text=ocr_text)
             return {"status": "cached", **title_hit}
 
-    extraction = await multimodal_extract(frames, ocr_text, transcript) or {}
-    # Injecter le script détecté pour affiner l'extraction
-    if detected_script != "latin":
-        extraction["detected_script"] = detected_script
-
     fake_score = detect_fake((ocr_text or "") + " " + (transcript or ""))
     queries    = await build_cascade_queries(extraction)
 
-    # Si script non-latin, ajouter une recherche dans la langue d'origine
     if detected_script in ("chinese", "japanese", "korean"):
         lang_map = {"chinese": "zh", "japanese": "ja", "korean": "ko"}
         original_lang = lang_map[detected_script]
         if original_lang != lang:
-            # Rechercher aussi dans la langue originale du film
-            queries_orig = queries + [f"{extraction.get('titre', '')} {original_lang}"]
-            queries = queries_orig
+            queries = queries + [f"{extraction.get('titre', '')} {original_lang}"]
 
     candidates  = []
     search_type = "movie"
@@ -647,14 +552,16 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
     for q in queries:
         results = await search_candidates(q, lang)
         if results:
-            candidates = results; break
-
+            candidates = results
+            break
     if not candidates:
         for q in queries:
             try:
                 results = await search_tv_candidates(q, lang)
                 if results:
-                    candidates = results; search_type = "tv"; break
+                    candidates = results
+                    search_type = "tv"
+                    break
             except Exception:
                 pass
 
@@ -662,13 +569,16 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
         for q in queries[:3]:
             results = await search_candidates(q, "en")
             if results:
-                candidates = results; break
+                candidates = results
+                break
         if not candidates:
             for q in queries[:3]:
                 try:
                     results = await search_tv_candidates(q, "en")
                     if results:
-                        candidates = results; search_type = "tv"; break
+                        candidates = results
+                        search_type = "tv"
+                        break
                 except Exception:
                     pass
 
@@ -681,7 +591,6 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
             "search_google":  f"https://www.google.com/search?q={titre}+film",
             "search_tmdb":    f"https://www.themoviedb.org/search?query={titre}",
         }
-        # Mettre en cache 10 min pour ne pas re-analyser le même lien inutilement
         set_cache(url, not_found, transcript=transcript or "", ocr_text=ocr_text or "")
         return not_found
 
@@ -695,13 +604,10 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
 
     confidence = result.get("score", 0)
 
-    # Cache niveau 3 : film universel (tmdb_id connu)
     if confidence >= 30 and result.get("id"):
         film_hit = get_cache_by_film(result["id"], lang)
         if film_hit:
-            set_cache(url, film_hit,
-                      transcript=transcript or "",
-                      ocr_text=ocr_text or "")
+            set_cache(url, film_hit, transcript=transcript or "", ocr_text=ocr_text or "")
             return {"status": "cached", **film_hit}
 
     if confidence < 30:
@@ -717,14 +623,9 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
         set_cache(url, low_conf, transcript=transcript or "", ocr_text=ocr_text or "")
         return low_conf
 
-    # Zone grise 30-49 : résultat partiel avec avertissement
-    # On continue l'analyse mais on ajoute un flag "low_confidence"
-    # L'interface affiche le résultat avec une mention "Résultat incertain"
-
     movie_id = result["id"]
     try:
-        details = await get_tv_details(movie_id, lang) \
-            if search_type == "tv" else await get_movie_details(movie_id, lang)
+        details = await get_tv_details(movie_id, lang) if search_type == "tv" else await get_movie_details(movie_id, lang)
     except Exception:
         try:
             details = await get_movie_details(movie_id, lang)
@@ -732,45 +633,28 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
             return {"status": "error", "code": "tmdb_error",
                     "message": "Impossible de récupérer les détails du film."}
 
-    region    = {"fr": "FR", "en": "US", "es": "ES",
-                 "de": "DE", "zh": "CN"}.get(lang, "FR")
-    providers = (details.get("watch/providers", {})
-                        .get("results", {})
-                        .get(region, {})
-                        .get("flatrate", []))
+    region = {"fr": "FR", "en": "US", "es": "ES", "de": "DE", "zh": "CN"}.get(lang, "FR")
+    providers = details.get("watch/providers", {}).get("results", {}).get(region, {}).get("flatrate", [])
     is_series = search_type == "tv" or bool(details.get("first_air_date"))
 
     final = {
         "status":          "success",
         "media_type":      search_type,
         "is_series":       is_series,
-        "title":           (result.get("meilleur_titre")
-                            or details.get("title")
-                            or details.get("name") or "Inconnu"),
+        "title":           result.get("meilleur_titre") or details.get("title") or details.get("name") or "Inconnu",
         "confidence":      max(0, confidence),
         "synopsis":        details.get("overview", ""),
-        "image":           (f"https://image.tmdb.org/t/p/w500{details['poster_path']}"
-                            if details.get("poster_path") else ""),
+        "image":           f"https://image.tmdb.org/t/p/w500{details['poster_path']}" if details.get("poster_path") else "",
         "streaming":       [p.get("provider_name") for p in providers],
-        "streaming_logos": [{"name": p.get("provider_name"),
-                             "logo_path": p.get("logo_path")}
-                            for p in providers],
-        "similar":         [{"title": s.get("title", s.get("name", "?")),
-                             "id": s.get("id"),
-                             "poster_path": s.get("poster_path")}
-                            for s in details.get("similar", {})
-                                           .get("results", [])[:6]],
-        "cast":            [{"name": c.get("name"),
-                             "character": c.get("character"),
-                             "profile_path": c.get("profile_path")}
-                            for c in details.get("credits", {})
-                                           .get("cast", [])[:8]],
+        "streaming_logos": [{"name": p.get("provider_name"), "logo_path": p.get("logo_path")} for p in providers],
+        "similar":         [{"title": s.get("title", s.get("name", "?")), "id": s.get("id"), "poster_path": s.get("poster_path")}
+                            for s in details.get("similar", {}).get("results", [])[:6]],
+        "cast":            [{"name": c.get("name"), "character": c.get("character"), "profile_path": c.get("profile_path")}
+                            for c in details.get("credits", {}).get("cast", [])[:8]],
         "trailer":         "",
         "genres":          [g["name"] for g in details.get("genres", [])],
-        "year":            (details.get("release_date")
-                            or details.get("first_air_date") or "").split("-")[0],
-        "runtime":         (details.get("runtime")
-                            or (details.get("episode_run_time") or [None])[0]),
+        "year":            (details.get("release_date") or details.get("first_air_date") or "").split("-")[0],
+        "runtime":         details.get("runtime") or (details.get("episode_run_time") or [None])[0],
         "vote_average":    details.get("vote_average"),
         "vote_count":      details.get("vote_count"),
         "tmdb_id":         movie_id,
@@ -780,9 +664,7 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
     }
 
     if confidence >= 50:
-        set_cache(url, final,
-                  transcript=transcript or "",
-                  ocr_text=ocr_text or "")
+        set_cache(url, final, transcript=transcript or "", ocr_text=ocr_text or "")
 
     return final
 
@@ -791,8 +673,7 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
 async def trending(lang: str = "fr", type: str = "movie"):
     cache_key = f"{lang}_{type}"
     now = time.time()
-    if (cache_key in _trending_cache
-            and (now - _trending_cache_time.get(cache_key, 0)) < CACHE_DURATION):
+    if cache_key in _trending_cache and (now - _trending_cache_time.get(cache_key, 0)) < CACHE_DURATION:
         return _trending_cache[cache_key]
     try:
         results = await get_trending(lang, media_type=type)
@@ -806,8 +687,7 @@ async def trending(lang: str = "fr", type: str = "movie"):
         return {"status": "error", "message": "Impossible de charger les tendances."}
 
 @app.get("/discover/{genre_name}")
-async def discover(genre_name: str, lang: str = "fr",
-                   page: int = 1, type: str = "movie"):
+async def discover(genre_name: str, lang: str = "fr", page: int = 1, type: str = "movie"):
     GENRE_MAP = {
         "horror": 27, "horreur": 27, "action": 28, "comedy": 35, "comédie": 35,
         "science-fiction": 878, "scifi": 878, "romance": 10749, "animation": 16,
@@ -817,20 +697,17 @@ async def discover(genre_name: str, lang: str = "fr",
     }
     genre_id = GENRE_MAP.get(genre_name.lower())
     if not genre_id:
-        return {"status": "error",
-                "message": f"Genre '{genre_name}' introuvable."}
+        return {"status": "error", "message": f"Genre '{genre_name}' introuvable."}
     try:
         data = await discover_by_genre(genre_id, lang, page, media_type=type)
         return {"status": "success", **data}
     except Exception:
-        return {"status": "error",
-                "message": "Erreur lors du chargement du genre."}
+        return {"status": "error", "message": "Erreur lors du chargement du genre."}
 
 @app.get("/movie/{movie_id}")
 async def get_movie(movie_id: int, lang: str = "fr", type: str = "movie"):
     try:
-        return await get_tv_details(movie_id, lang) \
-            if type == "tv" else await get_movie_details(movie_id, lang)
+        return await get_tv_details(movie_id, lang) if type == "tv" else await get_movie_details(movie_id, lang)
     except Exception:
         return {"status": "error", "message": "Fiche film introuvable."}
 
@@ -849,13 +726,10 @@ async def rechercher(query: str, lang: str = "fr"):
             tv = await search_tv_candidates(query, lang) or []
         except Exception:
             tv = []
-        merged = sorted(movies + tv,
-                        key=lambda x: x.get("popularity", 0),
-                        reverse=True)[:20]
+        merged = sorted(movies + tv, key=lambda x: x.get("popularity", 0), reverse=True)[:20]
         return {"status": "success", "results": merged}
     except Exception:
-        return {"status": "error",
-                "message": "Erreur lors de la recherche.", "results": []}
+        return {"status": "error", "message": "Erreur lors de la recherche.", "results": []}
 
 @app.get("/cache-stats")
 async def get_cache_stats():
@@ -864,10 +738,8 @@ async def get_cache_stats():
 @app.get("/sitemap.xml")
 async def sitemap():
     base = "https://quelfilm.app"
-    urls = [f"{base}/", f"{base}/fr", f"{base}/en",
-            f"{base}/es", f"{base}/de", f"{base}/zh"]
-    xml  = '<?xml version="1.0" encoding="UTF-8"?>\n'
-    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+    urls = [f"{base}/", f"{base}/fr", f"{base}/en", f"{base}/es", f"{base}/de", f"{base}/zh"]
+    xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
     for u in urls:
         xml += f"  <url><loc>{u}</loc></url>\n"
     xml += "</urlset>"
@@ -875,9 +747,7 @@ async def sitemap():
 
 @app.get("/robots.txt")
 async def robots():
-    return PlainTextResponse(
-        "User-agent: *\nAllow: /\n"
-        "Sitemap: https://quelfilm.app/sitemap.xml\n")
+    return PlainTextResponse("User-agent: *\nAllow: /\nSitemap: https://quelfilm.app/sitemap.xml\n")
 
 @app.get("/{lang}")
 async def page_multilingue(lang: str):
