@@ -260,7 +260,12 @@ async def multimodal_extract(frames, ocr_text, transcript):
     # ── 0. Regex (gratuit, ~75% des cas) ─────────────────────────
     result = _regex_extract(ocr_text, transcript)
     if result:
-        return result
+        if ocr_text or transcript:
+            print("🔍 Groq texte...", flush=True)
+            result = await _extract_groq_text(prompt)
+        if result:
+            print(f"🔍 EXTRACTION: {json.dumps(result, ensure_ascii=False)}", flush=True)  # TEMP
+            return result
 
     # ── 1. Groq texte (transcript présent mais ambigu) ────────────
     if ocr_text or transcript:
