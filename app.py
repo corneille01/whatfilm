@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from storage.cache import get_cache, set_cache, get_cache_by_title
 
 from vision.scene_detection import extract_keyframes
 from vision.universal_downloader import download_video
