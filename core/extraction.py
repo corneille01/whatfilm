@@ -31,7 +31,7 @@ GEMINI_URLS = [
 GROQ_TEXT_URL   = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_TEXT_MODEL = "llama-3.3-70b-versatile"
 
-TRANSCRIPT_THRESHOLD = 80   # chars minimum pour tenter le regex
+TRANSCRIPT_THRESHOLD = 20   # chars minimum pour tenter le regex
 
 
 # ════════════════════════════════════════════════════════════════
@@ -55,13 +55,6 @@ _CAPS_TITLE = re.compile(
 
 
 def _regex_extract(ocr_text: str, transcript: str) -> dict | None:
-    """
-    Extraction sans IA — retourne un dict compatible pipeline ou None.
-
-    Retourne None (→ escalade vers IA) si :
-    - texte total < seuil
-    - aucun titre ET aucun acteur ET aucune année détectés
-    """
     combined = f"{transcript} {ocr_text}".strip()
     if len(combined) < TRANSCRIPT_THRESHOLD:
         return None
@@ -260,18 +253,14 @@ async def multimodal_extract(frames, ocr_text, transcript):
     # ── 0. Regex (gratuit, ~75% des cas) ─────────────────────────
     result = _regex_extract(ocr_text, transcript)
     if result:
-        if ocr_text or transcript:
-            print("🔍 Groq texte...", flush=True)
-            result = await _extract_groq_text(prompt)
-        if result:
-            print(f"🔍 EXTRACTION: {json.dumps(result, ensure_ascii=False)}", flush=True)  # TEMP
-            return result
+        return result
 
     # ── 1. Groq texte (transcript présent mais ambigu) ────────────
     if ocr_text or transcript:
         print("🔍 Groq texte...", flush=True)
         result = await _extract_groq_text(prompt)
         if result:
+            print(f"🔍 EXTRACTION: {json.dumps(result, ensure_ascii=False)}", flush=True)  # TEMP
             return result
 
     # ── 2. Gemini vision (vidéo muette, dernier recours) ──────────
