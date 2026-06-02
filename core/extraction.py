@@ -26,8 +26,8 @@ print(f"🔑 GEMINI_API_KEY présente: {bool(GEMINI_API_KEY)}", flush=True)  # �
 print(f"🔑 GROQ_API_KEY présente: {bool(GROQ_API_KEY)}", flush=True)  # ← ici
 
 GEMINI_URLS = [
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-001:generateContent",
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
 ]
 GROQ_TEXT_URL   = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_TEXT_MODEL = "llama-3.3-70b-versatile"
