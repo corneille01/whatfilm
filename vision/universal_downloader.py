@@ -1,6 +1,7 @@
 # vision/universal_downloader.py — PATCH 2026-06
 # Fix TikTok : yt-dlp seul ne suffit plus → on injecte des headers
 # spécifiques et on utilise --extractor-args pour contourner le blocage.
+# Headers TikTok plus complets
 
 import os
 import re
@@ -9,7 +10,7 @@ import subprocess
 import tempfile
 from typing import Optional
 
-MAX_SECONDS  = 60
+MAX_SECONDS  = 120
 MAX_SIZE_MB  = 50
 MIN_SIZE_B   = 1000
 

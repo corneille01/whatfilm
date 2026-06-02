@@ -115,7 +115,7 @@ async def _resolve_short_url(url: str) -> str:
 # ════════════════════════════════════════════════════════════════
 # TÉLÉCHARGEMENT — PREMIÈRE MINUTE UNIQUEMENT
 # ════════════════════════════════════════════════════════════════
-MAX_VIDEO_SECONDS = 60
+MAX_VIDEO_SECONDS = 120
 MAX_FILE_SIZE_MB  = 50
 
 async def _download_video(url: str, video_path: str, platform: str) -> dict:
