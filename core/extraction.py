@@ -18,14 +18,14 @@ import base64
 import httpx
 
 from core.prompts import EXTRACTION_PROMPT
-
+print(f"🔑 GEMINI_API_KEY présente: {bool(GEMINI_API_KEY)}", flush=True)
 # ── Clés API ──────────────────────────────────────────────────────
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GROQ_API_KEY   = os.environ.get("GROQ_API_KEY", "")
 
 GEMINI_URLS = [
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-001:generateContent",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent",
 ]
 GROQ_TEXT_URL   = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_TEXT_MODEL = "llama-3.3-70b-versatile"
