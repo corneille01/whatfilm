@@ -3,13 +3,12 @@ core/extraction.py — Extraction multimodale avec logique transcript-first.
 
 Cascade anti-coût (objectif : 0€ jusqu'à ~1M req/mois) :
 
-  0. Regex/heuristique  → si transcript >= 80 chars   (~75% des cas, 0 API call)
-  1. Groq Llama texte   → transcript court mais présent (~20% des cas, gratuit)
-  2. Gemini vision      → vidéo muette / OCR seul       (~5% des cas, gratuit <45K/mois)
+  0. Regex/heuristique  → si titre trouvé directement (~10% des cas, 0 API call)
+  1. Groq Llama texte   → transcript présent (~70% des cas, gratuit)
+  2. Gemini vision      → analyse visuelle des frames (~20% des cas, gratuit <45K/mois)
   3. Retour minimal     → pipeline continue via TMDB texte
 
-Le reranker (core/reranker.py) gère la sélection finale — on ne lui envoie
-que ce que l'extraction n'a pas pu résoudre seul.
+Le reranker (core/reranker.py) gère la sélection finale.
 """
 
 import re
@@ -31,14 +30,14 @@ GEMINI_URLS = [
 GROQ_TEXT_URL   = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_TEXT_MODEL = "llama-3.3-70b-versatile"
 
-TRANSCRIPT_THRESHOLD = 20   # chars minimum pour tenter le regex
+TRANSCRIPT_THRESHOLD = 80
 
 
 # ════════════════════════════════════════════════════════════════
 # NIVEAU 0 — Regex (0 API call)
 # ════════════════════════════════════════════════════════════════
-_YEAR_PATTERN   = re.compile(r"\b(19[5-9]\d|20[0-3]\d)\b")
-_QUOTED_TITLE   = re.compile(
+_YEAR_PATTERN = re.compile(r"\b(19[5-9]\d|20[0-3]\d)\b")
+_QUOTED_TITLE = re.compile(
     r'[«»"\u201c\u201d\u201e\u2039\u203a]'
     r'([^\u00ab\u00bb"\u201c\u201d\u201e\u2039\u203a]{3,60})'
     r'[«»"\u201c\u201d\u201e\u2039\u203a]'
@@ -250,27 +249,71 @@ async def multimodal_extract(frames, ocr_text, transcript):
         transcript=transcript
     )
 
-    # ── 0. Regex (gratuit, ~75% des cas) ─────────────────────────
+    # ── 0. Regex — uniquement si titre trouvé directement ────────
     result = _regex_extract(ocr_text, transcript)
-    if result:
+    if result and result.get("titres_possibles"):
+        print(f"✅ Regex suffisante — titres trouvés directement", flush=True)
         return result
 
-    # ── 1. Groq texte (transcript présent mais ambigu) ────────────
+    # ── 1. Groq texte (toujours si transcript ou ocr présent) ────
     if ocr_text or transcript:
         print("🔍 Groq texte...", flush=True)
         result = await _extract_groq_text(prompt)
         if result:
-            print(f"🔍 EXTRACTION: {json.dumps(result, ensure_ascii=False)}", flush=True)  # TEMP
-            return result
+            has_title  = bool(result.get("titres_possibles"))
+            has_actors = bool(result.get("acteurs"))
+            print(
+                f"🔍 EXTRACTION Groq: titres={result.get('titres_possibles')}, "
+                f"acteurs={result.get('acteurs')}, "
+                f"desc={result.get('description_courte','')[:80]}",
+                flush=True
+            )
+            # Si Groq a trouvé des titres ou acteurs → suffisant
+            if has_title or has_actors:
+                return result
+            # Sinon on garde le résultat Groq comme base
+            # mais on tente Gemini vision en complément
+            groq_result = result
+        else:
+            groq_result = None
+    else:
+        groq_result = None
 
-    # ── 2. Gemini vision (vidéo muette, dernier recours) ──────────
+    # ── 2. Gemini vision (si Groq n'a pas trouvé de titre/acteur) ─
     if frames:
-        print("🔍 Gemini vision (dernier recours)...", flush=True)
-        result = await _extract_gemini_vision(frames, prompt)
-        if result:
-            return result
+        print("🔍 Gemini vision...", flush=True)
+        vision_result = await _extract_gemini_vision(frames, prompt)
+        if vision_result:
+            has_title  = bool(vision_result.get("titres_possibles"))
+            has_actors = bool(vision_result.get("acteurs"))
+            print(
+                f"🔍 EXTRACTION Gemini: titres={vision_result.get('titres_possibles')}, "
+                f"acteurs={vision_result.get('acteurs')}",
+                flush=True
+            )
+            if has_title or has_actors:
+                # Gemini a trouvé quelque chose — fusionne avec Groq si dispo
+                if groq_result:
+                    vision_result["description_courte"] = (
+                        vision_result.get("description_courte")
+                        or groq_result.get("description_courte", "")
+                    )
+                    vision_result["genre_apparent"] = (
+                        vision_result.get("genre_apparent")
+                        or groq_result.get("genre_apparent", "")
+                    )
+                    vision_result["annee_estimee"] = (
+                        vision_result.get("annee_estimee")
+                        or groq_result.get("annee_estimee")
+                    )
+                return vision_result
 
-    # ── 3. Retour minimal ─────────────────────────────────────────
+    # ── 3. Retour Groq si dispo (même sans titre) ─────────────────
+    if groq_result:
+        print("⚠️ Aucun titre trouvé — retour Groq partiel", flush=True)
+        return groq_result
+
+    # ── 4. Retour minimal ─────────────────────────────────────────
     print("⚠️ Extraction totalement échouée → retour minimal", flush=True)
     combined = f"{transcript} {ocr_text}".strip()
     result = _minimal_fallback("fallback")
