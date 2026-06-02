@@ -77,6 +77,16 @@ async def build_cascade_queries(extraction: dict) -> list:
         if mots_desc:
             queries.append(" ".join(mots_desc))
 
+    # 5b. Si chaîne TV détectée dans la description, query ciblée
+    chaines = ["TCM", "Canal+", "Netflix", "Arte", "M6", "TF1", "France"]
+    for chaine in chaines:
+        if chaine.lower() in desc.lower():
+            desc_sans_chaine = re.sub(chaine, "", desc, flags=re.IGNORECASE).strip()
+            mots = [m for m in desc_sans_chaine.split() if len(m) > 4][:6]
+            if mots:
+                queries.append(" ".join(mots))
+            break
+
     # Dédoublonnage
     seen = set()
     result = []
