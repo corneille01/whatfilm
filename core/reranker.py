@@ -97,7 +97,7 @@ def _parse_rerank_response(text: str, candidates: list) -> dict:
             if matched else "Inconnu"
         )
     if "score" not in result:
-        result["score"] = 60
+        result["score"] = 20
 
     return result
 
