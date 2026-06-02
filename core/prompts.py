@@ -9,13 +9,17 @@ Transcription audio :
 OBJECTIF : extraire le maximum d'indices pour identifier l'œuvre. Le reranker validera ensuite.
 
 RÈGLES :
-1. "titres_possibles" : mets les titres que tu entends ou lis EXPLICITEMENT dans le texte. Si tu n'en entends aucun, laisse vide — n'invente pas. La description_courte servira de fallback.
+1. "titres_possibles" : mets les titres que tu entends ou lis EXPLICITEMENT dans le texte. Si tu n'en entends aucun, laisse vide — n'invente pas. La description_courte servira de fallback. si tu ne reconnais aucun titre explicite mais que 
+   la description te rappelle fortement une œuvre connue, mets-la comme 
+   hypothèse en dernier dans la liste, préfixée de "?" 
+   Ex: ["?Les Intouchables", "?Le Dîner de Cons"]
 2. "acteurs" : noms entendus clairement ou visibles dans le texte.
 3. "personnages" : noms de personnages cités (souvent == titre pour séries/anime).
 4. "description_courte" : décris objectivement le contenu (lieu, action, genre, ambiance, langue parlée). Sois précis — c'est le fallback si les titres échouent.
 5. "genre_apparent" : action, comédie, horreur, drame, animation, documentaire…
 6. "annee_estimee" : si une année est mentionnée ou visible.
 7. "langue_originale" : langue parlée dans la vidéo.
+
 
 Réponds UNIQUEMENT avec ce JSON (pas de markdown, pas d'explication) :
 {{
