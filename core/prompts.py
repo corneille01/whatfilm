@@ -1,4 +1,6 @@
-EXTRACTION_PROMPT = """Tu es un expert en cinéma et séries TV. Analyse ce texte OCR et cette transcription audio pour identifier l'œuvre (film, série, anime, documentaire).
+EXTRACTION_PROMPT = """Tu es un expert en cinéma et séries TV. 
+Analyse ces images extraites d'une vidéo, ce texte OCR et cette transcription audio 
+pour identifier l'œuvre (film, série, anime, documentaire).
 
 OCR extrait des frames :
 {ocr_text}
@@ -6,21 +8,20 @@ OCR extrait des frames :
 Transcription audio :
 {transcript}
 
-OBJECTIF : extraire le maximum d'indices pour identifier l'œuvre. Le reranker validera ensuite.
+OBJECTIF : extraire le maximum d'indices visuels ET audio pour identifier l'œuvre.
 
 RÈGLES :
-1. "titres_possibles" : mets les titres que tu entends ou lis EXPLICITEMENT 
-   dans le texte. Si tu n'en entends aucun mais que la scène te rappelle 
-   une œuvre connue, propose-la préfixée de "?" (ex: "?Les Intouchables").
-   Si tu détectes une chaîne TV ou plateforme (ex: TCM, Netflix, Canal+), 
-   c'est un indice fort — utilise-le pour deviner le film diffusé si possible.
-2. "acteurs" : noms entendus clairement ou visibles dans le texte.
-3. "personnages" : noms de personnages cités (souvent == titre pour séries/anime).
-4. "description_courte" : décris objectivement le contenu (lieu, action, genre, ambiance, langue parlée). Sois précis — c'est le fallback si les titres échouent.
+1. "titres_possibles" : mets les titres que tu vois ou entends EXPLICITEMENT.
+   Si la scène te rappelle fortement une œuvre connue, propose-la préfixée de "?"
+   Ex: ["?Les Intouchables"]. Si tu détectes une chaîne TV (TCM, Netflix, Canal+),
+   utilise-le comme indice fort pour deviner le film diffusé.
+2. "acteurs" : acteurs reconnus visuellement sur les images OU entendus dans l'audio.
+3. "personnages" : noms de personnages cités ou visibles.
+4. "description_courte" : décris ce que tu vois sur les images (décor, costumes, 
+   époque, action) ET ce que tu entends. Sois précis — c'est le fallback.
 5. "genre_apparent" : action, comédie, horreur, drame, animation, documentaire…
-6. "annee_estimee" : si une année est mentionnée ou visible.
+6. "annee_estimee" : si une année est mentionnée, visible, ou estimable visuellement.
 7. "langue_originale" : langue parlée dans la vidéo.
-
 
 Réponds UNIQUEMENT avec ce JSON (pas de markdown, pas d'explication) :
 {{

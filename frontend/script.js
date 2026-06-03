@@ -569,8 +569,9 @@ async function gererRechercheGlobal() {
      /bit\.ly|t\.co|tinyurl\.com|ow\.ly|buff\.ly|short\.io|lnk\.to/.test(input)
     ) || /^https?:\/\//i.test(input); 
     if (isLink) {
-        await analyserVideo(input);
-    } else {
+        demarrerPub();  // ← pub avant l'analyse
+        analyserVideo(input);
+} else {
         hideHero();
         try {
             const data = await safeFetch(`/rechercher?query=${encodeURIComponent(input)}&lang=${getTMDBLang()}`);
@@ -588,6 +589,10 @@ async function gererRechercheGlobal() {
 // ════ ANNULER ANALYSE ════
 function annulerAnalyse() {
   if (analysisAbortController) analysisAbortController.abort();
+  _adFinished = true;  // ← ajoute cette ligne
+  _analysisResult = null;
+  document.getElementById('ad-modal').style.display = 'none';
+  clearInterval(_adCountdownInterval);
   document.getElementById("loading-overlay").classList.remove("active");
   stopGame();
   retourAccueil();
@@ -745,6 +750,24 @@ function gameOver() {
 // ════ ANALYSE VIDÉO ════
 async function analyserVideo(lien) {
   hideHero();
+
+  // Reset état pub/analyse
+  _adFinished = false;
+  _analysisResult = null;
+
+  // Démarrer pub et analyse EN PARALLÈLE
+  // Ne pas attendre que la pub soit finie pour lancer l'analyse
+  const lastAd = parseInt(localStorage.getItem('last_ad') || '0');
+  const showAd = Date.now() - lastAd > 30 * 60 * 1000;
+  if (showAd) {
+    localStorage.setItem('last_ad', Date.now().toString());
+    demarrerPub();
+  } else {
+    // Pas de pub → comportement direct
+    _adFinished = true;
+  }
+
+  // Overlay de chargement + jeu
   const overlay = document.getElementById("loading-overlay");
   overlay.classList.add("active");
   startGame();
@@ -753,7 +776,6 @@ async function analyserVideo(lien) {
   const progressBar = document.getElementById("prog-fill");
   const percentLabel = document.getElementById("prog-percent");
 
-  // Progression simulée fluide
   let progInterval = setInterval(() => {
     if (progress < 88) {
       progress += Math.random() * 8 + 3;
@@ -774,22 +796,26 @@ async function analyserVideo(lien) {
       signal
     });
 
-    if (!res.ok) {
-      throw new Error(`http_${res.status}`);
-    }
+    if (!res.ok) throw new Error(`http_${res.status}`);
 
     let data;
     try { data = await res.json(); }
     catch(e) { throw new Error("json_parse"); }
 
+    clearInterval(progInterval);
+
     if (data.status === "error") {
-      clearInterval(progInterval);
+      // Erreur → fermer pub immédiatement et afficher erreur
+      _adFinished = true;
+      document.getElementById('ad-modal').style.display = 'none';
+      clearInterval(_adCountdownInterval);
+      overlay.classList.remove("active");
+      stopGame();
       afficherErreurRiche(data);
       return;
     }
 
     if (data.status === "transcription_needed") {
-      // Lancer OCR et Whisper côté client en parallèle
       const [ocrText, transcript] = await Promise.allSettled([
         data.frames_base64?.length ? runLocalOCR(data.frames_base64) : Promise.resolve(""),
         data.audio_base64 ? runLocalWhisper(data.audio_base64) : Promise.resolve("")
@@ -811,46 +837,19 @@ async function analyserVideo(lien) {
       catch(e) { throw new Error("json_parse"); }
 
       clearInterval(progInterval);
-      if (progressBar) progressBar.style.width = "100%";
-      if (percentLabel) percentLabel.textContent = "100%";
-      setTimeout(() => overlay.classList.remove("active"), 500);
-      stopGame();
-
-      if (finalData.status === "success" || finalData.status === "cached") {
-        navStack = []; lastGrid = null;
-        currentMovieId = finalData.tmdb_id;
-        currentMediaType = finalData.media_type || "movie";
-        afficherDetailFilm(finalData);
-      } else if (finalData.status === "not_found") {
-        afficherNotFound(finalData);
-      } else {
-        afficherErreurRiche(finalData);
-      }
+      // Passer par _afficherResultatFinal qui attend la pub si nécessaire
+      _afficherResultatFinal(finalData);
       return;
     }
 
-    clearInterval(progInterval);
-    if (progressBar) progressBar.style.width = "100%";
-    if (percentLabel) percentLabel.textContent = "100%";
-    setTimeout(() => overlay.classList.remove("active"), 500);
-    stopGame();
-
-    if (data.status === "success" || data.status === "cached")  {
-        navStack = []; lastGrid = null;
-        currentMovieId = data.tmdb_id;
-        currentMediaType = data.media_type || "movie";
-        if (data.confidence !== null && data.confidence < 50) {
-        data._lowConfWarning = true;
-}
- afficherDetailFilm(data);
-    } else if (data.status === "not_found") {
-      afficherNotFound(data);
-    } else {
-      afficherErreurRiche(data);
-    }
+    // Passer par _afficherResultatFinal qui attend la pub si nécessaire
+    _afficherResultatFinal(data);
 
   } catch (e) {
     clearInterval(progInterval);
+    _adFinished = true;
+    document.getElementById('ad-modal').style.display = 'none';
+    clearInterval(_adCountdownInterval);
     overlay.classList.remove("active");
     stopGame();
     if (e.name === "AbortError") return;
@@ -858,11 +857,7 @@ async function analyserVideo(lien) {
       afficherErreurRiche({ code: "unexpected", message: t("err_generic") });
     } else if (e.message?.startsWith("http_")) {
       const status = parseInt(e.message.split("_")[1]);
-      if (status === 502 || status === 503) {
-        afficherErreurRiche({ code: "server_busy" });
-      } else {
-        afficherErreurRiche({ code: "unexpected" });
-      }
+      afficherErreurRiche({ code: status === 502 || status === 503 ? "server_busy" : "unexpected" });
     } else {
       afficherErreurRiche({ code: "unexpected", message: t("err_generic") });
     }
@@ -1329,6 +1324,148 @@ async function toggleSaison(seriesId, seasonNumber) {
     }).join("");
   } catch (e) {
     episodesList.innerHTML = `<p style="padding:16px;color:var(--muted);font-size:.82rem;text-align:center"><i class="fas fa-exclamation-circle"></i> Erreur chargement épisodes</p>`;
+  }
+}
+
+
+// ════ PUBLICITÉ ════
+let _adCountdownInterval = null;
+
+function afficherPub(callback) {
+  // Ne pas afficher si déjà vue dans les 30 dernières minutes
+  const lastAd = parseInt(localStorage.getItem('last_ad') || '0');
+  const now = Date.now();
+  if (now - lastAd < 30 * 60 * 1000) {
+    callback();
+    return;
+  }
+
+  const modal = document.getElementById('ad-modal');
+  const closeBtn = document.getElementById('ad-close-btn');
+  const countdown = document.getElementById('ad-countdown');
+  
+  modal.style.display = 'flex';
+  closeBtn.disabled = true;
+  let seconds = 5;
+  countdown.textContent = seconds;
+
+  _adCountdownInterval = setInterval(() => {
+    seconds--;
+    countdown.textContent = seconds;
+    if (seconds <= 0) {
+      clearInterval(_adCountdownInterval);
+      closeBtn.disabled = false;
+      countdown.textContent = '✕';
+      closeBtn.style.background = 'rgba(0,255,204,0.2)';
+      closeBtn.style.color = 'var(--primary)';
+    }
+  }, 1000);
+
+  // Stocker le callback pour l'appeler après fermeture
+  window._adCallback = callback;
+  localStorage.setItem('last_ad', now.toString());
+}
+
+function fermerPub() {
+  const modal = document.getElementById('ad-modal');
+  const closeBtn = document.getElementById('ad-close-btn');
+  
+  if (closeBtn.disabled) return; // Pas encore possible de fermer
+  
+  clearInterval(_adCountdownInterval);
+  modal.style.display = 'none';
+  closeBtn.style.background = 'rgba(255,255,255,0.1)';
+  closeBtn.style.color = 'var(--text)';
+  
+  if (window._adCallback) {
+    window._adCallback();
+    window._adCallback = null;
+  }
+}
+
+
+
+
+// ════ PUBLICITÉ PARALLÈLE ════
+let _adFinished = false;
+let _analysisResult = null;
+let _analysisCallback = null;
+let _adCountdownInterval = null;
+
+function demarrerPub() {
+  const modal = document.getElementById('ad-modal');
+  const closeBtn = document.getElementById('ad-close-btn');
+  const countdown = document.getElementById('ad-countdown');
+
+  _adFinished = false;
+  modal.style.display = 'flex';
+  closeBtn.disabled = true;
+  closeBtn.style.background = 'rgba(255,255,255,0.1)';
+  closeBtn.style.color = 'var(--text)';
+  let seconds = 5;
+  countdown.textContent = seconds;
+
+  _adCountdownInterval = setInterval(() => {
+    seconds--;
+    countdown.textContent = seconds;
+    if (seconds <= 0) {
+      clearInterval(_adCountdownInterval);
+      closeBtn.disabled = false;
+      countdown.textContent = '✕';
+      closeBtn.style.background = 'rgba(0,255,204,0.2)';
+      closeBtn.style.color = 'var(--primary)';
+      // Pub terminée naturellement
+      _publicitéTerminée();
+    }
+  }, 1000);
+}
+
+function fermerPub() {
+  const closeBtn = document.getElementById('ad-close-btn');
+  if (closeBtn.disabled) return;
+  clearInterval(_adCountdownInterval);
+  _publicitéTerminée();
+}
+
+function _publicitéTerminée() {
+  _adFinished = true;
+  const modal = document.getElementById('ad-modal');
+  modal.style.display = 'none';
+
+  // Si l'analyse est déjà terminée → afficher le résultat
+  if (_analysisResult !== null) {
+    _afficherResultatFinal(_analysisResult);
+    _analysisResult = null;
+  }
+  // Sinon on attend → l'analyse appellera _afficherResultatFinal quand elle finit
+}
+
+function _afficherResultatFinal(data) {
+  // Si la pub n'est pas encore finie → stocker et attendre
+  if (!_adFinished) {
+    _analysisResult = data;
+    return;
+  }
+
+  // Pub finie → afficher
+  const overlay = document.getElementById("loading-overlay");
+  const progressBar = document.getElementById("prog-fill");
+  const percentLabel = document.getElementById("prog-percent");
+
+  if (progressBar) progressBar.style.width = "100%";
+  if (percentLabel) percentLabel.textContent = "100%";
+  setTimeout(() => overlay.classList.remove("active"), 300);
+  stopGame();
+
+  if (data.status === "success" || data.status === "cached") {
+    navStack = []; lastGrid = null;
+    currentMovieId = data.tmdb_id;
+    currentMediaType = data.media_type || "movie";
+    afficherDetailFilm(data);
+  } else if (data.status === "not_found") {
+    afficherNotFound(data);
+  } else {
+    afficherErreurRiche(data);
   }
 }
 

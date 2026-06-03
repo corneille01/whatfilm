@@ -19,3 +19,5 @@ aiofiles
 jinja2
 ffmpeg-python
 redis>=5.0.0
+deepgram-sdk
+assemblyai

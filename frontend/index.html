@@ -651,5 +651,218 @@
 
     <!-- Notre script principal -->
     <script src="/frontend/script.js"></script>
+    <!-- MODALE PUBLICITÉ -->
+    <div
+      id="ad-modal"
+      style="
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.85);
+        z-index: 99999;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+      "
+    >
+      <div
+        style="
+          position: relative;
+          background: var(--card2);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          max-width: 420px;
+          width: 90%;
+          padding: 24px;
+          text-align: center;
+        "
+      >
+        <!-- Bouton fermer avec compte à rebours -->
+        <button
+          id="ad-close-btn"
+          onclick="fermerPub()"
+          style="
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: var(--text);
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          "
+          disabled
+        >
+          <span id="ad-countdown">5</span>
+        </button>
+
+        <!-- Contenu pub — remplace par ta vraie pub AdSense quand approuvé -->
+        <div
+          style="
+            margin-bottom: 16px;
+            font-size: 0.7rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+          "
+        >
+          Publicité
+        </div>
+
+        <!-- EMPLACEMENT PUB — remplace ce bloc par ton code AdSense -->
+        <div
+          style="
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 16px;
+          "
+        >
+          <div style="font-size: 2.5rem; margin-bottom: 12px">🎬</div>
+          <h3 style="color: var(--primary); margin: 0 0 8px; font-size: 1.1rem">
+            Amazon Prime Video
+          </h3>
+          <p style="color: var(--muted); font-size: 0.85rem; margin: 0 0 16px">
+            30 jours gratuits — Des milliers de films et séries
+          </p>
+          <a
+            href="https://www.amazon.fr/gp/video/storefront?tag=TON-TAG-AFFILIÉ"
+            target="_blank"
+            rel="sponsored noopener"
+            onclick="fermerPub()"
+            style="
+              display: inline-block;
+              background: var(--primary);
+              color: #000;
+              padding: 10px 24px;
+              border-radius: 8px;
+              font-weight: 700;
+              text-decoration: none;
+              font-size: 0.9rem;
+            "
+          >
+            Essayer gratuitement →
+          </a>
+        </div>
+        <!-- FIN EMPLACEMENT PUB -->
+
+        <p style="color: var(--muted); font-size: 0.75rem; margin: 0">
+          Cette publicité finance le service gratuit.
+        </p>
+      </div>
+    </div>
+
+    <!-- BANNIÈRE HAUT DE PAGE (CPM — payé à l'affichage) -->
+    <div
+      id="banner-top"
+      style="
+        width: 100%;
+        background: linear-gradient(90deg, #1a1a2e, #16213e);
+        border-bottom: 1px solid var(--border);
+        padding: 8px 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        flex-wrap: wrap;
+      "
+    >
+      <!-- EMPLACEMENT ADSENSE — remplace par ton script AdSense -->
+      <span
+        style="
+          color: var(--muted);
+          font-size: 0.7rem;
+          text-transform: uppercase;
+        "
+        >Publicité</span
+      >
+      <a
+        href="https://www.amazon.fr/gp/video/storefront?tag=TON-TAG-AFFILIÉ"
+        target="_blank"
+        rel="sponsored noopener"
+        style="
+          color: var(--primary);
+          font-size: 0.85rem;
+          font-weight: 600;
+          text-decoration: none;
+        "
+      >
+        🎬 Amazon Prime Video — 30 jours gratuits
+      </a>
+      <button
+        onclick="document.getElementById('banner-top').style.display = 'none'"
+        style="
+          background: none;
+          border: none;
+          color: var(--muted);
+          cursor: pointer;
+          font-size: 0.8rem;
+          padding: 2px 6px;
+        "
+      >
+        ✕
+      </button>
+      <!-- FIN EMPLACEMENT ADSENSE -->
+    </div>
+
+    <!-- BANNIÈRE BAS DE PAGE (sticky) -->
+    <div
+      id="banner-bottom"
+      style="
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: var(--card2);
+        border-top: 1px solid var(--border);
+        padding: 8px 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        z-index: 1000;
+        flex-wrap: wrap;
+      "
+    >
+      <!-- EMPLACEMENT ADSENSE -->
+      <span style="color: var(--muted); font-size: 0.7rem">Publicité</span>
+      <a
+        href="https://www.ubereats.com/?utm_source=quelfilm"
+        target="_blank"
+        rel="sponsored noopener"
+        style="
+          color: var(--text);
+          font-size: 0.85rem;
+          text-decoration: none;
+          flex: 1;
+          text-align: center;
+        "
+      >
+        🍕 <strong>Uber Eats</strong> — Livraison rapide pendant que vous
+        regardez
+      </a>
+      <button
+        onclick="
+          document.getElementById('banner-bottom').style.display = 'none'
+        "
+        style="
+          background: none;
+          border: none;
+          color: var(--muted);
+          cursor: pointer;
+          font-size: 0.8rem;
+          flex-shrink: 0;
+        "
+      >
+        ✕
+      </button>
+      <!-- FIN EMPLACEMENT ADSENSE -->
+    </div>
   </body>
 </html>

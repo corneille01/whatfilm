@@ -1,136 +1,173 @@
-# vision/whisper_engine.py
-# Cascade de transcription : Groq → AssemblyAI → Deepgram → "" (fallback navigateur)
-#
-# Priorité :
-#   1. Groq        (whisper-large-v3, ultra-rapide, 5000 req/jour gratuit)
-#   2. AssemblyAI  (100h/mois gratuit, très précis)
-#   3. Deepgram    (200$ crédit gratuit, Nova-2)
-#   4. ""          → app.py déclenche fallback Tesseract.js + Whisper.js navigateur
+"""
+vision/whisper_engine.py — Transcription audio avec cascade de services gratuits.
+
+Cascade :
+  1. Groq Whisper      → gratuit, 28 800 min/jour
+  2. Deepgram          → gratuit, 45h/mois (DEEPGRAM_API_KEY)
+  3. AssemblyAI        → gratuit, 100h/mois (ASSEMBLYAI_API_KEY)
+  4. None              → fallback client (Whisper.js navigateur)
+"""
 
 import os
 import httpx
 import asyncio
 
-# ── GROQ ──────────────────────────────────────────────────────────
-def _transcribe_groq(audio_path: str) -> str:
-    api_key = os.environ.get("GROQ_API_KEY", "")
-    if not api_key:
-        raise ValueError("GROQ_API_KEY manquante")
-    from groq import Groq
-    client = Groq(api_key=api_key)
-    with open(audio_path, "rb") as f:
-        result = client.audio.transcriptions.create(
-            file=(audio_path, f.read()),
-            model="whisper-large-v3",
-            response_format="text"
-        )
-    if not result or not str(result).strip():
-        raise ValueError("Groq réponse vide")
-    return str(result).strip()
+GROQ_API_KEY      = os.environ.get("GROQ_API_KEY", "")
+DEEPGRAM_API_KEY  = os.environ.get("DEEPGRAM_API_KEY", "")
+ASSEMBLYAI_API_KEY = os.environ.get("ASSEMBLYAI_API_KEY", "")
 
 
-# ── ASSEMBLYAI ────────────────────────────────────────────────────
-def _transcribe_assemblyai(audio_path: str) -> str:
-    api_key = os.environ.get("ASSEMBLYAI_API_KEY", "")
-    if not api_key:
-        raise ValueError("ASSEMBLYAI_API_KEY manquante")
-
-    headers = {"authorization": api_key}
-    base_url = "https://api.assemblyai.com/v2"
-
-    # 1. Upload du fichier audio
-    with open(audio_path, "rb") as f:
-        audio_data = f.read()
-
-    with httpx.Client(timeout=30) as client:
-        up = client.post(f"{base_url}/upload", headers=headers, content=audio_data)
-        up.raise_for_status()
-        upload_url = up.json()["upload_url"]
-
-        # 2. Lancer la transcription
-        resp = client.post(f"{base_url}/transcript",
-                           headers=headers,
-                           json={"audio_url": upload_url, "language_detection": True})
-        resp.raise_for_status()
-        transcript_id = resp.json()["id"]
-
-        # 3. Polling jusqu'à complétion (max 60s)
-        for _ in range(30):
-            poll = client.get(f"{base_url}/transcript/{transcript_id}", headers=headers)
-            poll.raise_for_status()
-            data = poll.json()
-            status = data.get("status")
-            if status == "completed":
-                text = data.get("text", "").strip()
-                if not text:
-                    raise ValueError("AssemblyAI réponse vide")
-                return text
-            if status == "error":
-                raise ValueError(f"AssemblyAI error: {data.get('error')}")
-            import time; time.sleep(2)
-
-    raise ValueError("AssemblyAI timeout (60s)")
-
-
-# ── DEEPGRAM ──────────────────────────────────────────────────────
-def _transcribe_deepgram(audio_path: str) -> str:
-    api_key = os.environ.get("DEEPGRAM_API_KEY", "")
-    if not api_key:
-        raise ValueError("DEEPGRAM_API_KEY manquante")
-
-    with open(audio_path, "rb") as f:
-        audio_data = f.read()
-
-    with httpx.Client(timeout=30) as client:
-        resp = client.post(
-            "https://api.deepgram.com/v1/listen?model=nova-2&detect_language=true",
-            headers={
-                "Authorization": f"Token {api_key}",
-                "Content-Type": "audio/mpeg",
-            },
-            content=audio_data,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        text = (data.get("results", {})
-                    .get("channels", [{}])[0]
-                    .get("alternatives", [{}])[0]
-                    .get("transcript", "")
-                    .strip())
-        if not text:
-            raise ValueError("Deepgram réponse vide")
+# ════════════════════════════════════════════════════════════════
+# NIVEAU 1 — Groq Whisper (28 800 min/jour gratuit)
+# ════════════════════════════════════════════════════════════════
+def transcribe_groq(audio_path: str) -> str:
+    if not GROQ_API_KEY:
+        return ""
+    try:
+        from groq import Groq
+        client = Groq(api_key=GROQ_API_KEY)
+        with open(audio_path, "rb") as f:
+            result = client.audio.transcriptions.create(
+                file=(audio_path, f.read()),
+                model="whisper-large-v3-turbo",
+                response_format="text",
+                language=None,  # auto-detect
+            )
+        text = result.strip() if isinstance(result, str) else (result.text or "").strip()
+        if text:
+            print(f"✅ Groq OK ({len(text)} chars)", flush=True)
         return text
+    except Exception as e:
+        print(f"⚠️ Groq KO: {str(e)[:100]}", flush=True)
+        return ""
 
 
-# ── CASCADE PRINCIPALE ────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════
+# NIVEAU 2 — Deepgram (45h/mois gratuit)
+# ════════════════════════════════════════════════════════════════
+async def transcribe_deepgram(audio_path: str) -> str:
+    if not DEEPGRAM_API_KEY:
+        return ""
+    try:
+        with open(audio_path, "rb") as f:
+            audio_data = f.read()
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                "https://api.deepgram.com/v1/listen?model=nova-2&language=fr&detect_language=true",
+                headers={
+                    "Authorization": f"Token {DEEPGRAM_API_KEY}",
+                    "Content-Type": "audio/mpeg",
+                },
+                content=audio_data,
+            )
+            resp.raise_for_status()
+        text = (
+            resp.json()
+            .get("results", {})
+            .get("channels", [{}])[0]
+            .get("alternatives", [{}])[0]
+            .get("transcript", "")
+            .strip()
+        )
+        if text:
+            print(f"✅ Deepgram OK ({len(text)} chars)", flush=True)
+        return text
+    except Exception as e:
+        print(f"⚠️ Deepgram KO: {str(e)[:100]}", flush=True)
+        return ""
+
+
+# ════════════════════════════════════════════════════════════════
+# NIVEAU 3 — AssemblyAI (100h/mois gratuit)
+# ════════════════════════════════════════════════════════════════
+async def transcribe_assemblyai(audio_path: str) -> str:
+    if not ASSEMBLYAI_API_KEY:
+        return ""
+    headers = {
+        "authorization": ASSEMBLYAI_API_KEY,
+        "content-type": "application/json",
+    }
+    try:
+        # Upload
+        with open(audio_path, "rb") as f:
+            audio_data = f.read()
+        async with httpx.AsyncClient(timeout=30) as client:
+            upload = await client.post(
+                "https://api.assemblyai.com/v2/upload",
+                headers={"authorization": ASSEMBLYAI_API_KEY},
+                content=audio_data,
+            )
+            upload.raise_for_status()
+            upload_url = upload.json()["upload_url"]
+
+            # Submit
+            submit = await client.post(
+                "https://api.assemblyai.com/v2/transcript",
+                headers=headers,
+                json={"audio_url": upload_url, "language_detection": True},
+            )
+            submit.raise_for_status()
+            transcript_id = submit.json()["id"]
+
+            # Poll
+            for _ in range(20):
+                await asyncio.sleep(3)
+                poll = await client.get(
+                    f"https://api.assemblyai.com/v2/transcript/{transcript_id}",
+                    headers=headers,
+                )
+                poll.raise_for_status()
+                status = poll.json().get("status")
+                if status == "completed":
+                    text = (poll.json().get("text") or "").strip()
+                    if text:
+                        print(f"✅ AssemblyAI OK ({len(text)} chars)", flush=True)
+                    return text
+                if status == "error":
+                    print(f"⚠️ AssemblyAI error: {poll.json().get('error')}", flush=True)
+                    return ""
+        return ""
+    except Exception as e:
+        print(f"⚠️ AssemblyAI KO: {str(e)[:100]}", flush=True)
+        return ""
+
+
+# ════════════════════════════════════════════════════════════════
+# POINT D'ENTRÉE PRINCIPAL
+# ════════════════════════════════════════════════════════════════
 def transcribe(audio_path: str, enabled: bool = True) -> str:
-    """
-    Essaie les services de transcription dans l'ordre :
-    Groq → AssemblyAI → Deepgram → "" (fallback navigateur)
-    Retourne "" si tous échouent → app.py envoie les données au navigateur.
-    """
     if not enabled:
         return ""
 
-    if not os.path.exists(audio_path):
-        print("⚠️ Transcription : fichier audio introuvable", flush=True)
-        return ""
+    # ── 1. Groq Whisper ──────────────────────────────────────────
+    # Décommenter pour activer :
+    print("🎙️ Essai Groq...", flush=True)
+    text = transcribe_groq(audio_path)
+    if text:
+        return text
 
-    providers = [
-        ("Groq",        _transcribe_groq),
-        ("AssemblyAI",  _transcribe_assemblyai),
-        ("Deepgram",    _transcribe_deepgram),
-    ]
+    # ── 2. Deepgram ──────────────────────────────────────────────
+    # Décommenter pour activer :
+    if DEEPGRAM_API_KEY:
+        print("🎙️ Essai Deepgram...", flush=True)
+        import asyncio
+        text = asyncio.get_event_loop().run_until_complete(
+            transcribe_deepgram(audio_path)
+        )
+        if text:
+            return text
 
-    for name, fn in providers:
-        try:
-            print(f"🎙️ Essai {name}...", flush=True)
-            result = fn(audio_path)
-            print(f"✅ {name} OK ({len(result)} chars)", flush=True)
-            return result
-        except Exception as e:
-            print(f"⚠️ {name} KO: {str(e)[:120]}", flush=True)
-            continue
+    # ── 3. AssemblyAI ────────────────────────────────────────────
+    # Décommenter pour activer :
+    if ASSEMBLYAI_API_KEY:
+        print("🎙️ Essai AssemblyAI...", flush=True)
+        import asyncio
+        text = asyncio.get_event_loop().run_until_complete(
+            transcribe_assemblyai(audio_path)
+        )
+        if text:
+            return text
 
-    print("⚠️ Tous les services de transcription ont échoué → fallback navigateur", flush=True)
+    # ── 4. Fallback client (Whisper.js navigateur) ───────────────
+    print("⚠️ Tous les services de transcription KO → fallback client", flush=True)
     return ""
