@@ -5,7 +5,7 @@ Cascade :
   1. Gemini vision → frames + OCR + transcript
   2. Fallback minimal → retour vide si Gemini échoue
 """
-
+import traceback
 import json
 import os
 import base64
@@ -22,16 +22,30 @@ GEMINI_URLS = [
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
 ]
 
+TRANSCRIPT_THRESHOLD = 80
 
 # ════════════════════════════════════════════════════════════════
 # UTILITAIRES
 # ════════════════════════════════════════════════════════════════
 def _clean_json_fences(text: str) -> str:
+    text = text.strip()
     if "```" in text:
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-    return text.strip()
+        parts = text.split("```")
+        for part in parts:
+            part = part.strip()
+            if part.startswith("json"):
+                part = part[4:].strip()
+            try:
+                json.loads(part)
+                return part
+            except Exception:
+                continue
+    # Chercher le JSON entre { }
+    start = text.find("{")
+    end   = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return text[start:end+1]
+    return text
 
 
 def _minimal_fallback(source: str) -> dict:
@@ -96,9 +110,20 @@ async def _extract_gemini_vision(frames: list, prompt: str) -> dict | None:
                 )
                 resp.raise_for_status()
 
+            raw      = resp.json()
+            candidate = raw.get("candidates", [{}])[0]
+
+            # Détecter blocage Gemini (safety filters)
+            finish_reason = candidate.get("finishReason", "")
+            if finish_reason in ("SAFETY", "RECITATION", "OTHER"):
+                print(
+                    f"⚠️ Gemini ({model_name}) bloqué : finishReason={finish_reason}",
+                    flush=True
+                )
+                continue
+
             text = (
-                resp.json()
-                .get("candidates", [{}])[0]
+                candidate
                 .get("content", {})
                 .get("parts", [{}])[0]
                 .get("text", "")
@@ -106,7 +131,11 @@ async def _extract_gemini_vision(frames: list, prompt: str) -> dict | None:
 
             if not text:
                 print(f"⚠️ Gemini ({model_name}) : réponse vide", flush=True)
+                # Logger la réponse brute pour debug
+                print(f"⚠️ Réponse brute : {str(raw)[:300]}", flush=True)
                 continue
+
+            print(f"📄 Gemini texte brut ({model_name}) : {text[:200]}", flush=True)
 
             text = _clean_json_fences(text)
             data = json.loads(text)
@@ -119,13 +148,15 @@ async def _extract_gemini_vision(frames: list, prompt: str) -> dict | None:
             )
             return data
 
-        except json.JSONDecodeError:
-            print(f"⚠️ Gemini ({model_name}) : JSON invalide", flush=True)
+        except json.JSONDecodeError as e:
+            print(f"⚠️ Gemini ({model_name}) : JSON invalide — {str(e)[:60]}", flush=True)
+            print(f"⚠️ Texte reçu : {text[:300]}", flush=True)
             result = _minimal_fallback("gemini_partial")
             result["description_courte"] = text[:300] if "text" in locals() else ""
             return result
         except Exception as e:
-            print(f"⚠️ Gemini KO ({model_name}): {str(e)[:120]}", flush=True)
+            print(f"⚠️ Gemini KO ({model_name}): {str(e)[:300]}", flush=True)
+            print(f"⚠️ Traceback: {traceback.format_exc()[:500]}", flush=True)
             continue
 
     return None
@@ -137,6 +168,15 @@ async def _extract_gemini_vision(frames: list, prompt: str) -> dict | None:
 async def multimodal_extract(frames, ocr_text, transcript):
     ocr_text   = (ocr_text   or "").strip()
     transcript = (transcript or "").strip()
+
+    combined = f"{transcript} {ocr_text}".strip()
+
+    # Si pas de frames ET pas assez de texte → inutile d'appeler Gemini
+    if not frames and len(combined) < TRANSCRIPT_THRESHOLD:
+        print("⚠️ Pas assez de données → retour minimal", flush=True)
+        result = _minimal_fallback("insufficient_data")
+        result["description_courte"] = combined
+        return result
 
     prompt = EXTRACTION_PROMPT.format(
         ocr_text=ocr_text,
@@ -151,7 +191,6 @@ async def multimodal_extract(frames, ocr_text, transcript):
 
     # ── 2. Fallback minimal ───────────────────────────────────────
     print("⚠️ Gemini échoué → retour minimal", flush=True)
-    combined = f"{transcript} {ocr_text}".strip()
     result = _minimal_fallback("fallback")
     result["description_courte"] = combined[:300]
     return result
