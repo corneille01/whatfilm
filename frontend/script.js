@@ -1328,60 +1328,11 @@ async function toggleSaison(seriesId, seasonNumber) {
 }
 
 
-// ════ PUBLICITÉ ════
-let _adCountdownInterval = null;
 
-function afficherPub(callback) {
-  // Ne pas afficher si déjà vue dans les 30 dernières minutes
-  const lastAd = parseInt(localStorage.getItem('last_ad') || '0');
-  const now = Date.now();
-  if (now - lastAd < 30 * 60 * 1000) {
-    callback();
-    return;
-  }
 
-  const modal = document.getElementById('ad-modal');
-  const closeBtn = document.getElementById('ad-close-btn');
-  const countdown = document.getElementById('ad-countdown');
-  
-  modal.style.display = 'flex';
-  closeBtn.disabled = true;
-  let seconds = 5;
-  countdown.textContent = seconds;
 
-  _adCountdownInterval = setInterval(() => {
-    seconds--;
-    countdown.textContent = seconds;
-    if (seconds <= 0) {
-      clearInterval(_adCountdownInterval);
-      closeBtn.disabled = false;
-      countdown.textContent = '✕';
-      closeBtn.style.background = 'rgba(0,255,204,0.2)';
-      closeBtn.style.color = 'var(--primary)';
-    }
-  }, 1000);
 
-  // Stocker le callback pour l'appeler après fermeture
-  window._adCallback = callback;
-  localStorage.setItem('last_ad', now.toString());
-}
 
-function fermerPub() {
-  const modal = document.getElementById('ad-modal');
-  const closeBtn = document.getElementById('ad-close-btn');
-  
-  if (closeBtn.disabled) return; // Pas encore possible de fermer
-  
-  clearInterval(_adCountdownInterval);
-  modal.style.display = 'none';
-  closeBtn.style.background = 'rgba(255,255,255,0.1)';
-  closeBtn.style.color = 'var(--text)';
-  
-  if (window._adCallback) {
-    window._adCallback();
-    window._adCallback = null;
-  }
-}
 
 
 

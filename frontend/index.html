@@ -167,7 +167,7 @@
             // whisper-tiny-q8 : 42 MB (vs 75 MB), même précision, multilingue
             _whisperPipeline = await pipeline(
               "automatic-speech-recognition",
-              "Xenova/whisper-tiny-q8",
+              "Xenova/whisper-tiny",
             );
             console.log("✅ Whisper.js prêt");
           } catch (e) {
@@ -183,7 +183,7 @@
         if (_loadPromise) return _loadPromise;
         _loadPromise = pipeline(
           "automatic-speech-recognition",
-          "Xenova/whisper-tiny-q8",
+          "Xenova/whisper-tiny",
         ).then((p) => {
           _whisperPipeline = p;
           _loadPromise = null;
