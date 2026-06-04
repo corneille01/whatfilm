@@ -21,7 +21,7 @@ from vision.ocr_engine import extract_text_from_images, start_loading
 from vision.whisper_engine import transcribe
 
 from core.extraction import multimodal_extract
-from core.retrieval import build_cascade_queries
+from core.retrieval import build_cascade_queries, build_candidates_from_actors
 from data.tmdb import (
     search_candidates, get_movie_details, get_tv_details,
     discover_by_genre, get_trending,
@@ -31,7 +31,7 @@ from data.fake_detector import detect_fake
 from core.reranker import rerank
 from storage.cache import (
     get_cache, get_cache_by_content, get_cache_by_film,
-    get_cache_by_title,  # <-- AJOUT
+    get_cache_by_title,
     set_cache, purge_expired, cache_stats
 )
 
@@ -500,17 +500,30 @@ async def analyser_continue(req: ContinueRequest):
                 if p and os.path.exists(p):
                     shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
 
-# ── PROCESS ANALYSIS ──────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════
+# PROCESS ANALYSIS — VERSION CORRIGÉE
+# ════════════════════════════════════════════════════════════════
 async def process_analysis(frames, ocr_text, transcript, url, lang):
-    # Cache niveau contenu
+    """
+    Pipeline complet :
+    1. Cache contenu
+    2. Détection script
+    3. Extraction multimodale (LLM)
+    4. Cache titre
+    5. Recherche via acteurs (filmographie) → rerank
+    6. Fallback : recherche textuelle TMDB → rerank
+    7. Détails TMDB + réponse finale
+    """
+
+    # ── 1. Cache niveau contenu ──────────────────────────────────
     if transcript or ocr_text:
         content_hit = get_cache_by_content(transcript, ocr_text, lang)
         if content_hit:
             set_cache(url, content_hit, transcript=transcript, ocr_text=ocr_text)
             return {"status": "cached", **content_hit}
 
-    # Détection script
-    combined_text = (transcript or "") + " " + (ocr_text or "")
+    # ── 2. Détection script ──────────────────────────────────────
+    combined_text  = (transcript or "") + " " + (ocr_text or "")
     detected_script = "latin"
     if re.search(r"[؀-ۿݐ-ݿ]", combined_text):
         detected_script = "arabic"
@@ -525,83 +538,112 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
     if detected_script != "latin":
         print(f"🌐 Script détecté: {detected_script}", flush=True)
 
-    # EXTRACTION MULTIMODALE (déplacée avant le cache titre)
+    # ── 3. Extraction multimodale ────────────────────────────────
     extraction = await multimodal_extract(frames, ocr_text, transcript) or {}
     if detected_script != "latin":
         extraction["detected_script"] = detected_script
 
-    # Cache titre : maintenant extraction existe
+    # ── 4. Cache niveau titre ────────────────────────────────────
     for titre_candidat in extraction.get("titres_possibles", []):
+        # Ignorer les titres incertains (préfixés ?)
+        if str(titre_candidat).startswith("?"):
+            continue
         title_hit = get_cache_by_title(titre_candidat, lang)
         if title_hit:
             set_cache(url, title_hit, transcript=transcript, ocr_text=ocr_text)
             return {"status": "cached", **title_hit}
 
-    fake_score = detect_fake((ocr_text or "") + " " + (transcript or ""))
-    queries    = await build_cascade_queries(extraction)
-
-    if detected_script in ("chinese", "japanese", "korean"):
-        lang_map = {"chinese": "zh", "japanese": "ja", "korean": "ko"}
-        original_lang = lang_map[detected_script]
-        if original_lang != lang:
-            queries = queries + [f"{extraction.get('titre', '')} {original_lang}"]
-
+    fake_score  = detect_fake((ocr_text or "") + " " + (transcript or ""))
     candidates  = []
     search_type = "movie"
+    result      = None
 
-    for q in queries:
-        results = await search_candidates(q, lang)
-        if results:
-            candidates = results
-            break
-    if not candidates:
+    # ── 5. Recherche via acteurs (filmographie) ──────────────────
+    actor_candidates = await build_candidates_from_actors(extraction, lang)
+    if actor_candidates:
+        print(f"🎭 Recherche via acteurs: {len(actor_candidates)} candidats", flush=True)
+        actor_result = await rerank(extraction, actor_candidates)
+        if actor_result and actor_result.get("score", 0) >= 50:
+            result      = actor_result
+            candidates  = actor_candidates
+            search_type = actor_result.get("media_type", "movie")
+            print(f"✅ Acteur-match retenu (score={result['score']})", flush=True)
+
+    # ── 6. Fallback : recherche textuelle TMDB ───────────────────
+    if not result:
+        queries = await build_cascade_queries(extraction)
+
+        # Ajouter requêtes dans la langue originale détectée
+        if detected_script in ("chinese", "japanese", "korean"):
+            lang_map = {"chinese": "zh", "japanese": "ja", "korean": "ko"}
+            original_lang = lang_map[detected_script]
+            titre_brut = extraction.get("titre", "") or ""
+            if titre_brut and original_lang != lang:
+                queries = queries + [f"{titre_brut} {original_lang}"]
+
+        # Recherche films
         for q in queries:
-            try:
-                results = await search_tv_candidates(q, lang)
-                if results:
-                    candidates = results
-                    search_type = "tv"
-                    break
-            except Exception:
-                pass
-
-    if not candidates and lang != "en":
-        for q in queries[:3]:
-            results = await search_candidates(q, "en")
+            results = await search_candidates(q, lang)
             if results:
-                candidates = results
+                candidates  = results
+                search_type = "movie"
                 break
+
+        # Recherche séries TV si rien trouvé
         if not candidates:
-            for q in queries[:3]:
+            for q in queries:
                 try:
-                    results = await search_tv_candidates(q, "en")
+                    results = await search_tv_candidates(q, lang)
                     if results:
-                        candidates = results
+                        candidates  = results
                         search_type = "tv"
                         break
                 except Exception:
                     pass
 
-    if not candidates:
-        titre = extraction.get("titre", "")
-        not_found = {
-            "status":         "not_found",
-            "message":        "Aucun film ou série trouvé pour cette vidéo.",
-            "search_youtube": f"https://www.youtube.com/results?search_query={titre}+film",
-            "search_google":  f"https://www.google.com/search?q={titre}+film",
-            "search_tmdb":    f"https://www.themoviedb.org/search?query={titre}",
-        }
-        set_cache(url, not_found, transcript=transcript or "", ocr_text=ocr_text or "")
-        return not_found
+        # Fallback en anglais
+        if not candidates and lang != "en":
+            for q in queries[:3]:
+                results = await search_candidates(q, "en")
+                if results:
+                    candidates  = results
+                    search_type = "movie"
+                    break
+            if not candidates:
+                for q in queries[:3]:
+                    try:
+                        results = await search_tv_candidates(q, "en")
+                        if results:
+                            candidates  = results
+                            search_type = "tv"
+                            break
+                    except Exception:
+                        pass
 
-    result = await rerank(extraction, candidates)
-    if not result or not result.get("id"):
-        result = {
-            "meilleur_titre": candidates[0].get("title", "Inconnu"),
-            "id":             candidates[0]["id"],
-            "score":          35
-        }
+        # Aucun candidat → not_found
+        if not candidates:
+            titre = extraction.get("titre", "") or extraction.get("titres_possibles", [""])[0] if extraction.get("titres_possibles") else ""
+            not_found = {
+                "status":         "not_found",
+                "message":        "Aucun film ou série trouvé pour cette vidéo.",
+                "search_youtube": f"https://www.youtube.com/results?search_query={titre}+film",
+                "search_google":  f"https://www.google.com/search?q={titre}+film",
+                "search_tmdb":    f"https://www.themoviedb.org/search?query={titre}",
+            }
+            set_cache(url, not_found, transcript=transcript or "", ocr_text=ocr_text or "")
+            return not_found
 
+        # Reranking sur les candidats TMDB
+        result = await rerank(extraction, candidates)
+        if not result or not result.get("id"):
+            result = {
+                "meilleur_titre": candidates[0].get("title", "Inconnu"),
+                "id":             candidates[0]["id"],
+                "score":          35,
+                "media_type":     search_type,
+            }
+
+    # ── 7. Score de confiance et cache film ──────────────────────
     confidence = result.get("score", 0)
 
     if confidence >= 30 and result.get("id"):
@@ -611,7 +653,7 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
             return {"status": "cached", **film_hit}
 
     if confidence < 30:
-        titre = result.get("meilleur_titre", "")
+        titre    = result.get("meilleur_titre", "")
         low_conf = {
             "status":         "not_found",
             "message":        f"Film non identifié avec certitude ({confidence}%). Essayez de rechercher manuellement.",
@@ -623,9 +665,17 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
         set_cache(url, low_conf, transcript=transcript or "", ocr_text=ocr_text or "")
         return low_conf
 
+    # ── 8. Détails TMDB ──────────────────────────────────────────
     movie_id = result["id"]
+    # Détermine le bon type (la recherche acteurs peut avoir renseigné media_type)
+    effective_type = result.get("media_type", search_type)
+
     try:
-        details = await get_tv_details(movie_id, lang) if search_type == "tv" else await get_movie_details(movie_id, lang)
+        details = (
+            await get_tv_details(movie_id, lang)
+            if effective_type == "tv"
+            else await get_movie_details(movie_id, lang)
+        )
     except Exception:
         try:
             details = await get_movie_details(movie_id, lang)
@@ -633,13 +683,18 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
             return {"status": "error", "code": "tmdb_error",
                     "message": "Impossible de récupérer les détails du film."}
 
-    region = {"fr": "FR", "en": "US", "es": "ES", "de": "DE", "zh": "CN"}.get(lang, "FR")
-    providers = details.get("watch/providers", {}).get("results", {}).get(region, {}).get("flatrate", [])
-    is_series = search_type == "tv" or bool(details.get("first_air_date"))
+    region    = {"fr": "FR", "en": "US", "es": "ES", "de": "DE", "zh": "CN"}.get(lang, "FR")
+    providers = (
+        details.get("watch/providers", {})
+               .get("results", {})
+               .get(region, {})
+               .get("flatrate", [])
+    )
+    is_series = effective_type == "tv" or bool(details.get("first_air_date"))
 
     final = {
         "status":          "success",
-        "media_type":      search_type,
+        "media_type":      effective_type,
         "is_series":       is_series,
         "title":           result.get("meilleur_titre") or details.get("title") or details.get("name") or "Inconnu",
         "confidence":      max(0, confidence),
@@ -647,10 +702,14 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
         "image":           f"https://image.tmdb.org/t/p/w500{details['poster_path']}" if details.get("poster_path") else "",
         "streaming":       [p.get("provider_name") for p in providers],
         "streaming_logos": [{"name": p.get("provider_name"), "logo_path": p.get("logo_path")} for p in providers],
-        "similar":         [{"title": s.get("title", s.get("name", "?")), "id": s.get("id"), "poster_path": s.get("poster_path")}
-                            for s in details.get("similar", {}).get("results", [])[:6]],
-        "cast":            [{"name": c.get("name"), "character": c.get("character"), "profile_path": c.get("profile_path")}
-                            for c in details.get("credits", {}).get("cast", [])[:8]],
+        "similar":         [
+            {"title": s.get("title", s.get("name", "?")), "id": s.get("id"), "poster_path": s.get("poster_path")}
+            for s in details.get("similar", {}).get("results", [])[:6]
+        ],
+        "cast":            [
+            {"name": c.get("name"), "character": c.get("character"), "profile_path": c.get("profile_path")}
+            for c in details.get("credits", {}).get("cast", [])[:8]
+        ],
         "trailer":         "",
         "genres":          [g["name"] for g in details.get("genres", [])],
         "year":            (details.get("release_date") or details.get("first_air_date") or "").split("-")[0],
@@ -660,7 +719,7 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
         "tmdb_id":         movie_id,
         "lang":            lang,
         "is_fake":         fake_score > 70,
-        "seasons":         details.get("seasons") if is_series else None
+        "seasons":         details.get("seasons") if is_series else None,
     }
 
     if confidence >= 50:

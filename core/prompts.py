@@ -1,3 +1,7 @@
+"""
+core/prompts.py — Prompts LLM pour l'extraction et le reranking.
+"""
+
 EXTRACTION_PROMPT = """Tu es un expert mondial en cinéma, séries TV, anime et documentaires.
 Analyse ces images extraites d'une vidéo, ce texte OCR et cette transcription audio
 pour identifier l'œuvre audiovisuelle.

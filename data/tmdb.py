@@ -92,7 +92,38 @@ async def get_genre_list(lang: str = "fr"):
         resp.raise_for_status()
         genres = resp.json().get("genres", [])
         _genre_cache[tmdb_lang] = genres
-        return genres
+        return genres;
+
+
+async def search_person(name: str, lang: str = "fr") -> dict | None:
+    """Cherche un acteur/réalisateur par nom."""
+    url = f"{BASE_URL}/search/person"
+    params = {
+        "api_key": API_KEY,
+        "query": name,
+        "language": _tmdb_lang(lang),
+    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        results = resp.json().get("results", [])
+        return results[0] if results else None
+
+
+async def get_person_credits(person_id: int, lang: str = "fr") -> list:
+    """Retourne tous les films d'un acteur."""
+    url = f"{BASE_URL}/person/{person_id}/combined_credits"
+    params = {
+        "api_key": API_KEY,
+        "language": _tmdb_lang(lang),
+    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        cast = data.get("cast", [])
+        # Trier par popularité
+        return sorted(cast, key=lambda x: x.get("popularity", 0), reverse=True)
 
 # ── Discover par genre ──────────────────────────────────────────────
 async def discover_by_genre(genre_id: int, lang: str = "fr", page: int = 1, media_type: str = "movie"):

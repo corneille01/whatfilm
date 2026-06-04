@@ -21,7 +21,7 @@ GROQ_API_KEY   = os.environ.get("GROQ_API_KEY", "")
 
 GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.0-flash:generateContent"
+    "gemini-2.5-flash:generateContent"
 )
 GROQ_TEXT_URL   = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_TEXT_MODEL = "llama-3.3-70b-versatile"
@@ -121,8 +121,10 @@ def _parse_rerank_response(text: str, candidates: list) -> dict:
 
     if not isinstance(result, dict):
         raise ValueError(f"Réponse non-dict : {type(result)}")
-    if not result.get("id"):
-        raise ValueError(f"id manquant : {result}")
+    
+    # Si le LLM dit qu'aucun candidat ne correspond → on laisse continuer
+    if not result.get("id") or result.get("score", 100) < 25:
+        raise ValueError(f"Aucun candidat valide : score={result.get('score')}")
 
     if not result.get("meilleur_titre"):
         matched = next((c for c in candidates if c.get("id") == result.get("id")), None)
@@ -134,7 +136,6 @@ def _parse_rerank_response(text: str, candidates: list) -> dict:
         result["score"] = 20
 
     return result
-
 
 def _candidates_for_prompt(candidates: list) -> list:
     return [
