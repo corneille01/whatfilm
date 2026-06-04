@@ -453,7 +453,7 @@ async def analyser_continue(req: ContinueRequest):
                     shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
 
 # ════════════════════════════════════════════════════════════════
-# PROCESS ANALYSIS
+# PROCESS ANALYSIS – CORRIGÉE
 # ════════════════════════════════════════════════════════════════
 async def process_analysis(frames, ocr_text, transcript, url, lang):
 
@@ -484,9 +484,6 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
     extraction = await multimodal_extract(frames, ocr_text, transcript) or {}
 
     # ── Injecter le transcript brut pour le croisement acteur×transcript ──
-    # retrieval.py extrait les mots-clés du transcript pour re-trier
-    # la filmographie d'un acteur reconnu visuellement.
-    # Ex: Eddie Murphy (visage) × "bourse Duke" → "Un fauteuil pour deux"
     extraction["_transcript_raw"] = transcript or ""
 
     if detected_script != "latin":
@@ -495,26 +492,21 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
     fake_score = detect_fake((ocr_text or "") + " " + (transcript or ""))
 
     candidates  = []
-    search_type = "movie"
+    search_type = "movie"   # valeur par défaut
 
     # ── Priorité 1 : recherche par acteurs reconnus ───────────────
-    # Si Gemini a identifié un acteur visuellement, on cherche dans
-    # sa filmographie TMDB et on croise avec les mots-clés du transcript.
-    # Évite les longues cascades de requêtes texte dans ~60% des cas.
     if extraction.get("acteurs"):
         try:
             actor_candidates = await build_candidates_from_actors(extraction, lang)
             if actor_candidates:
-                candidates  = actor_candidates
-                search_type = "movie"
+                candidates = actor_candidates
+                # Pas de search_type forcé : on laisse le rerank/détails décider
                 print(f"🎭 Recherche via acteurs: {len(candidates)} candidats",
                       flush=True)
         except Exception as e:
             print(f"⚠️ build_candidates_from_actors: {e}", flush=True)
 
     # ── Priorité 2 : cascade de requêtes texte ────────────────────
-    # Utilisé si aucun acteur reconnu ou si la recherche acteur n'a
-    # retourné aucun candidat.
     if not candidates:
         queries = await build_cascade_queries(extraction)
 
@@ -522,6 +514,7 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
             results = await search_candidates(q, lang)
             if results:
                 candidates = results
+                search_type = "movie"
                 break
 
         if not candidates:
@@ -599,16 +592,32 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
         set_cache(url, low_conf, transcript=transcript or "", ocr_text=ocr_text or "")
         return low_conf
 
+    # ════════════════════════════════════════════════════════════
+    # RÉCUPÉRATION DES DÉTAILS – CORRIGÉE
+    # ════════════════════════════════════════════════════════════
     movie_id = result["id"]
-    try:
-        details = await get_tv_details(movie_id, lang) \
-            if search_type == "tv" else await get_movie_details(movie_id, lang)
-    except Exception:
+    details = None
+
+    # Essaie d'abord en tant que série, puis en tant que film
+    for fetcher, type_label in [
+        (lambda: get_tv_details(movie_id, lang), "tv"),
+        (lambda: get_movie_details(movie_id, lang), "movie"),
+    ]:
         try:
-            details = await get_movie_details(movie_id, lang)
-        except Exception:
-            return {"status": "error", "code": "tmdb_error",
-                    "message": "Impossible de récupérer les détails du film."}
+            details = await fetcher()
+            if details:
+                # Ajuste search_type selon ce qui a réussi
+                search_type = type_label
+                break
+        except Exception as e:
+            print(f"⚠️ Échec récupération {type_label} pour {movie_id}: {e}", flush=True)
+
+    if not details:
+        return {
+            "status": "error",
+            "code": "tmdb_error",
+            "message": "Impossible de récupérer les détails du film."
+        }
 
     region    = {"fr": "FR", "en": "US", "es": "ES",
                  "de": "DE", "zh": "CN"}.get(lang, "FR")
