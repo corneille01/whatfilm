@@ -1,60 +1,94 @@
 """
 core/prompts.py — Prompts LLM pour l'extraction et le reranking.
-
-Changement v2 :
-  - EXTRACTION_PROMPT : les acteurs reconnus visuellement sont priorisés
-    et doivent être croisés avec le transcript avant de proposer des titres.
-  - RERANK_PROMPT : inchangé.
 """
 
 EXTRACTION_PROMPT = """Tu es un expert mondial en cinéma, séries TV, anime et documentaires.
-Analyse ces images extraites d'une vidéo, ce texte OCR et cette transcription audio
-pour identifier l'œuvre audiovisuelle.
+Tu reçois simultanément :
+- Des images extraites d'une vidéo (frames)
+- Un texte OCR extrait de ces images
+- Une transcription (texte issu de Whisper/Groq)
 
 OCR extrait des frames :
 {ocr_text}
 
-Transcription audio (texte) :
+Transcription (texte converti par Whisper) :
 {transcript}
 
-ORDRE DE PRIORITÉ POUR L'IDENTIFICATION :
+════════════════════════════════════════════════
+ÉTAPE 0 — NATURE DE LA TRANSCRIPTION
+════════════════════════════════════════════════
+Détermine d'abord ce que contient la transcription :
+- TYPE A : dialogues du film/série (personnages qui parlent entre eux)
+- TYPE B : commentaire extérieur (voix qui décrit, présente ou commente le film)
+- TYPE C : mixte ou indéterminé
 
-ÉTAPE 1 — ACTEURS (signal le plus fiable)
-Regarde attentivement les visages sur les images.
-Si tu reconnais formellement un acteur/actrice, note-le dans "acteurs".
-Croise ensuite avec la transcription : est-ce qu'un nom, un personnage,
-un lieu, ou une réplique connue correspond à l'un de ses films ?
-Si oui → propose ce titre dans "titres_possibles".
-Ex : tu vois Eddie Murphy + transcription parle de "Bourse" → "Un fauteuil pour deux".
+Si TYPE B (commentaire) : la transcription est ta source la plus riche.
+  → Extrais TOUS les noms propres cités (acteurs, réalisateurs, titres, personnages).
+  → Extrais TOUS les éléments narratifs décrits (lieu, action, époque, intrigue).
+  → Un commentaire du type "ce film avec X qui joue Y dans Z" = titre probable.
 
-ÉTAPE 2 — TITRES EXPLICITES
-Titres vus dans l'OCR ou cités explicitement dans la transcription.
-Si les images/transcription te rappellent fortement une œuvre connue, préfixe de "?"
-Ex: ["?Les Intouchables"]. JAMAIS inventer un titre inexistant.
+Si TYPE A (dialogues) : la transcription donne l'ambiance et la langue, rarement le titre.
+  → Concentre-toi sur les images pour identifier l'œuvre.
+  → Cherche des répliques iconiques reconnaissables.
 
-ÉTAPE 3 — INDICES VISUELS
-Décors, costumes, logos, objets iconiques, chaînes TV (TCM, Netflix, Canal+),
-véhicules, époques, lieux reconnaissables.
+════════════════════════════════════════════════
+ÉTAPE 1 — ANALYSE VISUELLE
+════════════════════════════════════════════════
+Regarde chaque image attentivement :
+- Visages : si tu reconnais un acteur connu, note son nom dans "acteurs".
+- Textes à l'écran : générique, affiche, sous-titre, logo chaîne → "titres_possibles" ou "objets_importants".
+- Décor, costumes, époque, style visuel → "indices_visuels".
+- Objets/véhicules iconiques → "objets_importants".
 
-RÈGLES STRICTES :
-1. "acteurs" : uniquement si tu reconnais FORMELLEMENT le visage OU le nom est
-   cité dans la transcription. C'est le champ le plus important — sois précis.
-2. "titres_possibles" : d'abord les titres issus du croisement acteur+transcript,
-   puis les titres explicites OCR/audio, puis tes déductions visuelles ("?Titre").
-   Si tu ne reconnais rien, laisse [].
-3. "personnages" : noms de personnages visibles sur les images ou cités dans la transcription.
-4. "objets_importants" : objets/logos/véhicules/lieux iconiques sur les images.
-   Ex: ["DeLorean", "Hogwarts", "sabre laser"].
-5. "description_courte" : décris objectivement décor, costumes, époque, action,
-   ambiance ET contenu de la transcription. Très précis si tu ne reconnais pas l'œuvre.
-6. "genre_apparent" : action|comédie|horreur|drame|animation|thriller|romance|documentaire|anime.
-7. "annee_estimee" : année dans l'OCR/transcription ou estimable visuellement.
-8. "langue_originale" : langue de la transcription (fr|en|es|de|ja|ko|zh|ar|pt).
-9. "indices_visuels" : tout détail visuel utile non couvert ailleurs.
-   Ex: ["uniforme scolaire japonais", "voiture années 80", "skyline New York"].
+════════════════════════════════════════════════
+ÉTAPE 2 — ANALYSE TRANSCRIPTION
+════════════════════════════════════════════════
+Lis la transcription en entier :
+- Noms propres cités → acteurs, personnages, ou titre ?
+- Lieux, dates, événements → indices temporels/géographiques.
+- Répliques reconnaissables → film identifiable ?
+- Si un titre est cité explicitement → "titres_possibles" sans préfixe "?".
 
-NE JAMAIS inventer. Vaut mieux un champ vide qu'une donnée fausse.
-Réponds UNIQUEMENT avec ce JSON valide sur une seule ligne, sans markdown :
+════════════════════════════════════════════════
+ÉTAPE 3 — CROISEMENT VISION + TRANSCRIPTION
+════════════════════════════════════════════════
+- Visage reconnu + nom cité dans la transcription → acteur confirmé dans "acteurs".
+- Titre cité dans la transcription + images qui correspondent → "titres_possibles" sans "?".
+- Œuvre reconnue visuellement mais non citée → "titres_possibles" avec "?" (ex: "?Inception").
+- Description narrative dans la transcription + scène visible qui correspond → confirme l'œuvre.
+
+════════════════════════════════════════════════
+RÈGLES STRICTES
+════════════════════════════════════════════════
+1. "titres_possibles" :
+   - Titre explicite (vu ou cité) → sans préfixe
+   - Titre reconnu visuellement → préfixé "?" (ex: "?Les Intouchables")
+   - JAMAIS inventer un titre inexistant
+   - Si rien de certain, laisser []
+
+2. "acteurs" : Format "Prénom Nom". Uniquement si reconnu sur une image OU cité explicitement.
+
+3. "personnages" : noms de personnages vus à l'écran ou cités dans les dialogues/commentaires.
+
+4. "objets_importants" : objets/véhicules/logos iconiques.
+   Ex: ["DeLorean", "Batmobile", "sabre laser", "logo Netflix", "maillot PSG"]
+
+5. "description_courte" : synthèse en 2-4 phrases de ce que tu VOIS + ce que dit la transcription.
+   Si la transcription est un commentaire descriptif, reprends-en les éléments clés ici.
+   C'est le champ de secours si aucun titre n'est identifié — sois très précis.
+
+6. "genre_apparent" : action|comédie|horreur|drame|animation|thriller|romance|documentaire|anime|série
+
+7. "annee_estimee" : visible dans l'OCR/transcription, ou estimable visuellement.
+
+8. "langue_originale" : langue principale de la transcription (fr|en|es|de|ja|ko|zh|ar|pt|it|ru)
+
+9. "indices_visuels" : détails visuels distinctifs non couverts ailleurs.
+   Ex: ["uniforme scolaire japonais", "voiture années 80", "skyline New York nuit"]
+
+NE JAMAIS inventer. Un champ vide vaut mieux qu'une donnée fausse.
+
+Réponds UNIQUEMENT avec ce JSON valide sur une seule ligne, sans markdown ni explication :
 {{"titres_possibles":[],"acteurs":[],"personnages":[],"objets_importants":[],"description_courte":"","genre_apparent":"","annee_estimee":null,"langue_originale":"","indices_visuels":[]}}"""
 
 
