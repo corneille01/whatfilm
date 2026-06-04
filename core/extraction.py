@@ -24,6 +24,7 @@ GEMINI_URLS = [
 
 TRANSCRIPT_THRESHOLD = 80
 
+
 # ════════════════════════════════════════════════════════════════
 # UTILITAIRES
 # ════════════════════════════════════════════════════════════════
@@ -40,7 +41,6 @@ def _clean_json_fences(text: str) -> str:
                 return part
             except Exception:
                 continue
-    # Chercher le JSON entre { }
     start = text.find("{")
     end   = text.rfind("}")
     if start != -1 and end != -1 and end > start:
@@ -50,15 +50,16 @@ def _clean_json_fences(text: str) -> str:
 
 def _minimal_fallback(source: str) -> dict:
     return {
-        "titres_possibles":   [],
-        "acteurs":            [],
-        "personnages":        [],
-        "objets_importants":  [],
+        "titres_possibles":  [],
+        "acteurs":           [],
+        "personnages":       [],
+        "objets_importants": [],
         "description_courte": "",
-        "genre_apparent":     "",
-        "annee_estimee":      None,
-        "langue_originale":   "",
-        "source":             source,
+        "genre_apparent":    "",
+        "annee_estimee":     None,
+        "langue_originale":  "",
+        "indices_visuels":   [],  # ← aligné avec le prompt
+        "source":            source,
     }
 
 
@@ -96,7 +97,7 @@ async def _extract_gemini_vision(frames: list, prompt: str) -> dict | None:
         "contents": [{"role": "user", "parts": parts}],
         "generationConfig": {
             "temperature": 0.2,
-            "maxOutputTokens": 1024,
+            "maxOutputTokens": 2048,
             "responseMimeType": "application/json",
         }
     }
@@ -110,10 +111,10 @@ async def _extract_gemini_vision(frames: list, prompt: str) -> dict | None:
                 )
                 resp.raise_for_status()
 
-            raw      = resp.json()
+            raw       = resp.json()
             candidate = raw.get("candidates", [{}])[0]
 
-            # Détecter blocage Gemini (safety filters)
+            # Détecter blocage Gemini
             finish_reason = candidate.get("finishReason", "")
             if finish_reason in ("SAFETY", "RECITATION", "OTHER"):
                 print(
@@ -121,6 +122,12 @@ async def _extract_gemini_vision(frames: list, prompt: str) -> dict | None:
                     flush=True
                 )
                 continue
+
+            if finish_reason == "MAX_TOKENS":
+                print(
+                    f"⚠️ Gemini ({model_name}) : réponse tronquée (MAX_TOKENS)",
+                    flush=True
+                )
 
             text = (
                 candidate
@@ -131,29 +138,41 @@ async def _extract_gemini_vision(frames: list, prompt: str) -> dict | None:
 
             if not text:
                 print(f"⚠️ Gemini ({model_name}) : réponse vide", flush=True)
-                # Logger la réponse brute pour debug
                 print(f"⚠️ Réponse brute : {str(raw)[:300]}", flush=True)
                 continue
 
-            print(f"📄 Gemini texte brut ({model_name}) : {text[:200]}", flush=True)
-
             text = _clean_json_fences(text)
-            data = json.loads(text)
-            data["source"] = "gemini_vision"
-            print(f"✅ Gemini OK ({model_name}, {len(text)} chars)", flush=True)
-            print(
-                f"🔍 titres={data.get('titres_possibles')}, "
-                f"desc={str(data.get('description_courte', ''))[:80]}",
-                flush=True
-            )
-            return data
 
-        except json.JSONDecodeError as e:
-            print(f"⚠️ Gemini ({model_name}) : JSON invalide — {str(e)[:60]}", flush=True)
-            print(f"⚠️ Texte reçu : {text[:300]}", flush=True)
-            result = _minimal_fallback("gemini_partial")
-            result["description_courte"] = text[:300] if "text" in locals() else ""
-            return result
+            try:
+                data = json.loads(text)
+                data["source"] = "gemini_vision"
+                # Garantir que tous les champs existent
+                data.setdefault("titres_possibles",  [])
+                data.setdefault("acteurs",           [])
+                data.setdefault("personnages",       [])
+                data.setdefault("objets_importants", [])
+                data.setdefault("description_courte", "")
+                data.setdefault("genre_apparent",    "")
+                data.setdefault("annee_estimee",     None)
+                data.setdefault("langue_originale",  "")
+                data.setdefault("indices_visuels",   [])
+                print(f"✅ Gemini OK ({model_name}, {len(text)} chars)", flush=True)
+                print(
+                    f"🔍 titres={data.get('titres_possibles')}, "
+                    f"indices={data.get('indices_visuels')}, "
+                    f"desc={str(data.get('description_courte', ''))[:80]}",
+                    flush=True
+                )
+                return data
+
+            except json.JSONDecodeError as e:
+                print(
+                    f"⚠️ Gemini ({model_name}) : JSON invalide — {str(e)[:60]}",
+                    flush=True
+                )
+                print(f"⚠️ Texte reçu : {text[:300]}", flush=True)
+                continue
+
         except Exception as e:
             print(f"⚠️ Gemini KO ({model_name}): {str(e)[:300]}", flush=True)
             print(f"⚠️ Traceback: {traceback.format_exc()[:500]}", flush=True)
