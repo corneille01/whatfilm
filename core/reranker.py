@@ -38,18 +38,31 @@ def _normalize(s: str) -> str:
 
 
 def _direct_match(extraction: dict, candidates: list) -> dict | None:
-    titres = [_normalize(str(t)) for t in extraction.get("titres_possibles", []) if t]
-    annee  = str(extraction.get("annee_estimee") or "")
+    # Séparer titres certains et incertains
+    titres_certains = []
+    titres_incertains = []
+    
+    for t in extraction.get("titres_possibles", []):
+        t = str(t).strip()
+        if not t:
+            continue
+        if t.startswith("?"):
+            titres_incertains.append(_normalize(t[1:]))  # retirer le ?
+        else:
+            titres_certains.append(_normalize(t))
+
+    # Match direct UNIQUEMENT sur les titres certains
+    annee = str(extraction.get("annee_estimee") or "")
 
     for c in candidates:
         c_title = _normalize(c.get("title") or c.get("name") or "")
         if not c_title:
             continue
-        if c_title in titres:
+        if c_title in titres_certains:
             c_year = (c.get("release_date") or c.get("first_air_date") or "")[:4]
             score  = 90 if (annee and annee == c_year) else 85
             print(
-                f"✅ Rerank direct — {c.get('title') or c.get('name')} "
+                f"✅ Rerank direct (certain) — {c.get('title') or c.get('name')} "
                 f"(score={score})",
                 flush=True
             )
@@ -57,8 +70,25 @@ def _direct_match(extraction: dict, candidates: list) -> dict | None:
                 "id":             c["id"],
                 "meilleur_titre": c.get("title") or c.get("name") or "Inconnu",
                 "score":          score,
-                "raison":         "correspondance directe titre",
+                "raison":         "correspondance directe titre certain",
             }
+
+    # Les titres ? passent par Groq avec un score plafonné
+    for c in candidates:
+        c_title = _normalize(c.get("title") or c.get("name") or "")
+        if not c_title:
+            continue
+        if c_title in titres_incertains:
+            c_year = (c.get("release_date") or c.get("first_air_date") or "")[:4]
+            score  = 60 if (annee and annee == c_year) else 50
+            print(
+                f"⚠️ Rerank direct (incertain ?) — {c.get('title') or c.get('name')} "
+                f"(score={score}) → laissé à Groq",
+                flush=True
+            )
+            # Ne pas retourner → laisser Groq confirmer ou infirmer
+            return None
+
     return None
 
 
