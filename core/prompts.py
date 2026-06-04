@@ -1,5 +1,10 @@
 """
 core/prompts.py — Prompts LLM pour l'extraction et le reranking.
+
+Changement v2 :
+  - EXTRACTION_PROMPT : les acteurs reconnus visuellement sont priorisés
+    et doivent être croisés avec le transcript avant de proposer des titres.
+  - RERANK_PROMPT : inchangé.
 """
 
 EXTRACTION_PROMPT = """Tu es un expert mondial en cinéma, séries TV, anime et documentaires.
@@ -12,23 +17,38 @@ OCR extrait des frames :
 Transcription audio (texte) :
 {transcript}
 
-OBJECTIF : extraire le maximum d'indices visuels ET textuels pour identifier l'œuvre.
+ORDRE DE PRIORITÉ POUR L'IDENTIFICATION :
+
+ÉTAPE 1 — ACTEURS (signal le plus fiable)
+Regarde attentivement les visages sur les images.
+Si tu reconnais formellement un acteur/actrice, note-le dans "acteurs".
+Croise ensuite avec la transcription : est-ce qu'un nom, un personnage,
+un lieu, ou une réplique connue correspond à l'un de ses films ?
+Si oui → propose ce titre dans "titres_possibles".
+Ex : tu vois Eddie Murphy + transcription parle de "Bourse" → "Un fauteuil pour deux".
+
+ÉTAPE 2 — TITRES EXPLICITES
+Titres vus dans l'OCR ou cités explicitement dans la transcription.
+Si les images/transcription te rappellent fortement une œuvre connue, préfixe de "?"
+Ex: ["?Les Intouchables"]. JAMAIS inventer un titre inexistant.
+
+ÉTAPE 3 — INDICES VISUELS
+Décors, costumes, logos, objets iconiques, chaînes TV (TCM, Netflix, Canal+),
+véhicules, époques, lieux reconnaissables.
 
 RÈGLES STRICTES :
-1. "titres_possibles" : titres vus dans l'OCR ou cités dans la transcription EXPLICITEMENT en priorité.
-   Si les images ou la transcription te rappellent fortement une œuvre connue, propose-la préfixée de "?"
-   Ex: ["?Les Intouchables"]. Si tu détectes une chaîne TV (TCM, Netflix, Canal+),
-   utilise-le comme indice fort. JAMAIS inventer un titre inexistant.
+1. "acteurs" : uniquement si tu reconnais FORMELLEMENT le visage OU le nom est
+   cité dans la transcription. C'est le champ le plus important — sois précis.
+2. "titres_possibles" : d'abord les titres issus du croisement acteur+transcript,
+   puis les titres explicites OCR/audio, puis tes déductions visuelles ("?Titre").
    Si tu ne reconnais rien, laisse [].
-2. "acteurs" : uniquement si tu reconnais formellement le visage sur les images OU le nom est cité explicitement dans la transcription.
 3. "personnages" : noms de personnages visibles sur les images ou cités dans la transcription.
-4. "objets_importants" : objets, logos, véhicules, lieux iconiques identifiables sur les images
-   qui peuvent aider à identifier l'œuvre. Ex: ["DeLorean", "Hogwarts", "sabre laser"].
-5. "description_courte" : décris objectivement ce que tu vois sur les images (décor, costumes,
-   époque, action, ambiance) ET ce que dit la transcription. Sois très précis —
-   c'est le champ le plus important si tu ne reconnais pas l'œuvre directement.
+4. "objets_importants" : objets/logos/véhicules/lieux iconiques sur les images.
+   Ex: ["DeLorean", "Hogwarts", "sabre laser"].
+5. "description_courte" : décris objectivement décor, costumes, époque, action,
+   ambiance ET contenu de la transcription. Très précis si tu ne reconnais pas l'œuvre.
 6. "genre_apparent" : action|comédie|horreur|drame|animation|thriller|romance|documentaire|anime.
-7. "annee_estimee" : année mentionnée dans l'OCR/transcription, ou estimable visuellement (style, technologie, mode).
+7. "annee_estimee" : année dans l'OCR/transcription ou estimable visuellement.
 8. "langue_originale" : langue de la transcription (fr|en|es|de|ja|ko|zh|ar|pt).
 9. "indices_visuels" : tout détail visuel utile non couvert ailleurs.
    Ex: ["uniforme scolaire japonais", "voiture années 80", "skyline New York"].

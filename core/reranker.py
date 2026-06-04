@@ -2,10 +2,16 @@
 core/reranker.py — Sélection du meilleur candidat TMDB.
 
 Cascade anti-coût :
-  1. Score direct    → si un candidat matche exactement un titre extrait (0 API)
+  1. Score direct    → titre extrait == candidat (0 API)
   2. Groq Llama      → reranking LLM texte, gratuit
   3. Gemini Flash    → fallback si Groq KO
-  4. Heuristique     → premier candidat, score 35 (0 API)
+  4. Heuristique     → popularité TMDB (0 API)
+
+Fixes v2 :
+  - max_tokens 256→512 (évite JSON tronqué Gemini)
+  - score=0 n'est plus rejeté (= "incertain" pas "erreur")
+  - heuristique finale trie par popularité, pas juste [0]
+  - logs plus précis pour debugger
 """
 
 import json
@@ -19,16 +25,16 @@ from core.prompts import RERANK_PROMPT
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GROQ_API_KEY   = os.environ.get("GROQ_API_KEY", "")
 
-GEMINI_URL = (
+GEMINI_URL    = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.5-flash:generateContent"
+    "gemini-2.0-flash:generateContent"
 )
 GROQ_TEXT_URL   = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_TEXT_MODEL = "llama-3.3-70b-versatile"
 
 
 # ════════════════════════════════════════════════════════════════
-# NIVEAU 0 — Score direct par correspondance de titre (0 API)
+# NIVEAU 0 — Match direct titre (0 API)
 # ════════════════════════════════════════════════════════════════
 def _normalize(s: str) -> str:
     s = s.lower().strip()
@@ -38,31 +44,18 @@ def _normalize(s: str) -> str:
 
 
 def _direct_match(extraction: dict, candidates: list) -> dict | None:
-    # Séparer titres certains et incertains
-    titres_certains = []
-    titres_incertains = []
-    
-    for t in extraction.get("titres_possibles", []):
-        t = str(t).strip()
-        if not t:
-            continue
-        if t.startswith("?"):
-            titres_incertains.append(_normalize(t[1:]))  # retirer le ?
-        else:
-            titres_certains.append(_normalize(t))
-
-    # Match direct UNIQUEMENT sur les titres certains
-    annee = str(extraction.get("annee_estimee") or "")
+    titres = [_normalize(str(t)) for t in extraction.get("titres_possibles", []) if t]
+    annee  = str(extraction.get("annee_estimee") or "")
 
     for c in candidates:
         c_title = _normalize(c.get("title") or c.get("name") or "")
         if not c_title:
             continue
-        if c_title in titres_certains:
+        if c_title in titres:
             c_year = (c.get("release_date") or c.get("first_air_date") or "")[:4]
             score  = 90 if (annee and annee == c_year) else 85
             print(
-                f"✅ Rerank direct (certain) — {c.get('title') or c.get('name')} "
+                f"✅ Rerank direct — {c.get('title') or c.get('name')} "
                 f"(score={score})",
                 flush=True
             )
@@ -70,25 +63,8 @@ def _direct_match(extraction: dict, candidates: list) -> dict | None:
                 "id":             c["id"],
                 "meilleur_titre": c.get("title") or c.get("name") or "Inconnu",
                 "score":          score,
-                "raison":         "correspondance directe titre certain",
+                "raison":         "correspondance directe titre",
             }
-
-    # Les titres ? passent par Groq avec un score plafonné
-    for c in candidates:
-        c_title = _normalize(c.get("title") or c.get("name") or "")
-        if not c_title:
-            continue
-        if c_title in titres_incertains:
-            c_year = (c.get("release_date") or c.get("first_air_date") or "")[:4]
-            score  = 60 if (annee and annee == c_year) else 50
-            print(
-                f"⚠️ Rerank direct (incertain ?) — {c.get('title') or c.get('name')} "
-                f"(score={score}) → laissé à Groq",
-                flush=True
-            )
-            # Ne pas retourner → laisser Groq confirmer ou infirmer
-            return None
-
     return None
 
 
@@ -97,45 +73,45 @@ def _direct_match(extraction: dict, candidates: list) -> dict | None:
 # ════════════════════════════════════════════════════════════════
 def _clean_json_fences(text: str) -> str:
     text = text.strip()
-    if "```" in text:
-        parts = text.split("```")
-        for part in parts:
-            part = part.strip()
-            if part.startswith("json"):
-                part = part[4:].strip()
-            try:
-                json.loads(part)
-                return part
-            except Exception:
-                continue
-    start = text.find("{")
-    end   = text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        return text[start:end+1]
-    return text
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    return text.strip()
 
 
 def _parse_rerank_response(text: str, candidates: list) -> dict:
+    """
+    Parse la réponse LLM.
+    - score=0 est accepté (= incertitude, pas erreur)
+    - id manquant → ValueError
+    """
     text   = _clean_json_fences(text)
-    result = json.loads(text)
+    result = json.loads(text)   # lève JSONDecodeError si tronqué
 
     if not isinstance(result, dict):
         raise ValueError(f"Réponse non-dict : {type(result)}")
-    
-    # Si le LLM dit qu'aucun candidat ne correspond → on laisse continuer
-    if not result.get("id") or result.get("score", 100) < 25:
-        raise ValueError(f"Aucun candidat valide : score={result.get('score')}")
 
+    # id obligatoire
+    if not result.get("id"):
+        raise ValueError(f"id manquant dans la réponse : {result}")
+
+    # Normaliser meilleur_titre si absent
     if not result.get("meilleur_titre"):
-        matched = next((c for c in candidates if c.get("id") == result.get("id")), None)
+        matched = next(
+            (c for c in candidates if c.get("id") == result.get("id")), None
+        )
         result["meilleur_titre"] = (
             (matched.get("title") or matched.get("name") or "Inconnu")
             if matched else "Inconnu"
         )
+
+    # score : accepter 0 (incertitude), fallback 50 si clé absente
     if "score" not in result:
-        result["score"] = 20
+        result["score"] = 50
 
     return result
+
 
 def _candidates_for_prompt(candidates: list) -> list:
     return [
@@ -151,6 +127,34 @@ def _candidates_for_prompt(candidates: list) -> list:
     ]
 
 
+def _best_by_popularity(candidates: list) -> dict:
+    """
+    Heuristique finale : trier par vote_count × vote_average (proxy popularité).
+    Évite de retourner une émission TV obscure quand un film connu est présent.
+    """
+    def pop_score(c):
+        va = c.get("vote_average") or 0
+        vc = c.get("vote_count")   or 0
+        # Pénaliser légèrement les contenus TV vs film
+        media_bonus = 1.0 if c.get("media_type") == "movie" else 0.85
+        return va * vc * media_bonus
+
+    sorted_c = sorted(candidates, key=pop_score, reverse=True)
+    best = sorted_c[0]
+    print(
+        f"⚠️ Rerank heuristique popularité → "
+        f"{best.get('title') or best.get('name')} "
+        f"(va={best.get('vote_average')}, vc={best.get('vote_count')})",
+        flush=True
+    )
+    return {
+        "id":             best.get("id"),
+        "meilleur_titre": best.get("title") or best.get("name") or "Inconnu",
+        "score":          35,
+        "raison":         "fallback popularité",
+    }
+
+
 # ════════════════════════════════════════════════════════════════
 # NIVEAU 1 — Groq Llama texte
 # ════════════════════════════════════════════════════════════════
@@ -158,22 +162,11 @@ async def _rerank_groq(extraction: dict, candidates: list) -> dict | None:
     if not GROQ_API_KEY:
         return None
 
-    # On filtre l'extraction pour ne garder que les champs utiles au rerank
-    extraction_for_prompt = {
-        "titres_possibles":  extraction.get("titres_possibles", []),
-        "acteurs":           extraction.get("acteurs", []),
-        "personnages":       extraction.get("personnages", []),
-        "objets_importants": extraction.get("objets_importants", []),
-        "indices_visuels":   extraction.get("indices_visuels", []),
-        "description_courte": extraction.get("description_courte", ""),
-        "genre_apparent":    extraction.get("genre_apparent", ""),
-        "annee_estimee":     extraction.get("annee_estimee"),
-        "langue_originale":  extraction.get("langue_originale", ""),
-    }
-
     prompt = RERANK_PROMPT.format(
-        extraction_json=json.dumps(extraction_for_prompt, ensure_ascii=False),
-        candidates_json=json.dumps(_candidates_for_prompt(candidates), ensure_ascii=False),
+        extraction_json=json.dumps(extraction, ensure_ascii=False),
+        candidates_json=json.dumps(
+            _candidates_for_prompt(candidates), ensure_ascii=False
+        ),
     )
 
     try:
@@ -186,14 +179,17 @@ async def _rerank_groq(extraction: dict, candidates: list) -> dict | None:
                         {
                             "role": "system",
                             "content": (
-                                "Tu es un expert en cinéma et séries TV du monde entier. "
-                                "Réponds UNIQUEMENT en JSON valide sur une seule ligne, sans markdown."
+                                "Tu es un expert en cinéma. "
+                                "Réponds UNIQUEMENT en JSON valide, sans markdown. "
+                                "Si tu n'es pas sûr, mets score entre 20 et 49. "
+                                "Ne mets JAMAIS score=0 sauf si aucun candidat "
+                                "ne correspond du tout."
                             )
                         },
                         {"role": "user", "content": prompt}
                     ],
                     "temperature": 0.0,
-                    "max_tokens":  256,
+                    "max_tokens":  512,   # ← augmenté (évite troncature)
                 },
                 headers={
                     "Authorization": f"Bearer {GROQ_API_KEY}",
@@ -204,6 +200,7 @@ async def _rerank_groq(extraction: dict, candidates: list) -> dict | None:
 
         text   = resp.json()["choices"][0]["message"]["content"].strip()
         result = _parse_rerank_response(text, candidates)
+
         print(
             f"✅ Rerank Groq — {result['meilleur_titre']} "
             f"(score={result['score']})",
@@ -211,6 +208,10 @@ async def _rerank_groq(extraction: dict, candidates: list) -> dict | None:
         )
         return result
 
+    except json.JSONDecodeError as e:
+        raw = text if "text" in locals() else "N/A"
+        print(f"⚠️ Rerank Groq JSON KO: {e} | raw={raw[:120]}", flush=True)
+        return None
     except Exception as e:
         print(f"⚠️ Rerank Groq KO: {str(e)[:120]}", flush=True)
         return None
@@ -223,21 +224,11 @@ async def _rerank_gemini(extraction: dict, candidates: list) -> dict | None:
     if not GEMINI_API_KEY:
         return None
 
-    extraction_for_prompt = {
-        "titres_possibles":  extraction.get("titres_possibles", []),
-        "acteurs":           extraction.get("acteurs", []),
-        "personnages":       extraction.get("personnages", []),
-        "objets_importants": extraction.get("objets_importants", []),
-        "indices_visuels":   extraction.get("indices_visuels", []),
-        "description_courte": extraction.get("description_courte", ""),
-        "genre_apparent":    extraction.get("genre_apparent", ""),
-        "annee_estimee":     extraction.get("annee_estimee"),
-        "langue_originale":  extraction.get("langue_originale", ""),
-    }
-
     prompt = RERANK_PROMPT.format(
-        extraction_json=json.dumps(extraction_for_prompt, ensure_ascii=False),
-        candidates_json=json.dumps(_candidates_for_prompt(candidates), ensure_ascii=False),
+        extraction_json=json.dumps(extraction, ensure_ascii=False),
+        candidates_json=json.dumps(
+            _candidates_for_prompt(candidates), ensure_ascii=False
+        ),
     )
 
     try:
@@ -245,10 +236,12 @@ async def _rerank_gemini(extraction: dict, candidates: list) -> dict | None:
             resp = await client.post(
                 f"{GEMINI_URL}?key={GEMINI_API_KEY}",
                 json={
-                    "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                    "contents": [
+                        {"role": "user", "parts": [{"text": prompt}]}
+                    ],
                     "generationConfig": {
                         "temperature":      0.0,
-                        "maxOutputTokens":  256,
+                        "maxOutputTokens":  512,   # ← augmenté (évite troncature)
                         "responseMimeType": "application/json",
                     }
                 }
@@ -259,9 +252,13 @@ async def _rerank_gemini(extraction: dict, candidates: list) -> dict | None:
             resp.json()
             .get("candidates", [{}])[0]
             .get("content", {})
-            .get("parts", [{}])[0]
+            .get("parts",    [{}])[0]
             .get("text", "")
         ).strip()
+
+        if not text:
+            print("⚠️ Rerank Gemini réponse vide", flush=True)
+            return None
 
         result = _parse_rerank_response(text, candidates)
         print(
@@ -271,6 +268,10 @@ async def _rerank_gemini(extraction: dict, candidates: list) -> dict | None:
         )
         return result
 
+    except json.JSONDecodeError as e:
+        raw = text if "text" in locals() else "N/A"
+        print(f"⚠️ Rerank Gemini JSON KO: {e} | raw={raw[:120]}", flush=True)
+        return None
     except Exception as e:
         print(f"⚠️ Rerank Gemini KO: {str(e)[:120]}", flush=True)
         return None
@@ -280,6 +281,9 @@ async def _rerank_gemini(extraction: dict, candidates: list) -> dict | None:
 # POINT D'ENTRÉE PRINCIPAL
 # ════════════════════════════════════════════════════════════════
 async def rerank(extraction: dict, candidates: list) -> dict:
+    """
+    Retourne toujours un dict valide : {id, meilleur_titre, score, raison?}
+    """
     if not candidates:
         return {"meilleur_titre": "Inconnu", "id": None, "score": 0}
 
@@ -308,16 +312,5 @@ async def rerank(extraction: dict, candidates: list) -> dict:
     if result:
         return result
 
-    # ── 3. Heuristique : premier candidat (0 API) ─────────────────
-    best = candidates[0]
-    print(
-        f"⚠️ Rerank fallback heuristique → "
-        f"{best.get('title') or best.get('name')}",
-        flush=True
-    )
-    return {
-        "id":             best.get("id"),
-        "meilleur_titre": best.get("title") or best.get("name") or "Inconnu",
-        "score":          35,
-        "raison":         "fallback heuristique",
-    }
+    # ── 3. Heuristique popularité (0 API) ─────────────────────────
+    return _best_by_popularity(candidates)
