@@ -1,13 +1,13 @@
 """
 vision/universal_downloader.py — Téléchargement multi-plateforme robuste.
 
-Cascade TikTok (403 fréquent sur CDN) :
-  0. Playwright  — interception réseau du vrai flux vidéo (+ fallback parse HTML)
+Cascade TikTok :
+  0. Playwright — télécharge DEPUIS le navigateur (pas httpx externe)
   1. yt-dlp cookies navigateur
-  2. yt-dlp headers TikTok spécifiques
+  2. yt-dlp headers TikTok
   3. yt-dlp API mobile Android
   4. yt-dlp --force-generic-extractor
-  5. yt-dlp --get-url + httpx streaming direct
+  5. yt-dlp --get-url + httpx streaming
 """
 
 import os
@@ -15,7 +15,6 @@ import re
 import asyncio
 import subprocess
 import httpx
-from typing import Optional
 
 MAX_VIDEO_SECONDS = 120
 MAX_FILE_SIZE_MB  = 50
@@ -39,23 +38,11 @@ UA_ANDROID = (
     "Chrome/125.0.6422.165 Mobile Safari/537.36"
 )
 
-# Headers httpx pour DL direct CDN TikTok
-_TIKTOK_DL_HEADERS = {
-    "User-Agent":      UA_MOBILE,
-    "Referer":         "https://www.tiktok.com/",
-    "Origin":          "https://www.tiktok.com",
-    "Cookie":          "tt_webid_v2=; ttwid=; msToken=",
-    "Accept":          "video/webm,video/mp4,video/*;q=0.9,*/*;q=0.8",
-    "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
-    "Range":           "bytes=0-",
-}
-
 # ════════════════════════════════════════════════════════════════
 # HELPERS
 # ════════════════════════════════════════════════════════════════
 def _file_ok(path: str, min_kb: int = 50) -> bool:
     return os.path.exists(path) and os.path.getsize(path) >= min_kb * 1024
-
 
 def _check_size(path: str) -> dict:
     if not os.path.exists(path):
@@ -70,7 +57,6 @@ def _check_size(path: str) -> dict:
         return {"ok": False, "code": "download_empty",
                 "message": "Fichier téléchargé trop petit ou corrompu."}
     return {"ok": True}
-
 
 def _parse_ytdlp_error(stderr: str, stdout: str) -> dict:
     err = (stderr + stdout).lower()
@@ -94,13 +80,12 @@ def _parse_ytdlp_error(stderr: str, stdout: str) -> dict:
                 "message": "Format ou plateforme non supporté."}
     if "too large" in err or "filesize" in err:
         return {"ok": False, "code": "file_too_large",
-                "message": "Fichier trop volumineux. Essayez une vidéo plus courte."}
+                "message": "Fichier trop volumineux."}
     if "403" in err or "forbidden" in err:
         return {"ok": False, "code": "forbidden_403",
                 "message": "Accès refusé (403). Protection anti-bot active."}
     return {"ok": False, "code": "download_failed",
             "message": "Impossible de télécharger cette vidéo. Vérifiez qu'elle est publique."}
-
 
 def _base_ytdlp_args(video_path: str, ua: str, timeout_s: int = MAX_VIDEO_SECONDS) -> list:
     return [
@@ -117,22 +102,22 @@ def _base_ytdlp_args(video_path: str, ua: str, timeout_s: int = MAX_VIDEO_SECOND
         "-o", video_path,
     ]
 
-
 # ════════════════════════════════════════════════════════════════
-# STRATÉGIE 0 — Playwright (interception réseau)
+# STRATÉGIE 0 — Playwright : télécharge DANS le navigateur
 # ════════════════════════════════════════════════════════════════
 async def _tiktok_strategy_0_playwright(url: str, video_path: str) -> dict:
     """
-    Ouvre TikTok dans un vrai Chromium headless, intercepte le flux vidéo
-    dans le trafic réseau, puis télécharge via httpx avec les bons headers.
-    Fallback : parse le HTML à la recherche de downloadAddr / playAddr.
+    Ouvre TikTok dans Chromium headless, intercepte la requête vidéo CDN,
+    puis la rejoue VIA fetch() dans le contexte du navigateur (même session,
+    mêmes cookies, même token signé) et écrit les bytes dans video_path.
+
+    C'est la seule méthode qui contourne la signature CDN liée à la session.
     """
     try:
         from playwright.async_api import async_playwright
     except ImportError:
         print("⚠️ Playwright non installé — stratégie 0 ignorée", flush=True)
-        return {"ok": False, "code": "playwright_missing",
-                "message": "Playwright non disponible."}
+        return {"ok": False, "code": "playwright_missing", "message": "Playwright non disponible."}
 
     best_url  = None
     best_size = 0
@@ -156,17 +141,14 @@ async def _tiktok_strategy_0_playwright(url: str, video_path: str) -> dict:
             )
             page = await context.new_page()
 
+            # ── Interception réseau pour trouver l'URL CDN ───────
             def _handle_response(response):
                 nonlocal best_url, best_size
                 ct  = response.headers.get("content-type", "")
                 cl  = int(response.headers.get("content-length", "0") or 0)
                 ru  = response.url
-                is_video = (
-                    "video" in ct
-                    or ".mp4" in ru
-                    or "mime_type=video" in ru
-                )
-                is_cdn = any(d in ru for d in [
+                is_video = "video" in ct or ".mp4" in ru or "mime_type=video" in ru
+                is_cdn   = any(d in ru for d in [
                     "tiktokcdn", "tiktok.com", "muscdn",
                     "tiktokv.com", "bytecdn", "snssdk",
                 ])
@@ -180,12 +162,12 @@ async def _tiktok_strategy_0_playwright(url: str, video_path: str) -> dict:
             try:
                 await page.goto(url, wait_until="networkidle", timeout=45_000)
             except Exception:
-                pass  # networkidle peut timeout, la vidéo est peut-être déjà interceptée
+                pass  # networkidle peut timeout, la vidéo est souvent déjà interceptée
 
             await page.evaluate("window.scrollBy(0, 100)")
-            await asyncio.sleep(4)
+            await asyncio.sleep(3)
 
-            # ── Fallback parse HTML si aucune URL interceptée ────
+            # ── Fallback : parser le HTML si pas d'interception ──
             if not best_url:
                 html = await page.content()
                 for pattern in [
@@ -200,56 +182,77 @@ async def _tiktok_strategy_0_playwright(url: str, video_path: str) -> dict:
                             .replace(r"\u002F", "/")
                             .replace(r"\/", "/")
                         )
-                        print(f"🎬 URL parsée HTML: {best_url[:70]}", flush=True)
+                        print(f"🎬 URL HTML parsée: {best_url[:70]}", flush=True)
                         break
+
+            if not best_url:
+                await browser.close()
+                return {"ok": False, "code": "playwright_no_url",
+                        "message": "Playwright : aucune URL vidéo trouvée."}
+
+            print(f"✅ Playwright URL trouvée, DL dans le navigateur...", flush=True)
+
+            # ── Téléchargement DEPUIS le navigateur (même session) ──
+            # On utilise fetch() JS dans la page pour télécharger avec les
+            # cookies/tokens de session déjà présents — impossible à faire
+            # depuis httpx externe car l'URL est signée pour cette session.
+            js_result = await page.evaluate("""
+                async (videoUrl) => {
+                    try {
+                        const resp = await fetch(videoUrl, {
+                            method: 'GET',
+                            credentials: 'include',
+                            headers: {
+                                'Accept': 'video/webm,video/mp4,video/*;q=0.9,*/*;q=0.8',
+                                'Range': 'bytes=0-'
+                            }
+                        });
+                        if (!resp.ok) {
+                            return { error: `HTTP ${resp.status}`, bytes: null };
+                        }
+                        const buffer = await resp.arrayBuffer();
+                        // Convertir en tableau d'entiers pour passage JS→Python
+                        const uint8 = new Uint8Array(buffer);
+                        // Encoder en base64 par blocs pour éviter stack overflow
+                        let binary = '';
+                        const chunkSize = 8192;
+                        for (let i = 0; i < uint8.length; i += chunkSize) {
+                            const chunk = uint8.subarray(i, i + chunkSize);
+                            binary += String.fromCharCode.apply(null, chunk);
+                        }
+                        return { error: null, b64: btoa(binary), size: uint8.length };
+                    } catch (e) {
+                        return { error: e.toString(), bytes: null };
+                    }
+                }
+            """, best_url)
 
             await browser.close()
 
+            if not js_result or js_result.get("error"):
+                err_msg = js_result.get("error", "inconnu") if js_result else "résultat null"
+                print(f"⚠️ fetch() JS échoué: {err_msg}", flush=True)
+                return {"ok": False, "code": "playwright_fetch_failed",
+                        "message": f"fetch() navigateur échoué: {err_msg[:80]}"}
+
+            b64_data = js_result.get("b64", "")
+            size_bytes = js_result.get("size", 0)
+
+            if not b64_data or size_bytes < 10_000:
+                return {"ok": False, "code": "download_empty",
+                        "message": f"Données vidéo trop petites ({size_bytes} bytes)."}
+
+            import base64
+            video_bytes = base64.b64decode(b64_data)
+            with open(video_path, "wb") as f:
+                f.write(video_bytes)
+
+            print(f"📥 Playwright DL OK ({size_bytes // 1024} KB)", flush=True)
+            return _check_size(video_path)
+
     except Exception as e:
         print(f"❌ Playwright erreur: {e}", flush=True)
-        return {"ok": False, "code": "playwright_error", "message": str(e)[:100]}
-
-    if not best_url:
-        print("❌ Playwright: aucune URL vidéo trouvée", flush=True)
-        return {"ok": False, "code": "playwright_no_url",
-                "message": "Playwright n'a pas trouvé l'URL vidéo."}
-
-    print(f"✅ Playwright URL: {best_url[:80]}", flush=True)
-
-    # ── Téléchargement httpx avec headers CDN ───────────────────
-    try:
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            timeout=httpx.Timeout(connect=10, read=60, write=10, pool=5),
-            headers=_TIKTOK_DL_HEADERS,
-        ) as client:
-            # Tentative 1 : avec Range header
-            resp = await client.get(best_url)
-            print(f"📥 TikTok DL status={resp.status_code} "
-                  f"size={len(resp.content) // 1024}KB", flush=True)
-
-            if resp.status_code in (200, 206) and len(resp.content) > 10_000:
-                with open(video_path, "wb") as f:
-                    f.write(resp.content)
-                return _check_size(video_path)
-
-            # Tentative 2 : sans Range (certains CDN refusent le Range)
-            if resp.status_code == 403:
-                headers_no_range = {k: v for k, v in _TIKTOK_DL_HEADERS.items()
-                                    if k != "Range"}
-                resp2 = await client.get(best_url, headers=headers_no_range)
-                if resp2.status_code == 200 and len(resp2.content) > 10_000:
-                    with open(video_path, "wb") as f:
-                        f.write(resp2.content)
-                    return _check_size(video_path)
-
-        return {"ok": False, "code": "forbidden_403",
-                "message": f"CDN refusé ({resp.status_code}) même après Playwright."}
-
-    except httpx.TimeoutException:
-        return {"ok": False, "code": "download_timeout", "message": "Timeout httpx après Playwright."}
-    except Exception as e:
-        return {"ok": False, "code": "download_failed", "message": str(e)[:100]}
+        return {"ok": False, "code": "playwright_error", "message": str(e)[:120]}
 
 
 # ════════════════════════════════════════════════════════════════
@@ -260,20 +263,18 @@ async def _tiktok_strategy_1_cookies(url: str, video_path: str) -> dict:
         try:
             cmd = _base_ytdlp_args(video_path, UA_DESKTOP) + [
                 "--cookies-from-browser", browser,
-                "-f", "best[ext=mp4][filesize<50M]/best[filesize<50M]/best",
-                url,
+                "-f", "best[ext=mp4][filesize<50M]/best[filesize<50M]/best", url,
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
-            if result.returncode == 0 and _file_ok(video_path):
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+            if r.returncode == 0 and _file_ok(video_path):
                 print(f"✅ TikTok cookies {browser} OK", flush=True)
                 return {"ok": True}
-            if "no such" in result.stderr.lower() or "unable to load" in result.stderr.lower():
+            if "no such" in r.stderr.lower() or "unable to load" in r.stderr.lower():
                 continue
         except (subprocess.TimeoutExpired, Exception):
             pass
     return {"ok": False, "code": "no_browser_cookies",
             "message": "Aucun cookie navigateur disponible."}
-
 
 async def _tiktok_strategy_2_headers(url: str, video_path: str) -> dict:
     cmd = _base_ytdlp_args(video_path, UA_MOBILE) + [
@@ -284,8 +285,7 @@ async def _tiktok_strategy_2_headers(url: str, video_path: str) -> dict:
         "--add-header", "Sec-Fetch-Dest:video",
         "--add-header", "Accept:video/webm,video/ogg,video/*;q=0.9,*/*;q=0.8",
         "--add-header", "Accept-Language:fr-FR,fr;q=0.9,en;q=0.8",
-        "-f", "best[ext=mp4][filesize<50M]/best[filesize<50M]/best",
-        url,
+        "-f", "best[ext=mp4][filesize<50M]/best[filesize<50M]/best", url,
     ]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
@@ -296,13 +296,11 @@ async def _tiktok_strategy_2_headers(url: str, video_path: str) -> dict:
     except subprocess.TimeoutExpired:
         return {"ok": False, "code": "download_timeout", "message": "Timeout."}
 
-
 async def _tiktok_strategy_3_mobile(url: str, video_path: str) -> dict:
     cmd = _base_ytdlp_args(video_path, UA_ANDROID) + [
         "--extractor-args", "tiktok:api_hostname=api22-normal-c-useast2a.tiktokv.com",
         "--add-header", "Referer:https://www.tiktok.com/",
-        "-f", "best[ext=mp4][filesize<50M]/best[filesize<50M]/best",
-        url,
+        "-f", "best[ext=mp4][filesize<50M]/best[filesize<50M]/best", url,
     ]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
@@ -312,7 +310,6 @@ async def _tiktok_strategy_3_mobile(url: str, video_path: str) -> dict:
         return _parse_ytdlp_error(r.stderr, r.stdout)
     except subprocess.TimeoutExpired:
         return {"ok": False, "code": "download_timeout", "message": "Timeout."}
-
 
 async def _tiktok_strategy_4_generic(url: str, video_path: str) -> dict:
     resolved_url = url
@@ -337,7 +334,6 @@ async def _tiktok_strategy_4_generic(url: str, video_path: str) -> dict:
     except subprocess.TimeoutExpired:
         return {"ok": False, "code": "download_timeout", "message": "Timeout."}
 
-
 async def _tiktok_strategy_5_httpx(url: str, video_path: str) -> dict:
     cmd_geturl = [
         "yt-dlp", "--no-playlist", "--no-check-certificate",
@@ -358,10 +354,17 @@ async def _tiktok_strategy_5_httpx(url: str, video_path: str) -> dict:
         return {"ok": False, "code": "no_direct_url",
                 "message": "Impossible d'obtenir l'URL directe."}
 
-    headers = {**_TIKTOK_DL_HEADERS,
-               "Sec-Fetch-Dest": "video",
-               "Sec-Fetch-Mode": "no-cors",
-               "Sec-Fetch-Site": "cross-site"}
+    headers = {
+        "User-Agent":      UA_MOBILE,
+        "Referer":         "https://www.tiktok.com/",
+        "Origin":          "https://www.tiktok.com",
+        "Accept":          "video/webm,video/mp4,video/*;q=0.9,*/*;q=0.8",
+        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+        "Sec-Fetch-Dest":  "video",
+        "Sec-Fetch-Mode":  "no-cors",
+        "Sec-Fetch-Site":  "cross-site",
+        "Range":           "bytes=0-",
+    }
     try:
         async with httpx.AsyncClient(
             follow_redirects=True,
@@ -386,7 +389,7 @@ async def _tiktok_strategy_5_httpx(url: str, video_path: str) -> dict:
     except httpx.TimeoutException:
         return {"ok": False, "code": "download_timeout", "message": "Timeout httpx."}
     except Exception as e:
-        return {"ok": False, "code": "download_failed", "message": f"Erreur httpx: {str(e)[:80]}"}
+        return {"ok": False, "code": "download_failed", "message": f"Erreur: {str(e)[:80]}"}
 
 
 # ════════════════════════════════════════════════════════════════
@@ -399,12 +402,12 @@ _FATAL_CODES = frozenset({
 
 async def _download_tiktok(url: str, video_path: str) -> dict:
     strategies = [
-        ("Playwright interception", _tiktok_strategy_0_playwright),
-        ("yt-dlp cookies",          _tiktok_strategy_1_cookies),
-        ("yt-dlp headers",          _tiktok_strategy_2_headers),
-        ("yt-dlp API mobile",       _tiktok_strategy_3_mobile),
-        ("yt-dlp generic",          _tiktok_strategy_4_generic),
-        ("httpx direct CDN",        _tiktok_strategy_5_httpx),
+        ("Playwright fetch()",  _tiktok_strategy_0_playwright),
+        ("yt-dlp cookies",      _tiktok_strategy_1_cookies),
+        ("yt-dlp headers",      _tiktok_strategy_2_headers),
+        ("yt-dlp API mobile",   _tiktok_strategy_3_mobile),
+        ("yt-dlp generic",      _tiktok_strategy_4_generic),
+        ("httpx direct CDN",    _tiktok_strategy_5_httpx),
     ]
 
     last_error = None
@@ -428,7 +431,7 @@ async def _download_tiktok(url: str, video_path: str) -> dict:
             continue
 
         if result.get("code") in _FATAL_CODES:
-            return result   # inutile d'essayer d'autres stratégies
+            return result  # inutile d'essayer d'autres stratégies
 
         last_error = result
         print(f"⚠️ [{name}] KO ({result.get('code')}): "
@@ -505,9 +508,7 @@ async def _download_generic(url: str, video_path: str, platform: str) -> dict:
 async def download_video(url: str, video_path: str, platform: str) -> dict:
     """
     Télécharge une vidéo depuis n'importe quelle plateforme supportée.
-
-    Returns:
-        {"ok": True} ou {"ok": False, "code": str, "message": str}
+    Returns: {"ok": True} ou {"ok": False, "code": str, "message": str}
     """
     os.makedirs(
         os.path.dirname(video_path) if os.path.dirname(video_path) else ".",
