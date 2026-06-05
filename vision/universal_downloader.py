@@ -29,12 +29,21 @@ YTDLP_BASE_OPTIONS = {
 async def _download_with_ytdlp(url: str, output_path: str) -> Dict[str, Any]:
     """
     Téléchargement universel via yt-dlp avec plusieurs stratégies
-    pour contourner les blocages anti-bot. Aucun cookie requis.
+    pour contourner les blocages anti-bot. Aucun cookie personnel requis.
     """
     try:
         import yt_dlp
     except ImportError:
         return {"ok": False, "code": "yt_dlp_missing", "message": "yt-dlp non installé"}
+
+    # ── Génération d'un cookie CONSENT (contourne le blocage YouTube) ──
+    import tempfile
+    cookie_file = os.path.join(tempfile.gettempdir(), "yt_consent_cookies.txt")
+    with open(cookie_file, "w") as f:
+        f.write("# Netscape HTTP Cookie File\n")
+        f.write(".youtube.com\tTRUE\t/\tFALSE\t0\tCONSENT\tYES+\n")
+        f.write(".google.com\tTRUE\t/\tFALSE\t0\tCONSENT\tYES+\n")
+    # ────────────────────────────────────────────────────────────────
 
     strategies = [
         {
@@ -67,6 +76,7 @@ async def _download_with_ytdlp(url: str, output_path: str) -> Dict[str, Any]:
     for strategy in strategies:
         opts = YTDLP_BASE_OPTIONS.copy()
         opts["outtmpl"] = os.path.join(os.path.dirname(output_path), "%(id)s.%(ext)s")
+        opts["cookiefile"] = cookie_file   # <-- cookie CONSENT obligatoire
         opts.update(strategy)
 
         try:
@@ -85,9 +95,15 @@ async def _download_with_ytdlp(url: str, output_path: str) -> Dict[str, Any]:
         except Exception as e:
             last_error = str(e)[:200]
             continue
+        finally:
+            # Nettoyer le fichier temporaire après chaque tentative
+            try:
+                if os.path.exists(cookie_file):
+                    os.remove(cookie_file)
+            except:
+                pass
 
     return {"ok": False, "code": "ytdlp_error", "message": last_error}
-
 
 async def _download_tiktok_playwright_subprocess(url: str) -> Dict[str, Any]:
     """Sur Render, lance playwright_worker.py en sous‑processus pour isoler Playwright."""
