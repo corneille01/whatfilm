@@ -1,14 +1,27 @@
 """
 core/retrieval.py — Construction des requêtes de recherche TMDB.
+
+Stratégie multi-langue :
+  1. Langue de la transcription  → priorité maximale (langue du film)
+  2. Langue du navigateur        → priorité secondaire (affichage utilisateur)
+  3. Anglais                     → fallback universel
+
+Fonctions principales :
+  - build_cascade_queries      : génère les requêtes par ordre de précision
+  - run_cascade_search         : exécute la cascade avec stratégie multi-langue
+  - build_candidates_from_actors : candidats via crédits acteurs TMDB
 """
 
 import re
-from data.tmdb import search_person, get_person_credits
+import asyncio
+
+from data.tmdb import search_person, get_person_credits, search_multi_lang
 
 
 # ════════════════════════════════════════════════════════════════
 # BUILD CASCADE QUERIES
 # ════════════════════════════════════════════════════════════════
+
 async def build_cascade_queries(extraction: dict) -> list[str]:
     """
     Génère une liste de requêtes par ordre de précision décroissante.
@@ -16,10 +29,12 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
     Stratégie :
       - Niveau 1 : titres certains (les meilleurs)
       - Niveau 2 : acteurs connus
-      - Niveau 3 : combinaisons indices_visuels + objets + genre + année
-      - Niveau 4 : description_courte découpée en mots-clés combinés
-      - Niveau 5 : titres incertains (?)
-      - Niveau 6 : indices seuls (en dernier, trop génériques seuls)
+      - Niveau 3 : personnages
+      - Niveau 4 : combinaisons indices_visuels + objets + genre + année
+      - Niveau 5 : mots-clés extraits de description_courte
+      - Niveau 6 : titres incertains (?)
+      - Niveau 7 : spécifiques au type de média (anime, documentaire)
+      - Niveau 8 : indices seuls (dernier recours)
     """
     titres_certains   = []
     titres_incertains = []
@@ -32,12 +47,12 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
         else:
             titres_certains.append(t)
 
-    acteurs     = extraction.get("acteurs", []) or []
-    personnages = extraction.get("personnages", []) or []
+    acteurs     = extraction.get("acteurs",     []) or []
+    personnages = extraction.get("personnages",  []) or []
     genre       = (extraction.get("genre_apparent", "") or "").strip()
     annee       = str(extraction.get("annee_estimee") or "").strip()
     description = (extraction.get("description_courte", "") or "").strip()
-    indices     = extraction.get("indices_visuels", []) or []
+    indices     = extraction.get("indices_visuels",   []) or []
     objets      = extraction.get("objets_importants", []) or []
 
     queries = []
@@ -61,14 +76,11 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
     for perso in personnages[:2]:
         queries.append(f"{perso} {genre}".strip())
 
-    # ── Niveau 4 : combinaisons indices + objets (le cœur du fix)
-    # On combine TOUJOURS au moins 2 indices pour éviter les requêtes
-    # trop génériques comme "argent" ou "aéroport" seuls.
+    # ── Niveau 4 : combinaisons indices + objets ─────────────────
+    # On combine au moins 2 indices pour éviter les requêtes trop génériques.
     all_clues = [o for o in objets if o] + [i for i in indices if i]
 
-    # Combinaisons 2-à-2 avec genre/année
     if len(all_clues) >= 2:
-        # Top 3 paires
         for i in range(min(3, len(all_clues) - 1)):
             pair = f"{all_clues[i]} {all_clues[i+1]}"
             queries.append(pair)
@@ -77,7 +89,6 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
             if annee:
                 queries.append(f"{pair} {annee}")
 
-    # Triple combinaison si assez d'indices
     if len(all_clues) >= 3:
         triple = f"{all_clues[0]} {all_clues[1]} {all_clues[2]}"
         queries.append(triple)
@@ -85,17 +96,14 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
             queries.append(f"{triple} {genre}")
 
     # ── Niveau 5 : mots-clés extraits de description_courte ──────
-    # On extrait les groupes nominaux significatifs, pas les mots isolés
     if description:
         keywords = _extract_keywords(description)
         if len(keywords) >= 3:
-            # Requête avec les 3-4 meilleurs mots-clés combinés
             queries.append(" ".join(keywords[:4]))
             if genre:
                 queries.append(f"{' '.join(keywords[:3])} {genre}")
             if annee:
                 queries.append(f"{' '.join(keywords[:3])} {annee}")
-        # Cherche aussi des noms propres dans la description
         proper_nouns = _extract_proper_nouns(description)
         for noun in proper_nouns[:2]:
             queries.append(noun)
@@ -108,26 +116,25 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
         if acteurs:
             queries.append(f"{titre} {acteurs[0]}")
 
-    # ── Niveau 6b : requêtes spécifiques au type de média ─────────
+    # ── Niveau 7 : requêtes spécifiques au type de média ─────────
 
-    # Anime : suffixe "anime" pour orienter TMDB
-    if genre in ("anime", "serie-animation", "serie-animée", "serie-animée"):
+    if genre in ("anime", "serie-animation", "serie-animée"):
         for titre in (titres_certains + titres_incertains)[:2]:
             queries.append(f"{titre} anime")
         for perso in personnages[:1]:
             queries.append(f"{perso} anime")
 
-    # Documentaire : suffixe "documentary" en anglais
     if "document" in genre:
         for titre in titres_certains[:2]:
             queries.append(f"{titre} documentary")
-        mots_doc = [m for m in re.findall(r"\b\w{5,}\b", description)
-                    if m.lower() not in _STOPWORDS]
+        mots_doc = [
+            m for m in re.findall(r"\b\w{5,}\b", description)
+            if m.lower() not in _STOPWORDS
+        ]
         if mots_doc:
             queries.append(f"{' '.join(mots_doc[:3])} documentary")
 
-    # ── Niveau 7 : indices seuls (fallback de dernier recours) ───
-    # Seulement si l'indice est suffisamment spécifique (> 8 chars)
+    # ── Niveau 8 : indices seuls (dernier recours) ───────────────
     for clue in all_clues[:3]:
         if len(clue) > 8:
             queries.append(clue)
@@ -146,9 +153,108 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
 
 
 # ════════════════════════════════════════════════════════════════
+# RUN CASCADE SEARCH — point d'entrée principal pour la recherche
+# ════════════════════════════════════════════════════════════════
+
+async def run_cascade_search(
+    extraction: dict,
+    transcript_lang: str | None = None,
+    browser_lang: str | None = None,
+    max_candidates: int = 20,
+) -> list:
+    """
+    Lance la cascade de requêtes TMDB avec stratégie multi-langue.
+
+    Pour chaque requête générée par build_cascade_queries :
+      - Appelle search_multi_lang (film + TV, toutes langues pertinentes)
+      - Accumule les candidats uniques jusqu'à max_candidates
+      - Early stop si un titre certain remonte suffisamment de résultats
+
+    Args:
+        extraction:      Dict issu de l'extraction Gemini/multimodal.
+        transcript_lang: Code ISO 639-1 de la langue de la transcription.
+                         Si None, utilise extraction["langue_originale"].
+        browser_lang:    Code ISO 639-1 de la langue du navigateur utilisateur.
+        max_candidates:  Nombre max de candidats à retourner.
+
+    Returns:
+        Liste fusionnée, dédoublonnée, triée par popularité. Max max_candidates items.
+    """
+    # Récupérer la langue de la transcription depuis l'extraction si non fournie
+    if not transcript_lang:
+        transcript_lang = extraction.get("langue_originale") or None
+
+    queries = await build_cascade_queries(extraction)
+
+    # Titres certains pour l'early stop
+    titres_certains = {
+        str(t).strip()
+        for t in extraction.get("titres_possibles", [])
+        if t and not str(t).startswith("?")
+    }
+
+    seen_ids:   set  = set()
+    candidates: list = []
+
+    for query in queries:
+        if len(candidates) >= max_candidates:
+            break
+
+        results = await search_multi_lang(
+            query,
+            transcript_lang=transcript_lang,
+            browser_lang=browser_lang,
+        )
+
+        added = 0
+        for item in results:
+            item_id = item.get("id")
+            if item_id and item_id not in seen_ids:
+                seen_ids.add(item_id)
+                candidates.append(item)
+                added += 1
+
+        if added > 0:
+            print(
+                f"  ↳ '{query}' → +{added} candidats "
+                f"(total={len(candidates)})",
+                flush=True
+            )
+
+        # Early stop : titre certain avec assez de candidats → inutile
+        # de continuer avec les requêtes plus floues
+        if query in titres_certains and len(candidates) >= 3:
+            print(f"⚡ Early stop : titre certain '{query}' trouvé", flush=True)
+            break
+
+    candidates.sort(key=lambda x: x.get("popularity", 0), reverse=True)
+    print(
+        f"📋 Cascade terminée → {len(candidates)} candidats uniques",
+        flush=True
+    )
+    return candidates[:max_candidates]
+
+
+# ════════════════════════════════════════════════════════════════
 # BUILD CANDIDATES FROM ACTORS
 # ════════════════════════════════════════════════════════════════
-async def build_candidates_from_actors(extraction: dict, lang: str = "fr") -> list:
+
+async def build_candidates_from_actors(
+    extraction: dict,
+    lang: str = "fr",
+) -> list:
+    """
+    Construit des candidats TMDB à partir des acteurs reconnus dans l'extraction.
+
+    Stratégie :
+      - Si plusieurs acteurs → cherche l'intersection de leurs filmographies
+      - Si aucune intersection → union des top films triés par popularité
+      - Filtre optionnel par genre/année si assez de résultats
+
+    Args:
+        extraction: Dict issu de l'extraction multimodale.
+        lang:       Code ISO 639-1 pour les appels TMDB (titres localisés).
+    """
     acteurs = extraction.get("acteurs", []) or []
     if not acteurs:
         return []
@@ -179,12 +285,19 @@ async def build_candidates_from_actors(extraction: dict, lang: str = "fr") -> li
             common_ids &= {c["id"] for c in credits}
         if common_ids:
             candidates = [c for c in all_credits[0] if c["id"] in common_ids]
-            candidates = sorted(candidates, key=lambda x: x.get("popularity", 0), reverse=True)
-            print(f"✅ Intersection acteurs: {len(candidates)} films communs", flush=True)
+            candidates = sorted(
+                candidates,
+                key=lambda x: x.get("popularity", 0),
+                reverse=True,
+            )
+            print(
+                f"✅ Intersection acteurs: {len(candidates)} films communs",
+                flush=True
+            )
             return candidates[:20]
         print("⚠️ Aucune intersection acteurs → union top films", flush=True)
 
-    seen_ids: set = set()
+    seen_ids: set  = set()
     merged:   list = []
     for credits in all_credits:
         for c in credits[:15]:
@@ -201,6 +314,11 @@ async def build_candidates_from_actors(extraction: dict, lang: str = "fr") -> li
         if len(filtered) >= 3:
             merged = filtered
 
+    # Injecter media_type si absent
+    for c in merged:
+        if "media_type" not in c:
+            c["media_type"] = "tv" if "first_air_date" in c else "movie"
+
     print(f"✅ Candidats via acteurs: {len(merged[:20])}", flush=True)
     return merged[:20]
 
@@ -208,6 +326,7 @@ async def build_candidates_from_actors(extraction: dict, lang: str = "fr") -> li
 # ════════════════════════════════════════════════════════════════
 # HELPERS PRIVÉS
 # ════════════════════════════════════════════════════════════════
+
 _STOPWORDS = {
     # Français
     "dans", "avec", "pour", "qui", "que", "les", "des", "une", "est",
@@ -219,9 +338,9 @@ _STOPWORDS = {
     "when", "what", "that", "this", "with", "from", "have", "they",
     "which", "been", "were", "their", "there", "about", "would",
     "could", "should", "other", "into", "than", "then", "some",
-    # Espagnol/Allemand
+    # Espagnol / Allemand / Portugais
     "sehr", "wird", "eine", "auch", "oder", "para", "esto", "como",
-    "donde", "tiene", "pero", "porque",
+    "donde", "tiene", "pero", "porque", "uma", "isso", "este",
     # Mots trop génériques pour une recherche film
     "film", "scene", "scène", "vidéo", "video", "homme", "femme",
     "jeune", "vieux", "grand", "petit", "faire", "aller", "venir",
@@ -244,24 +363,19 @@ def _extract_keywords(text: str) -> list[str]:
 
 def _extract_proper_nouns(text: str) -> list[str]:
     """
-    Extrait les noms propres probables (mots avec majuscule).
-    Évite le lookbehind variable en capturant le contexte avant.
+    Extrait les noms propres probables (mots avec majuscule non en début de phrase).
     """
     if not text:
         return []
-    # Capture après début de texte ou ponctuation
     matches = re.findall(
         r'(?:^|[.!?;,:]\s{0,5})([A-Z][a-zÀ-ÿ]{2,}(?:\s[A-Z][a-zÀ-ÿ]{2,})?)',
         text
     )
-    # Mots avec majuscule n'importe où (pour ceux non détectés avant)
     mid_caps = re.findall(r'\b([A-Z][a-zÀ-ÿ]{3,})\b', text)
-    # Combiner et dédoublonner
     all_nouns = [m.strip() for m in matches if m.strip()]
     for w in mid_caps:
         if w not in all_nouns:
             all_nouns.append(w)
-    # Filtrer les stopwords
     return [n for n in all_nouns if n.lower() not in _STOPWORDS][:5]
 
 
@@ -287,7 +401,12 @@ _GENRE_TMDB_IDS = {
 }
 
 
-def _filter_by_genre_year(candidates: list, genre: str, annee: str) -> list:
+def _filter_by_genre_year(
+    candidates: list,
+    genre: str,
+    annee: str,
+) -> list:
+    """Filtre les candidats par genre TMDB et/ou année (±3 ans de tolérance)."""
     genre_id  = _GENRE_TMDB_IDS.get(genre)
     annee_int = int(annee) if annee and annee.isdigit() else None
     result    = []

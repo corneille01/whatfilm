@@ -9,6 +9,7 @@ import asyncio
 import re
 from typing import Optional
 from contextlib import asynccontextmanager
+from collections import defaultdict
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
@@ -21,18 +22,17 @@ from vision.ocr_engine import extract_text_from_images, start_loading
 from vision.whisper_engine import transcribe
 
 from core.extraction import multimodal_extract
-from core.retrieval import build_cascade_queries, build_candidates_from_actors
+from core.retrieval import build_candidates_from_actors, run_cascade_search
 from data.tmdb import (
-    search_candidates, get_movie_details, get_tv_details,
-    discover_by_genre, get_trending,
-    search_tv_candidates, get_season_details,
+    search_candidates, search_tv_candidates,
+    get_movie_details, get_tv_details,
+    discover_by_genre, get_trending, get_season_details,
 )
 from data.fake_detector import detect_fake
 from core.reranker import rerank
 from storage.cache import (
     get_cache, get_cache_by_content, get_cache_by_film,
-    get_cache_by_title,
-    set_cache, purge_expired, cache_stats
+    get_cache_by_title, set_cache, purge_expired, cache_stats,
 )
 
 # ════════════════════════════════════════════════════════════════
@@ -41,9 +41,7 @@ from storage.cache import (
 _TRACKING_PARAMS = {
     "_r", "_t", "s", "t", "utm_source", "utm_medium", "utm_campaign",
     "utm_content", "utm_term", "fbclid", "igshid", "ref",
-    "is_from_webapp", "is_copy_url", "sender_device", "q",
-    # NOUVEAU : paramètre de tracking YouTube Shorts sans valeur sémantique
-    "is",
+    "is_from_webapp", "is_copy_url", "sender_device", "q", "is",
 }
 
 def normalize_url(url: str) -> str:
@@ -51,12 +49,10 @@ def normalize_url(url: str) -> str:
     if "?" not in url:
         return url
     base, qs = url.split("?", 1)
-    kept = []
-    for part in qs.split("&"):
-        if "=" in part:
-            key = part.split("=")[0]
-            if key not in _TRACKING_PARAMS:
-                kept.append(part)
+    kept = [
+        part for part in qs.split("&")
+        if "=" in part and part.split("=")[0] not in _TRACKING_PARAMS
+    ]
     return base + ("?" + "&".join(kept) if kept else "")
 
 # ════════════════════════════════════════════════════════════════
@@ -121,10 +117,8 @@ MAX_VIDEO_SECONDS = 120
 MAX_FILE_SIZE_MB  = 50
 
 # ── RATE LIMITING ────────────────────────────────────────────────
-from collections import defaultdict
-
 _ip_minute: dict = defaultdict(list)
-_ip_day: dict    = defaultdict(list)
+_ip_day:    dict = defaultdict(list)
 
 RATE_PER_MINUTE = 10
 RATE_PER_DAY    = 100
@@ -151,25 +145,17 @@ def _get_client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 # ════════════════════════════════════════════════════════════════
-# SESSIONS : deux tables distinctes
-#   sessions       → sessions fallback transcription (comme avant)
-#   _dl_sessions   → sessions de download en arrière-plan
+# SESSIONS
 # ════════════════════════════════════════════════════════════════
-sessions      = {}
-SESSION_TIMEOUT = 300
+sessions:       dict = {}
+SESSION_TIMEOUT: int = 300
 
-# États possibles d'un _dl_session :
-#   "downloading"  → download en cours
-#   "processing"   → analyse en cours après DL réussi
-#   "done"         → résultat disponible dans "result"
-#   "error"        → échec, "result" contient le dict d'erreur
-_dl_sessions: dict = {}
-DL_SESSION_TIMEOUT = 600   # 10 min max avant nettoyage
+_dl_sessions:      dict = {}
+DL_SESSION_TIMEOUT: int = 600
 
 async def cleanup_sessions():
     while True:
         now = time.time()
-        # Sessions transcription
         expired = [sid for sid, s in list(sessions.items())
                    if now - s["timestamp"] > SESSION_TIMEOUT]
         for sid in expired:
@@ -180,7 +166,6 @@ async def cleanup_sessions():
                     if p and os.path.exists(p):
                         shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
 
-        # Sessions download background
         expired_dl = [sid for sid, s in list(_dl_sessions.items())
                       if now - s.get("timestamp", 0) > DL_SESSION_TIMEOUT]
         for sid in expired_dl:
@@ -193,7 +178,6 @@ async def cleanup_sessions():
 
         await asyncio.sleep(60)
 
-# ── APP ───────────────────────────────────────────────────────────
 async def purge_cache_loop():
     while True:
         await asyncio.sleep(3600)
@@ -201,14 +185,11 @@ async def purge_cache_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Purge du cache empoisonné au démarrage
-    # (entrées avec code video_private dont l'URL contient "is=" qui sont
-    #  en réalité des vidéos publiques avec paramètre de tracking)
     try:
         from storage.cache import purge_by_code
         purged = purge_by_code("video_private")
         if purged:
-            print(f"🧹 Cache empoisonné purgé: {purged} entrée(s) video_private supprimée(s)", flush=True)
+            print(f"🧹 Cache empoisonné purgé: {purged} entrée(s) video_private", flush=True)
     except Exception as e:
         print(f"⚠️ Purge cache démarrage: {e}", flush=True)
 
@@ -231,38 +212,39 @@ app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
 
 def cleanup_files(video_path, audio_path, frame_dir, audio_exists):
     try:
-        if os.path.exists(video_path):  os.remove(video_path)
-        if audio_exists and os.path.exists(audio_path): os.remove(audio_path)
-        if os.path.exists(frame_dir):   shutil.rmtree(frame_dir)
+        if os.path.exists(video_path):
+            os.remove(video_path)
+        if audio_exists and os.path.exists(audio_path):
+            os.remove(audio_path)
+        if os.path.exists(frame_dir):
+            shutil.rmtree(frame_dir)
     except Exception as e:
         print(f"⚠️ Cleanup: {e}", flush=True)
 
+# ════════════════════════════════════════════════════════════════
+# MODÈLES
+# ════════════════════════════════════════════════════════════════
 class VideoRequest(BaseModel):
-    url: str
-    lang: str = "fr"
+    url:          str
+    lang:         str = "fr"
+    browser_lang: str = "fr"   # ← langue du navigateur (navigator.language côté JS)
 
 class ContinueRequest(BaseModel):
-    session_id: str
-    ocr_text:   str = ""
-    transcript: str = ""
-
-@app.get("/")
-async def root():
-    return FileResponse("frontend/index.html")
-
-@app.get("/health")
-@app.head("/health")
-async def health():
-    return {"status": "ok"}
+    session_id:   str
+    ocr_text:     str = ""
+    transcript:   str = ""
+    browser_lang: str = "fr"   # ← transmis aussi pour le fallback client
 
 # ════════════════════════════════════════════════════════════════
 # TÂCHE DE FOND : download + analyse complète
 # ════════════════════════════════════════════════════════════════
-async def _run_download_and_analyse(session_id: str, url: str, platform: str, lang: str):
-    """
-    Exécuté en arrière-plan via asyncio.create_task().
-    Met à jour _dl_sessions[session_id] au fil de l'avancement.
-    """
+async def _run_download_and_analyse(
+    session_id: str,
+    url: str,
+    platform: str,
+    lang: str,
+    browser_lang: str,          # ← propagé jusqu'à process_analysis
+):
     session = _dl_sessions.get(session_id)
     if not session:
         return
@@ -283,7 +265,7 @@ async def _run_download_and_analyse(session_id: str, url: str, platform: str, la
         if not dl_result["ok"]:
             session["status"] = "error"
             session["result"] = {"status": "error",
-                                 "code": dl_result["code"],
+                                 "code":    dl_result["code"],
                                  "message": dl_result["message"]}
             return
 
@@ -389,7 +371,6 @@ async def _run_download_and_analyse(session_id: str, url: str, platform: str, la
         need_client_fallback = not bool(transcript)
 
         if need_client_fallback:
-            # Fallback client : on expose les frames/audio via la session standard
             print("🔄 Fallback client (Tesseract.js + Whisper.js)", flush=True)
             frames_b64 = []
             for fpath in frames:
@@ -406,13 +387,16 @@ async def _run_download_and_analyse(session_id: str, url: str, platform: str, la
                 except Exception:
                     pass
 
-            # Stocker dans sessions (table transcription) pour /analyser_continue
             fallback_sid = str(uuid.uuid4())[:12]
             sessions[fallback_sid] = {
-                "url": url, "lang": lang,
-                "video_path": video_path, "audio_path": audio_path,
-                "frame_dir": frame_dir, "ocr_text": "",
-                "timestamp": time.time()
+                "url":        url,
+                "lang":       lang,
+                "browser_lang": browser_lang,
+                "video_path": video_path,
+                "audio_path": audio_path,
+                "frame_dir":  frame_dir,
+                "ocr_text":   "",
+                "timestamp":  time.time(),
             }
             session["status"] = "done"
             session["result"] = {
@@ -421,16 +405,16 @@ async def _run_download_and_analyse(session_id: str, url: str, platform: str, la
                 "frames_base64": frames_b64,
                 "audio_base64":  audio_b64,
             }
-            # Ne pas nettoyer ici : cleanup géré par la session transcription
-            need_client_fallback = True  # flag pour éviter le cleanup final
             return
 
         # ── 6. Analyse complète ──────────────────────────────────
-        result = await process_analysis(frames, "", transcript, url, lang)
+        result = await process_analysis(
+            frames, "", transcript, url, lang, browser_lang
+        )
         session["status"] = "done"
         session["result"] = result
 
-    except Exception as e:
+    except Exception:
         print(f"❌ _run_download_and_analyse: {traceback.format_exc()}", flush=True)
         session["status"] = "error"
         session["result"] = {"status": "error", "code": "unexpected",
@@ -438,10 +422,10 @@ async def _run_download_and_analyse(session_id: str, url: str, platform: str, la
     finally:
         if not need_client_fallback:
             cleanup_files(video_path, audio_path, frame_dir, audio_exists)
-        session["timestamp"] = time.time()   # rafraîchir pour le GC
+        session["timestamp"] = time.time()
 
 # ════════════════════════════════════════════════════════════════
-# ANALYSE PRINCIPALE — retourne immédiatement un session_id
+# ENDPOINT PRINCIPAL
 # ════════════════════════════════════════════════════════════════
 @app.post("/analyser")
 async def analyser(req: VideoRequest, request: Request):
@@ -454,14 +438,13 @@ async def analyser(req: VideoRequest, request: Request):
     url      = await _resolve_short_url(req.url.strip())
     url      = normalize_url(url)
     platform = detect_platform(url)
-    print(f"\n📥 ANALYSE [{platform}]: {url[:80]}", flush=True)
+    print(f"\n📥 ANALYSE [{platform}] lang={req.lang} browser={req.browser_lang}: {url[:80]}", flush=True)
 
     if not SUPPORTED_PLATFORMS.search(url):
         return {"status": "error", "code": "unsupported_platform",
                 "message": "Cette plateforme n'est pas supportée. "
                            "Essayez TikTok, Instagram, YouTube, Twitter/X, Facebook ou Dailymotion."}
 
-    # Cache hit → réponse immédiate, pas besoin de background
     cached = get_cache(url)
     if cached:
         return {"status": "cached", **cached}
@@ -470,57 +453,55 @@ async def analyser(req: VideoRequest, request: Request):
         return {"status": "error", "code": "server_busy",
                 "message": "Le serveur analyse déjà plusieurs vidéos. Réessayez dans 30 secondes."}
 
-    # Créer la session de download et lancer en arrière-plan
     uid        = str(uuid.uuid4())[:8]
     session_id = str(uuid.uuid4())[:12]
     os.makedirs("temp", exist_ok=True)
 
     _dl_sessions[session_id] = {
-        "uid":        uid,
-        "url":        url,
-        "lang":       req.lang,
-        "platform":   platform,
-        "video_path": f"temp/{uid}.mp4",
-        "audio_path": f"temp/{uid}.mp3",
-        "frame_dir":  f"temp/{uid}",
-        "status":     "queued",
-        "result":     None,
-        "timestamp":  time.time(),
+        "uid":          uid,
+        "url":          url,
+        "lang":         req.lang,
+        "browser_lang": req.browser_lang,
+        "platform":     platform,
+        "video_path":   f"temp/{uid}.mp4",
+        "audio_path":   f"temp/{uid}.mp3",
+        "frame_dir":    f"temp/{uid}",
+        "status":       "queued",
+        "result":       None,
+        "timestamp":    time.time(),
     }
 
-    # Lance la tâche sans bloquer la réponse HTTP
     asyncio.create_task(
-        _run_download_and_analyse(session_id, url, platform, req.lang)
+        _run_download_and_analyse(
+            session_id, url, platform, req.lang, req.browser_lang
+        )
     )
 
     return {"status": "processing", "session_id": session_id}
 
-
 # ════════════════════════════════════════════════════════════════
-# POLLING : le client vérifie l'avancement toutes les ~2-3s
+# POLLING
 # ════════════════════════════════════════════════════════════════
 @app.get("/analyser_status/{session_id}")
 async def analyser_status(session_id: str):
     session = _dl_sessions.get(session_id)
     if not session:
-        # Peut-être session transcription déjà consommée
         return {"status": "error", "code": "session_expired",
                 "message": "Session expirée ou introuvable. Relancez l'analyse."}
 
     current_status = session.get("status", "queued")
-
     if current_status in ("queued", "downloading", "processing"):
         return {"status": "processing", "step": current_status}
 
-    # done ou error → on retourne le résultat et on nettoie la session DL
     result = session.get("result") or {
         "status": "error", "code": "unexpected", "message": "Résultat manquant."
     }
     _dl_sessions.pop(session_id, None)
     return result
 
-
-# ── ANALYSE CONTINUE (fallback transcription côté client) ─────────
+# ════════════════════════════════════════════════════════════════
+# FALLBACK TRANSCRIPTION CÔTÉ CLIENT
+# ════════════════════════════════════════════════════════════════
 @app.post("/analyser_continue")
 async def analyser_continue(req: ContinueRequest):
     session = sessions.get(req.session_id)
@@ -528,9 +509,10 @@ async def analyser_continue(req: ContinueRequest):
         return {"status": "error", "code": "session_expired",
                 "message": "Session expirée. Relancez l'analyse."}
     try:
-        ocr_text   = req.ocr_text or ""
-        transcript = req.transcript or ""
-        frame_dir  = session["frame_dir"]
+        ocr_text     = req.ocr_text   or ""
+        transcript   = req.transcript or ""
+        browser_lang = req.browser_lang or session.get("browser_lang", "fr")
+        frame_dir    = session["frame_dir"]
         frames_paths = []
         if os.path.exists(frame_dir):
             frames_paths = sorted([
@@ -542,7 +524,10 @@ async def analyser_continue(req: ContinueRequest):
         if not frames_paths and not ocr_text and not transcript:
             return {"status": "error", "code": "no_data",
                     "message": "Aucune donnée disponible pour l'analyse. Relancez."}
-        return await process_analysis(frames_paths, ocr_text, transcript, session["url"], session["lang"])
+        return await process_analysis(
+            frames_paths, ocr_text, transcript,
+            session["url"], session["lang"], browser_lang,
+        )
     except Exception as e:
         print(f"❌ analyser_continue: {e}", flush=True)
         return {"status": "error", "code": "unexpected",
@@ -555,24 +540,21 @@ async def analyser_continue(req: ContinueRequest):
                 if p and os.path.exists(p):
                     shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
 
-
 # ════════════════════════════════════════════════════════════════
-# PURGE CACHE — endpoint de debug (à sécuriser en prod si besoin)
+# PURGE CACHE
 # ════════════════════════════════════════════════════════════════
 @app.delete("/cache-purge-url")
 async def cache_purge_url(url: str):
-    """Purge une entrée de cache par URL exacte (après normalize_url)."""
     try:
         from storage.cache import delete_cache
         normalized = normalize_url(url.strip())
-        deleted = delete_cache(normalized)
+        deleted    = delete_cache(normalized)
         return {"status": "ok", "deleted": deleted, "url": normalized}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 @app.delete("/cache-purge-code/{code}")
 async def cache_purge_code(code: str):
-    """Purge toutes les entrées de cache avec un code d'erreur donné."""
     try:
         from storage.cache import purge_by_code
         count = purge_by_code(code)
@@ -580,11 +562,17 @@ async def cache_purge_code(code: str):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-
 # ════════════════════════════════════════════════════════════════
-# PROCESS ANALYSIS (inchangé)
+# PROCESS ANALYSIS
 # ════════════════════════════════════════════════════════════════
-async def process_analysis(frames, ocr_text, transcript, url, lang):
+async def process_analysis(
+    frames,
+    ocr_text,
+    transcript,
+    url,
+    lang,
+    browser_lang: str = "fr",    # ← nouveau paramètre
+):
     # ── 1. Cache niveau contenu ──────────────────────────────────
     if transcript or ocr_text:
         content_hit = get_cache_by_content(transcript, ocr_text, lang)
@@ -592,8 +580,8 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
             set_cache(url, content_hit, transcript=transcript, ocr_text=ocr_text)
             return {"status": "cached", **content_hit}
 
-    # ── 2. Détection script ──────────────────────────────────────
-    combined_text  = (transcript or "") + " " + (ocr_text or "")
+    # ── 2. Détection de script ───────────────────────────────────
+    combined_text   = (transcript or "") + " " + (ocr_text or "")
     detected_script = "latin"
     if re.search(r"[؀-ۿݐ-ݿ]", combined_text):
         detected_script = "arabic"
@@ -614,6 +602,25 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
         extraction["detected_script"] = detected_script
     extraction["_transcript_raw"] = transcript or ""
 
+    # Langue de la transcription : priorité à ce que Gemini a détecté,
+    # sinon on infère depuis le script détecté.
+    transcript_lang = extraction.get("langue_originale") or None
+    if not transcript_lang and detected_script != "latin":
+        _script_to_lang = {
+            "arabic":   "ar",
+            "chinese":  "zh",
+            "korean":   "ko",
+            "japanese": "ja",
+            "cyrillic": "ru",
+        }
+        transcript_lang = _script_to_lang.get(detected_script)
+
+    print(
+        f"🌍 Langues — transcription={transcript_lang}, "
+        f"navigateur={browser_lang}, interface={lang}",
+        flush=True
+    )
+
     # ── 4. Cache niveau titre ────────────────────────────────────
     for titre_candidat in extraction.get("titres_possibles", []):
         if str(titre_candidat).startswith("?"):
@@ -623,91 +630,43 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
             set_cache(url, title_hit, transcript=transcript, ocr_text=ocr_text)
             return {"status": "cached", **title_hit}
 
-    fake_score  = detect_fake((ocr_text or "") + " " + (transcript or ""))
-    candidates  = []
-    search_type = "movie"
-    result      = None
+    fake_score = detect_fake((ocr_text or "") + " " + (transcript or ""))
+    candidates = []
+    result     = None
 
     # ── 5. Recherche via acteurs ─────────────────────────────────
-    actor_candidates = await build_candidates_from_actors(extraction, lang)
+    actor_candidates = await build_candidates_from_actors(
+        extraction, lang=transcript_lang or browser_lang or lang
+    )
     if actor_candidates:
         print(f"🎭 Recherche via acteurs: {len(actor_candidates)} candidats", flush=True)
         actor_result = await rerank(extraction, actor_candidates)
         if actor_result and actor_result.get("score", 0) >= 50:
-            matched_candidate = next(
+            matched = next(
                 (c for c in actor_candidates if c.get("id") == actor_result.get("id")),
                 None
             )
-            if matched_candidate:
-                actor_result["media_type"] = matched_candidate.get("media_type", "movie")
-            result      = actor_result
-            candidates  = actor_candidates
-            search_type = actor_result.get("media_type", "movie")
-            print(f"✅ Acteur-match retenu (score={result['score']}, type={search_type})", flush=True)
+            if matched:
+                actor_result["media_type"] = matched.get("media_type", "movie")
+            result     = actor_result
+            candidates = actor_candidates
+            print(
+                f"✅ Acteur-match retenu "
+                f"(score={result['score']}, type={result.get('media_type')})",
+                flush=True
+            )
 
-    # ── 6. Fallback : recherche textuelle TMDB ───────────────────
+    # ── 6. Fallback : cascade multi-langue ───────────────────────
     if not result:
-        queries = await build_cascade_queries(extraction)
-
-        if detected_script in ("chinese", "japanese", "korean"):
-            lang_map      = {"chinese": "zh", "japanese": "ja", "korean": "ko"}
-            original_lang = lang_map[detected_script]
-            titre_brut    = extraction.get("titre", "") or ""
-            if titre_brut and original_lang != lang:
-                queries = queries + [f"{titre_brut} {original_lang}"]
-
-        genre_detected = (extraction.get("genre_apparent") or "").lower()
-
-        TV_FIRST = {"anime", "serie", "série", "animation", "série-animation", "série-animée"}
-        BOTH     = {"documentaire", "documentary", "documentaire-série", "docu-série"}
-
-        async def _try_movie(q, lg):
-            try:
-                r = await search_candidates(q, lg)
-                for c in r: c.setdefault("media_type", "movie")
-                return r
-            except Exception:
-                return []
-
-        async def _try_tv(q, lg):
-            try:
-                r = await search_tv_candidates(q, lg)
-                for c in r: c.setdefault("media_type", "tv")
-                return r
-            except Exception:
-                return []
-
-        async def _try_both(q, lg):
-            rm, rt = await asyncio.gather(_try_movie(q, lg), _try_tv(q, lg))
-            return sorted(rm + rt, key=lambda x: x.get("popularity", 0), reverse=True)
-
-        for search_lang in ([lang] + (["en"] if lang != "en" else [])):
-            for q in queries:
-                if genre_detected in BOTH:
-                    res = await _try_both(q, search_lang)
-                    if res: candidates = res; search_type = "mixed"; break
-                elif genre_detected in TV_FIRST:
-                    res = await _try_tv(q, search_lang)
-                    if not res:
-                        res = await _try_movie(q, search_lang)
-                        if res: search_type = "movie"
-                    else:
-                        search_type = "tv"
-                    if res: candidates = res; break
-                else:
-                    res = await _try_movie(q, search_lang)
-                    if not res:
-                        res = await _try_tv(q, search_lang)
-                        if res: search_type = "tv"
-                    else:
-                        search_type = "movie"
-                    if res: candidates = res; break
-            if candidates:
-                break
+        candidates = await run_cascade_search(
+            extraction,
+            transcript_lang=transcript_lang,
+            browser_lang=browser_lang,
+        )
 
         if not candidates:
-            titres = extraction.get("titres_possibles", [])
-            titre  = str(titres[0]).lstrip("?") if titres else ""
+            titres    = extraction.get("titres_possibles", [])
+            titre     = str(titres[0]).lstrip("?") if titres else ""
             not_found = {
                 "status":         "not_found",
                 "message":        "Aucun film ou série trouvé pour cette vidéo.",
@@ -721,13 +680,13 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
         result = await rerank(extraction, candidates)
         if not result or not result.get("id"):
             result = {
-                "meilleur_titre": candidates[0].get("title", "Inconnu"),
+                "meilleur_titre": candidates[0].get("title") or candidates[0].get("name", "Inconnu"),
                 "id":             candidates[0]["id"],
                 "score":          35,
-                "media_type":     search_type,
+                "media_type":     candidates[0].get("media_type", "movie"),
             }
 
-    # ── 7. Score de confiance et cache film ──────────────────────
+    # ── 7. Score de confiance ────────────────────────────────────
     confidence = result.get("score", 0)
 
     if confidence >= 30 and result.get("id"):
@@ -751,35 +710,50 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
 
     # ── 8. Détails TMDB ──────────────────────────────────────────
     movie_id       = result["id"]
-    effective_type = result.get("media_type") or search_type
-    if effective_type == "mixed":
+    effective_type = result.get("media_type", "movie")
+
+    # Si effective_type non résolu, chercher dans les candidats
+    if not effective_type or effective_type == "mixed":
         matched = next(
-            (c for c in candidates if c.get("id") == result.get("id")), None
+            (c for c in candidates if c.get("id") == movie_id), None
         )
-        effective_type = matched.get("media_type", "movie") if matched else "movie"
+        effective_type = (matched.get("media_type", "movie") if matched else "movie")
 
     print(f"📋 Détails TMDB id={movie_id} type={effective_type}", flush=True)
 
+    # Langue pour les détails : navigateur d'abord (affichage utilisateur),
+    # puis langue de l'interface.
+    details_lang = browser_lang or lang
+
     try:
         details = (
-            await get_tv_details(movie_id, lang)
+            await get_tv_details(movie_id, details_lang)
             if effective_type == "tv"
-            else await get_movie_details(movie_id, lang)
+            else await get_movie_details(movie_id, details_lang)
         )
     except Exception:
         try:
+            # Essayer l'autre type si le premier échoue
             if effective_type == "tv":
-                details = await get_movie_details(movie_id, lang)
+                details        = await get_movie_details(movie_id, details_lang)
                 effective_type = "movie"
             else:
-                details = await get_tv_details(movie_id, lang)
+                details        = await get_tv_details(movie_id, details_lang)
                 effective_type = "tv"
         except Exception as e2:
             print(f"❌ TMDB KO id={movie_id}: {e2}", flush=True)
             return {"status": "error", "code": "tmdb_error",
                     "message": "Impossible de récupérer les détails du film."}
 
-    region    = {"fr": "FR", "en": "US", "es": "ES", "de": "DE", "zh": "CN"}.get(lang, "FR")
+    # Région pour les plateformes de streaming (basée sur la langue navigateur)
+    _lang_to_region = {
+        "fr": "FR", "en": "US", "es": "ES", "de": "DE",
+        "zh": "CN", "ja": "JP", "ko": "KR", "pt": "BR",
+        "ar": "AE", "ru": "RU", "it": "IT", "nl": "NL",
+        "pl": "PL", "tr": "TR", "sv": "SE", "da": "DK",
+        "fi": "FI", "nb": "NO", "no": "NO",
+    }
+    region    = _lang_to_region.get(browser_lang, "US")
     providers = (
         details.get("watch/providers", {})
                .get("results", {})
@@ -792,30 +766,47 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
         "status":          "success",
         "media_type":      effective_type,
         "is_series":       is_series,
-        "title":           result.get("meilleur_titre") or details.get("title") or details.get("name") or "Inconnu",
+        "title":           (result.get("meilleur_titre")
+                            or details.get("title")
+                            or details.get("name")
+                            or "Inconnu"),
         "confidence":      max(0, confidence),
         "synopsis":        details.get("overview", ""),
-        "image":           f"https://image.tmdb.org/t/p/w500{details['poster_path']}" if details.get("poster_path") else "",
+        "image":           (f"https://image.tmdb.org/t/p/w500{details['poster_path']}"
+                            if details.get("poster_path") else ""),
         "streaming":       [p.get("provider_name") for p in providers],
-        "streaming_logos": [{"name": p.get("provider_name"), "logo_path": p.get("logo_path")} for p in providers],
-        "similar":         [
-            {"title": s.get("title", s.get("name", "?")), "id": s.get("id"), "poster_path": s.get("poster_path")}
+        "streaming_logos": [
+            {"name": p.get("provider_name"), "logo_path": p.get("logo_path")}
+            for p in providers
+        ],
+        "similar": [
+            {
+                "title":       s.get("title", s.get("name", "?")),
+                "id":          s.get("id"),
+                "poster_path": s.get("poster_path"),
+            }
             for s in details.get("similar", {}).get("results", [])[:6]
         ],
-        "cast":            [
-            {"name": c.get("name"), "character": c.get("character"), "profile_path": c.get("profile_path")}
+        "cast": [
+            {
+                "name":         c.get("name"),
+                "character":    c.get("character"),
+                "profile_path": c.get("profile_path"),
+            }
             for c in details.get("credits", {}).get("cast", [])[:8]
         ],
-        "trailer":         "",
-        "genres":          [g["name"] for g in details.get("genres", [])],
-        "year":            (details.get("release_date") or details.get("first_air_date") or "").split("-")[0],
-        "runtime":         details.get("runtime") or (details.get("episode_run_time") or [None])[0],
-        "vote_average":    details.get("vote_average"),
-        "vote_count":      details.get("vote_count"),
-        "tmdb_id":         movie_id,
-        "lang":            lang,
-        "is_fake":         fake_score > 70,
-        "seasons":         details.get("seasons") if is_series else None,
+        "trailer":      "",
+        "genres":       [g["name"] for g in details.get("genres", [])],
+        "year":         (details.get("release_date")
+                         or details.get("first_air_date") or "").split("-")[0],
+        "runtime":      (details.get("runtime")
+                         or (details.get("episode_run_time") or [None])[0]),
+        "vote_average": details.get("vote_average"),
+        "vote_count":   details.get("vote_count"),
+        "tmdb_id":      movie_id,
+        "lang":         lang,
+        "is_fake":      fake_score > 70,
+        "seasons":      details.get("seasons") if is_series else None,
     }
 
     if confidence >= 50:
@@ -823,28 +814,30 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
 
     return final
 
+# ════════════════════════════════════════════════════════════════
+# ROUTES PUBLIQUES
+# ════════════════════════════════════════════════════════════════
+_trending_cache:      dict = {}
+_trending_cache_time: dict = {}
+CACHE_DURATION:       int  = 300
 
-# ── ROUTES PUBLIQUES ──────────────────────────────────────────────
 @app.get("/trending")
 async def trending(lang: str = "fr", type: str = "movie"):
     cache_key = f"{lang}_{type}"
     now = time.time()
-    if cache_key in _trending_cache and (now - _trending_cache_time.get(cache_key, 0)) < CACHE_DURATION:
+    if (cache_key in _trending_cache
+            and (now - _trending_cache_time.get(cache_key, 0)) < CACHE_DURATION):
         return _trending_cache[cache_key]
     try:
         results = await get_trending(lang, media_type=type)
         if not results:
             return {"status": "error", "message": "Aucun résultat disponible."}
         response = {"status": "success", "results": results}
-        _trending_cache[cache_key] = response
+        _trending_cache[cache_key]      = response
         _trending_cache_time[cache_key] = now
         return response
     except Exception:
         return {"status": "error", "message": "Impossible de charger les tendances."}
-
-_trending_cache      = {}
-_trending_cache_time = {}
-CACHE_DURATION       = 300
 
 @app.get("/discover/{genre_name}")
 async def discover(genre_name: str, lang: str = "fr", page: int = 1, type: str = "movie"):
@@ -867,7 +860,11 @@ async def discover(genre_name: str, lang: str = "fr", page: int = 1, type: str =
 @app.get("/movie/{movie_id}")
 async def get_movie(movie_id: int, lang: str = "fr", type: str = "movie"):
     try:
-        return await get_tv_details(movie_id, lang) if type == "tv" else await get_movie_details(movie_id, lang)
+        return (
+            await get_tv_details(movie_id, lang)
+            if type == "tv"
+            else await get_movie_details(movie_id, lang)
+        )
     except Exception:
         return {"status": "error", "message": "Fiche film introuvable."}
 
@@ -886,7 +883,11 @@ async def rechercher(query: str, lang: str = "fr"):
             tv = await search_tv_candidates(query, lang) or []
         except Exception:
             tv = []
-        merged = sorted(movies + tv, key=lambda x: x.get("popularity", 0), reverse=True)[:20]
+        merged = sorted(
+            movies + tv,
+            key=lambda x: x.get("popularity", 0),
+            reverse=True
+        )[:20]
         return {"status": "success", "results": merged}
     except Exception:
         return {"status": "error", "message": "Erreur lors de la recherche.", "results": []}
@@ -898,8 +899,10 @@ async def get_cache_stats():
 @app.get("/sitemap.xml")
 async def sitemap():
     base = "https://quelfilm.app"
-    urls = [f"{base}/", f"{base}/fr", f"{base}/en", f"{base}/es", f"{base}/de", f"{base}/zh"]
-    xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+    urls = [f"{base}/", f"{base}/fr", f"{base}/en",
+            f"{base}/es", f"{base}/de", f"{base}/zh"]
+    xml  = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
     for u in urls:
         xml += f"  <url><loc>{u}</loc></url>\n"
     xml += "</urlset>"
@@ -907,7 +910,10 @@ async def sitemap():
 
 @app.get("/robots.txt")
 async def robots():
-    return PlainTextResponse("User-agent: *\nAllow: /\nSitemap: https://quelfilm.app/sitemap.xml\n")
+    return PlainTextResponse(
+        "User-agent: *\nAllow: /\n"
+        "Sitemap: https://quelfilm.app/sitemap.xml\n"
+    )
 
 @app.get("/{lang}")
 async def page_multilingue(lang: str):

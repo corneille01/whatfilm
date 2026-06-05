@@ -1464,6 +1464,8 @@ window.addEventListener("scroll", () => {
   document.getElementById("back-top").classList.toggle("visible", window.scrollY > 400);
 });
 
+const browserLang = navigator.language?.split('-')[0] || 'en';
+// envoyer dans le body de la requête POST
 window.onload = () => {
   initLang();
   chargerTrending().then(() => {
