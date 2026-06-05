@@ -111,15 +111,15 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
     # ── Niveau 6b : requêtes spécifiques au type de média ─────────
 
     # Anime : suffixe "anime" pour orienter TMDB
-    if genre in ("anime", "serie-animation", "serie-animee", "serie-animée"):
-        for titre in (titres + titres_incertains)[:2]:
+    if genre in ("anime", "serie-animation", "serie-animée", "serie-animée"):
+        for titre in (titres_certains + titres_incertains)[:2]:
             queries.append(f"{titre} anime")
         for perso in personnages[:1]:
             queries.append(f"{perso} anime")
 
     # Documentaire : suffixe "documentary" en anglais
     if "document" in genre:
-        for titre in titres[:2]:
+        for titre in titres_certains[:2]:
             queries.append(f"{titre} documentary")
         mots_doc = [m for m in re.findall(r"\b\w{5,}\b", description)
                     if m.lower() not in _STOPWORDS]
@@ -228,6 +228,7 @@ _STOPWORDS = {
     "voir", "dire", "avoir", "être",
 }
 
+
 def _extract_keywords(text: str) -> list[str]:
     """Extrait les mots-clés significatifs d'une description, filtre les stopwords."""
     words = re.findall(r"\b\w{4,}\b", text, re.UNICODE)
@@ -240,15 +241,29 @@ def _extract_keywords(text: str) -> list[str]:
             result.append(w)
     return result
 
+
 def _extract_proper_nouns(text: str) -> list[str]:
-    """Extrait les noms propres (mots commençant par une majuscule, pas en début de phrase)."""
-    # Cherche les mots en majuscule qui ne sont pas en début de phrase
-    candidates = re.findall(r"(?<=[.!?]\s{0,5}|[,;]\s)([A-Z][a-zÀ-ÿ]{2,}(?:\s[A-Z][a-zÀ-ÿ]{2,})?)", text)
-    # Aussi les mots majuscule au milieu d'une phrase
-    mid_caps   = re.findall(r"\b([A-Z][a-zÀ-ÿ]{3,})\b", text)
-    all_nouns  = candidates + [w for w in mid_caps if w not in candidates]
-    # Filtrer les mots génériques
+    """
+    Extrait les noms propres probables (mots avec majuscule).
+    Évite le lookbehind variable en capturant le contexte avant.
+    """
+    if not text:
+        return []
+    # Capture après début de texte ou ponctuation
+    matches = re.findall(
+        r'(?:^|[.!?;,:]\s{0,5})([A-Z][a-zÀ-ÿ]{2,}(?:\s[A-Z][a-zÀ-ÿ]{2,})?)',
+        text
+    )
+    # Mots avec majuscule n'importe où (pour ceux non détectés avant)
+    mid_caps = re.findall(r'\b([A-Z][a-zÀ-ÿ]{3,})\b', text)
+    # Combiner et dédoublonner
+    all_nouns = [m.strip() for m in matches if m.strip()]
+    for w in mid_caps:
+        if w not in all_nouns:
+            all_nouns.append(w)
+    # Filtrer les stopwords
     return [n for n in all_nouns if n.lower() not in _STOPWORDS][:5]
+
 
 _GENRE_TMDB_IDS = {
     "action":          28,
@@ -270,6 +285,7 @@ _GENRE_TMDB_IDS = {
     "thriller":        53,
     "anime":           16,
 }
+
 
 def _filter_by_genre_year(candidates: list, genre: str, annee: str) -> list:
     genre_id  = _GENRE_TMDB_IDS.get(genre)
