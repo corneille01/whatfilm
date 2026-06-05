@@ -238,3 +238,22 @@ def purge_expired() -> int:
     if expired:
         print(f"🧹 RAM purgée: {len(expired)} entrées", flush=True)
     return len(expired)
+
+
+
+def purge_by_code(code: str) -> int:
+    """Supprime toutes les entrées de cache avec un code ou status donné."""
+    count = 0
+    for key in list(_cache.keys()):
+        entry = _cache[key]
+        if entry.get("code") == code or entry.get("status") == code:
+            del _cache[key]
+            count += 1
+    return count
+
+def delete_cache(url: str) -> bool:
+    """Supprime une entrée de cache par URL."""
+    if url in _cache:
+        del _cache[url]
+        return True
+    return False

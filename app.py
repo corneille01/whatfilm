@@ -41,7 +41,9 @@ from storage.cache import (
 _TRACKING_PARAMS = {
     "_r", "_t", "s", "t", "utm_source", "utm_medium", "utm_campaign",
     "utm_content", "utm_term", "fbclid", "igshid", "ref",
-    "is_from_webapp", "is_copy_url", "sender_device", "q"
+    "is_from_webapp", "is_copy_url", "sender_device", "q",
+    # NOUVEAU : paramètre de tracking YouTube Shorts sans valeur sémantique
+    "is",
 }
 
 def normalize_url(url: str) -> str:
@@ -113,7 +115,7 @@ async def _resolve_short_url(url: str) -> str:
         return url
 
 # ════════════════════════════════════════════════════════════════
-# TÉLÉCHARGEMENT — PREMIÈRE MINUTE UNIQUEMENT
+# CONSTANTES
 # ════════════════════════════════════════════════════════════════
 MAX_VIDEO_SECONDS = 120
 MAX_FILE_SIZE_MB  = 50
@@ -148,6 +150,49 @@ def _get_client_ip(request: Request) -> str:
             return val.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
 
+# ════════════════════════════════════════════════════════════════
+# SESSIONS : deux tables distinctes
+#   sessions       → sessions fallback transcription (comme avant)
+#   _dl_sessions   → sessions de download en arrière-plan
+# ════════════════════════════════════════════════════════════════
+sessions      = {}
+SESSION_TIMEOUT = 300
+
+# États possibles d'un _dl_session :
+#   "downloading"  → download en cours
+#   "processing"   → analyse en cours après DL réussi
+#   "done"         → résultat disponible dans "result"
+#   "error"        → échec, "result" contient le dict d'erreur
+_dl_sessions: dict = {}
+DL_SESSION_TIMEOUT = 600   # 10 min max avant nettoyage
+
+async def cleanup_sessions():
+    while True:
+        now = time.time()
+        # Sessions transcription
+        expired = [sid for sid, s in list(sessions.items())
+                   if now - s["timestamp"] > SESSION_TIMEOUT]
+        for sid in expired:
+            s = sessions.pop(sid, None)
+            if s:
+                for key in ("video_path", "audio_path", "frame_dir"):
+                    p = s.get(key)
+                    if p and os.path.exists(p):
+                        shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
+
+        # Sessions download background
+        expired_dl = [sid for sid, s in list(_dl_sessions.items())
+                      if now - s.get("timestamp", 0) > DL_SESSION_TIMEOUT]
+        for sid in expired_dl:
+            s = _dl_sessions.pop(sid, None)
+            if s:
+                for key in ("video_path", "audio_path", "frame_dir"):
+                    p = s.get(key)
+                    if p and os.path.exists(p):
+                        shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
+
+        await asyncio.sleep(60)
+
 # ── APP ───────────────────────────────────────────────────────────
 async def purge_cache_loop():
     while True:
@@ -156,6 +201,17 @@ async def purge_cache_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Purge du cache empoisonné au démarrage
+    # (entrées avec code video_private dont l'URL contient "is=" qui sont
+    #  en réalité des vidéos publiques avec paramètre de tracking)
+    try:
+        from storage.cache import purge_by_code
+        purged = purge_by_code("video_private")
+        if purged:
+            print(f"🧹 Cache empoisonné purgé: {purged} entrée(s) video_private supprimée(s)", flush=True)
+    except Exception as e:
+        print(f"⚠️ Purge cache démarrage: {e}", flush=True)
+
     asyncio.create_task(cleanup_sessions())
     asyncio.create_task(purge_cache_loop())
     start_loading()
@@ -173,26 +229,13 @@ async def render_head_fix(request: Request, call_next):
 
 app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
 
-sessions      = {}
-SESSION_TIMEOUT = 300
-
-async def cleanup_sessions():
-    while True:
-        now = time.time()
-        expired = [sid for sid, s in list(sessions.items())
-                   if now - s["timestamp"] > SESSION_TIMEOUT]
-        for sid in expired:
-            s = sessions.pop(sid, None)
-            if s:
-                for key in ("video_path", "audio_path", "frame_dir"):
-                    p = s.get(key)
-                    if p and os.path.exists(p):
-                        shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
-        await asyncio.sleep(60)
-
-_trending_cache      = {}
-_trending_cache_time = {}
-CACHE_DURATION       = 300
+def cleanup_files(video_path, audio_path, frame_dir, audio_exists):
+    try:
+        if os.path.exists(video_path):  os.remove(video_path)
+        if audio_exists and os.path.exists(audio_path): os.remove(audio_path)
+        if os.path.exists(frame_dir):   shutil.rmtree(frame_dir)
+    except Exception as e:
+        print(f"⚠️ Cleanup: {e}", flush=True)
 
 class VideoRequest(BaseModel):
     url: str
@@ -212,16 +255,193 @@ async def root():
 async def health():
     return {"status": "ok"}
 
-def cleanup_files(video_path, audio_path, frame_dir, audio_exists):
+# ════════════════════════════════════════════════════════════════
+# TÂCHE DE FOND : download + analyse complète
+# ════════════════════════════════════════════════════════════════
+async def _run_download_and_analyse(session_id: str, url: str, platform: str, lang: str):
+    """
+    Exécuté en arrière-plan via asyncio.create_task().
+    Met à jour _dl_sessions[session_id] au fil de l'avancement.
+    """
+    session = _dl_sessions.get(session_id)
+    if not session:
+        return
+
+    uid        = session["uid"]
+    video_path = session["video_path"]
+    audio_path = session["audio_path"]
+    frame_dir  = session["frame_dir"]
+    audio_exists         = False
+    need_client_fallback = False
+
     try:
-        if os.path.exists(video_path):  os.remove(video_path)
-        if audio_exists and os.path.exists(audio_path): os.remove(audio_path)
-        if os.path.exists(frame_dir):   shutil.rmtree(frame_dir)
+        # ── 1. Download ──────────────────────────────────────────
+        session["status"] = "downloading"
+        print(f"📥 DOWNLOAD (max {MAX_VIDEO_SECONDS}s) [{platform}] session={session_id}", flush=True)
+        dl_result = await download_video(url, video_path, platform)
+
+        if not dl_result["ok"]:
+            session["status"] = "error"
+            session["result"] = {"status": "error",
+                                 "code": dl_result["code"],
+                                 "message": dl_result["message"]}
+            return
+
+        if not os.path.exists(video_path) or os.path.getsize(video_path) < 1000:
+            session["status"] = "error"
+            session["result"] = {"status": "error", "code": "download_empty",
+                                 "message": "Le fichier vidéo est vide ou corrompu."}
+            return
+
+        # ── 2. Conversion si nécessaire ──────────────────────────
+        session["status"] = "processing"
+        if video_path.endswith(".mp4"):
+            try:
+                probe = subprocess.run(
+                    ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                     "-show_entries", "stream=codec_name",
+                     "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+                    capture_output=True, text=True, timeout=5
+                )
+                codec = probe.stdout.strip()
+                if codec and codec not in ("h264", "hevc", "h265", "avc"):
+                    print(f"🔄 Conversion {codec} → h264", flush=True)
+                    converted = video_path.replace(".mp4", "_conv.mp4")
+                    subprocess.run(
+                        ["ffmpeg", "-i", video_path, "-c:v", "libx264",
+                         "-crf", "23", "-preset", "fast",
+                         "-c:a", "aac", "-y", converted],
+                        capture_output=True, timeout=60
+                    )
+                    if os.path.exists(converted) and os.path.getsize(converted) > 1000:
+                        os.remove(video_path)
+                        os.rename(converted, video_path)
+            except Exception as e:
+                print(f"⚠️ Probe/convert: {e}", flush=True)
+
+        try:
+            dur_probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+                capture_output=True, text=True, timeout=5
+            )
+            duration = float(dur_probe.stdout.strip() or 0)
+            if 0 < duration < 3:
+                session["status"] = "error"
+                session["result"] = {
+                    "status": "error", "code": "video_too_short",
+                    "message": f"Vidéo trop courte ({duration:.1f}s). Essayez un extrait d'au moins 3 secondes."
+                }
+                return
+            print(f"✅ Durée: {duration:.1f}s", flush=True)
+        except Exception:
+            pass
+
+        file_mb = os.path.getsize(video_path) / 1024 / 1024
+        print(f"✅ Vidéo téléchargée ({file_mb:.1f} MB)", flush=True)
+
+        # ── 3. Extraction audio ──────────────────────────────────
+        print("🎵 AUDIO", flush=True)
+        try:
+            subprocess.run(
+                ["ffmpeg", "-i", video_path,
+                 "-t", str(MAX_VIDEO_SECONDS),
+                 "-vn", "-acodec", "mp3",
+                 "-ar", "16000", "-ac", "1", "-b:a", "64k",
+                 "-y", audio_path],
+                check=True, capture_output=True, timeout=30
+            )
+            audio_exists = os.path.exists(audio_path) and os.path.getsize(audio_path) > 100
+        except Exception as e:
+            print(f"⚠️ Audio extraction: {e}", flush=True)
+
+        # ── 4. Extraction frames ─────────────────────────────────
+        print("🖼️ FRAMES", flush=True)
+        try:
+            frames = extract_keyframes(video_path, frame_dir, max_frames=6) or []
+        except Exception as e:
+            print(f"⚠️ Keyframes: {e}", flush=True)
+            frames = []
+        frames = [f for f in frames if os.path.exists(f) and os.path.getsize(f) > 0]
+        print(f"✅ Frames valides: {len(frames)}", flush=True)
+
+        if not frames and not audio_exists:
+            session["status"] = "error"
+            session["result"] = {"status": "error", "code": "no_frames",
+                                 "message": "Impossible d'extraire des images ou de l'audio de cette vidéo."}
+            return
+
+        # ── 5. Transcription ─────────────────────────────────────
+        print("🎙️ TRANSCRIPTION", flush=True)
+        transcript = ""
+        if audio_exists:
+            try:
+                transcript = transcribe(audio_path, enabled=True)
+                if transcript:
+                    print(f"✅ Transcription OK ({len(transcript)} chars)", flush=True)
+                else:
+                    print("⚠️ Transcription vide → fallback client", flush=True)
+            except Exception as e:
+                print(f"⚠️ Transcription KO: {e}", flush=True)
+        else:
+            print("⚠️ Pas d'audio → fallback client", flush=True)
+
+        need_client_fallback = not bool(transcript)
+
+        if need_client_fallback:
+            # Fallback client : on expose les frames/audio via la session standard
+            print("🔄 Fallback client (Tesseract.js + Whisper.js)", flush=True)
+            frames_b64 = []
+            for fpath in frames:
+                try:
+                    with open(fpath, "rb") as f:
+                        frames_b64.append(base64.b64encode(f.read()).decode())
+                except Exception:
+                    pass
+            audio_b64 = ""
+            if audio_exists:
+                try:
+                    with open(audio_path, "rb") as f:
+                        audio_b64 = base64.b64encode(f.read()).decode()
+                except Exception:
+                    pass
+
+            # Stocker dans sessions (table transcription) pour /analyser_continue
+            fallback_sid = str(uuid.uuid4())[:12]
+            sessions[fallback_sid] = {
+                "url": url, "lang": lang,
+                "video_path": video_path, "audio_path": audio_path,
+                "frame_dir": frame_dir, "ocr_text": "",
+                "timestamp": time.time()
+            }
+            session["status"] = "done"
+            session["result"] = {
+                "status":        "transcription_needed",
+                "session_id":    fallback_sid,
+                "frames_base64": frames_b64,
+                "audio_base64":  audio_b64,
+            }
+            # Ne pas nettoyer ici : cleanup géré par la session transcription
+            need_client_fallback = True  # flag pour éviter le cleanup final
+            return
+
+        # ── 6. Analyse complète ──────────────────────────────────
+        result = await process_analysis(frames, "", transcript, url, lang)
+        session["status"] = "done"
+        session["result"] = result
+
     except Exception as e:
-        print(f"⚠️ Cleanup: {e}", flush=True)
+        print(f"❌ _run_download_and_analyse: {traceback.format_exc()}", flush=True)
+        session["status"] = "error"
+        session["result"] = {"status": "error", "code": "unexpected",
+                             "message": "Une erreur inattendue s'est produite. Réessayez."}
+    finally:
+        if not need_client_fallback:
+            cleanup_files(video_path, audio_path, frame_dir, audio_exists)
+        session["timestamp"] = time.time()   # rafraîchir pour le GC
 
 # ════════════════════════════════════════════════════════════════
-# ANALYSE PRINCIPALE
+# ANALYSE PRINCIPALE — retourne immédiatement un session_id
 # ════════════════════════════════════════════════════════════════
 @app.post("/analyser")
 async def analyser(req: VideoRequest, request: Request):
@@ -241,173 +461,66 @@ async def analyser(req: VideoRequest, request: Request):
                 "message": "Cette plateforme n'est pas supportée. "
                            "Essayez TikTok, Instagram, YouTube, Twitter/X, Facebook ou Dailymotion."}
 
-    # ── Vérification sémaphore : tentative non-bloquante ────────
-    # On tente d'acquérir sans bloquer. Si c'est plein → on refuse
-    # immédiatement. Sinon on relâche et on re-acquiert proprement
-    # via "async with" pour ne pas tenir le slot inutilement.
-    if _analysis_semaphore.locked():
-        # locked() est True seulement si TOUS les slots sont pris
-        # (Semaphore(3).locked() == True quand _value == 0)
-        return {"status": "error", "code": "server_busy",
-                "message": "Le serveur analyse déjà plusieurs vidéos. Réessayez dans 30 secondes."}
-
+    # Cache hit → réponse immédiate, pas besoin de background
     cached = get_cache(url)
     if cached:
         return {"status": "cached", **cached}
 
-    async with _analysis_semaphore:
-        uid        = str(uuid.uuid4())[:8]
-        os.makedirs("temp", exist_ok=True)
-        video_path = f"temp/{uid}.mp4"
-        audio_path = f"temp/{uid}.mp3"
-        frame_dir  = f"temp/{uid}"
-        audio_exists         = False
-        need_client_fallback = False
+    if _analysis_semaphore.locked():
+        return {"status": "error", "code": "server_busy",
+                "message": "Le serveur analyse déjà plusieurs vidéos. Réessayez dans 30 secondes."}
 
-        try:
-            print(f"📥 DOWNLOAD (max {MAX_VIDEO_SECONDS}s) [{platform}]", flush=True)
-            dl_result = await download_video(url, video_path, platform)
-            if not dl_result["ok"]:
-                return {"status": "error", "code": dl_result["code"], "message": dl_result["message"]}
+    # Créer la session de download et lancer en arrière-plan
+    uid        = str(uuid.uuid4())[:8]
+    session_id = str(uuid.uuid4())[:12]
+    os.makedirs("temp", exist_ok=True)
 
-            if not os.path.exists(video_path) or os.path.getsize(video_path) < 1000:
-                return {"status": "error", "code": "download_empty",
-                        "message": "Le fichier vidéo est vide ou corrompu."}
+    _dl_sessions[session_id] = {
+        "uid":        uid,
+        "url":        url,
+        "lang":       req.lang,
+        "platform":   platform,
+        "video_path": f"temp/{uid}.mp4",
+        "audio_path": f"temp/{uid}.mp3",
+        "frame_dir":  f"temp/{uid}",
+        "status":     "queued",
+        "result":     None,
+        "timestamp":  time.time(),
+    }
 
-            # Conversion si nécessaire
-            if video_path.endswith(".mp4"):
-                try:
-                    probe = subprocess.run(
-                        ["ffprobe", "-v", "error", "-select_streams", "v:0",
-                         "-show_entries", "stream=codec_name",
-                         "-of", "default=noprint_wrappers=1:nokey=1", video_path],
-                        capture_output=True, text=True, timeout=5
-                    )
-                    codec = probe.stdout.strip()
-                    if codec and codec not in ("h264", "hevc", "h265", "avc"):
-                        print(f"🔄 Conversion {codec} → h264", flush=True)
-                        converted = video_path.replace(".mp4", "_conv.mp4")
-                        subprocess.run(
-                            ["ffmpeg", "-i", video_path, "-c:v", "libx264",
-                             "-crf", "23", "-preset", "fast",
-                             "-c:a", "aac", "-y", converted],
-                            capture_output=True, timeout=60
-                        )
-                        if os.path.exists(converted) and os.path.getsize(converted) > 1000:
-                            os.remove(video_path)
-                            os.rename(converted, video_path)
-                except Exception as e:
-                    print(f"⚠️ Probe/convert: {e}", flush=True)
+    # Lance la tâche sans bloquer la réponse HTTP
+    asyncio.create_task(
+        _run_download_and_analyse(session_id, url, platform, req.lang)
+    )
 
-            try:
-                dur_probe = subprocess.run(
-                    ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                     "-of", "default=noprint_wrappers=1:nokey=1", video_path],
-                    capture_output=True, text=True, timeout=5
-                )
-                duration = float(dur_probe.stdout.strip() or 0)
-                if 0 < duration < 3:
-                    return {"status": "error", "code": "video_too_short",
-                            "message": f"Vidéo trop courte ({duration:.1f}s). Essayez un extrait d'au moins 3 secondes."}
-                print(f"✅ Durée: {duration:.1f}s", flush=True)
-            except Exception:
-                pass
+    return {"status": "processing", "session_id": session_id}
 
-            file_mb = os.path.getsize(video_path) / 1024 / 1024
-            print(f"✅ Vidéo téléchargée ({file_mb:.1f} MB)", flush=True)
 
-            # Extraction audio
-            print("🎵 AUDIO", flush=True)
-            try:
-                subprocess.run(
-                    ["ffmpeg", "-i", video_path,
-                     "-t", str(MAX_VIDEO_SECONDS),
-                     "-vn", "-acodec", "mp3",
-                     "-ar", "16000",
-                     "-ac", "1",
-                     "-b:a", "64k",
-                     "-y", audio_path],
-                    check=True, capture_output=True, timeout=30
-                )
-                audio_exists = os.path.exists(audio_path) and os.path.getsize(audio_path) > 100
-            except Exception as e:
-                print(f"⚠️ Audio extraction: {e}", flush=True)
+# ════════════════════════════════════════════════════════════════
+# POLLING : le client vérifie l'avancement toutes les ~2-3s
+# ════════════════════════════════════════════════════════════════
+@app.get("/analyser_status/{session_id}")
+async def analyser_status(session_id: str):
+    session = _dl_sessions.get(session_id)
+    if not session:
+        # Peut-être session transcription déjà consommée
+        return {"status": "error", "code": "session_expired",
+                "message": "Session expirée ou introuvable. Relancez l'analyse."}
 
-            # Extraction frames
-            print("🖼️ FRAMES", flush=True)
-            try:
-                frames = extract_keyframes(video_path, frame_dir, max_frames=6) or []
-            except Exception as e:
-                print(f"⚠️ Keyframes: {e}", flush=True)
-                frames = []
-            frames = [f for f in frames if os.path.exists(f) and os.path.getsize(f) > 0]
-            print(f"✅ Frames valides: {len(frames)}", flush=True)
+    current_status = session.get("status", "queued")
 
-            if not frames and not audio_exists:
-                return {"status": "error", "code": "no_frames",
-                        "message": "Impossible d'extraire des images ou de l'audio de cette vidéo."}
+    if current_status in ("queued", "downloading", "processing"):
+        return {"status": "processing", "step": current_status}
 
-            # Transcription
-            print("🎙️ TRANSCRIPTION", flush=True)
-            transcript = ""
-            if audio_exists:
-                try:
-                    transcript = transcribe(audio_path, enabled=True)
-                    if transcript:
-                        print(f"✅ Transcription OK ({len(transcript)} chars)", flush=True)
-                    else:
-                        print("⚠️ Transcription vide → fallback client", flush=True)
-                except Exception as e:
-                    print(f"⚠️ Transcription KO: {e}", flush=True)
-            else:
-                print("⚠️ Pas d'audio → fallback client", flush=True)
+    # done ou error → on retourne le résultat et on nettoie la session DL
+    result = session.get("result") or {
+        "status": "error", "code": "unexpected", "message": "Résultat manquant."
+    }
+    _dl_sessions.pop(session_id, None)
+    return result
 
-            need_client_fallback = not bool(transcript)
 
-            if need_client_fallback:
-                print("🔄 Fallback client (Tesseract.js + Whisper.js)", flush=True)
-                frames_b64 = []
-                for fpath in frames:
-                    try:
-                        with open(fpath, "rb") as f:
-                            frames_b64.append(base64.b64encode(f.read()).decode())
-                    except Exception:
-                        pass
-                audio_b64 = ""
-                if audio_exists:
-                    try:
-                        with open(audio_path, "rb") as f:
-                            audio_b64 = base64.b64encode(f.read()).decode()
-                    except Exception:
-                        pass
-                session_id = str(uuid.uuid4())[:12]
-                sessions[session_id] = {
-                    "url": url, "lang": req.lang,
-                    "video_path": video_path, "audio_path": audio_path,
-                    "frame_dir": frame_dir, "ocr_text": "",
-                    "timestamp": time.time()
-                }
-                return {
-                    "status":        "transcription_needed",
-                    "session_id":    session_id,
-                    "frames_base64": frames_b64,
-                    "audio_base64":  audio_b64
-                }
-
-            return await process_analysis(frames, "", transcript, url, req.lang)
-
-        except asyncio.TimeoutError:
-            return {"status": "error", "code": "timeout",
-                    "message": "L'analyse a pris trop de temps. Réessayez avec une vidéo plus courte."}
-        except Exception as e:
-            print(f"❌ ERROR: {traceback.format_exc()}", flush=True)
-            return {"status": "error", "code": "unexpected",
-                    "message": "Une erreur inattendue s'est produite. Réessayez dans quelques instants."}
-        finally:
-            if not need_client_fallback:
-                cleanup_files(video_path, audio_path, frame_dir, audio_exists)
-
-# ── ANALYSE CONTINUE ──────────────────────────────────────────────
+# ── ANALYSE CONTINUE (fallback transcription côté client) ─────────
 @app.post("/analyser_continue")
 async def analyser_continue(req: ContinueRequest):
     session = sessions.get(req.session_id)
@@ -442,21 +555,36 @@ async def analyser_continue(req: ContinueRequest):
                 if p and os.path.exists(p):
                     shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
 
+
 # ════════════════════════════════════════════════════════════════
-# PROCESS ANALYSIS
+# PURGE CACHE — endpoint de debug (à sécuriser en prod si besoin)
+# ════════════════════════════════════════════════════════════════
+@app.delete("/cache-purge-url")
+async def cache_purge_url(url: str):
+    """Purge une entrée de cache par URL exacte (après normalize_url)."""
+    try:
+        from storage.cache import delete_cache
+        normalized = normalize_url(url.strip())
+        deleted = delete_cache(normalized)
+        return {"status": "ok", "deleted": deleted, "url": normalized}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.delete("/cache-purge-code/{code}")
+async def cache_purge_code(code: str):
+    """Purge toutes les entrées de cache avec un code d'erreur donné."""
+    try:
+        from storage.cache import purge_by_code
+        count = purge_by_code(code)
+        return {"status": "ok", "purged": count, "code": code}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════
+# PROCESS ANALYSIS (inchangé)
 # ════════════════════════════════════════════════════════════════
 async def process_analysis(frames, ocr_text, transcript, url, lang):
-    """
-    Pipeline complet :
-    1. Cache contenu
-    2. Détection script
-    3. Extraction multimodale (LLM)
-    4. Cache titre
-    5. Recherche via acteurs (filmographie) → rerank
-    6. Fallback : recherche textuelle TMDB → rerank
-    7. Détails TMDB + réponse finale
-    """
-
     # ── 1. Cache niveau contenu ──────────────────────────────────
     if transcript or ocr_text:
         content_hit = get_cache_by_content(transcript, ocr_text, lang)
@@ -500,7 +628,7 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
     search_type = "movie"
     result      = None
 
-    # ── 5. Recherche via acteurs (filmographie) ──────────────────
+    # ── 5. Recherche via acteurs ─────────────────────────────────
     actor_candidates = await build_candidates_from_actors(extraction, lang)
     if actor_candidates:
         print(f"🎭 Recherche via acteurs: {len(actor_candidates)} candidats", flush=True)
@@ -515,10 +643,7 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
             result      = actor_result
             candidates  = actor_candidates
             search_type = actor_result.get("media_type", "movie")
-            print(
-                f"✅ Acteur-match retenu (score={result['score']}, type={search_type})",
-                flush=True
-            )
+            print(f"✅ Acteur-match retenu (score={result['score']}, type={search_type})", flush=True)
 
     # ── 6. Fallback : recherche textuelle TMDB ───────────────────
     if not result:
@@ -533,14 +658,8 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
 
         genre_detected = (extraction.get("genre_apparent") or "").lower()
 
-        TV_FIRST = {
-            "anime", "serie", "série", "animation",
-            "série-animation", "série-animée",
-        }
-        BOTH = {
-            "documentaire", "documentary",
-            "documentaire-série", "docu-série",
-        }
+        TV_FIRST = {"anime", "serie", "série", "animation", "série-animation", "série-animée"}
+        BOTH     = {"documentaire", "documentary", "documentaire-série", "docu-série"}
 
         async def _try_movie(q, lg):
             try:
@@ -560,17 +679,13 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
 
         async def _try_both(q, lg):
             rm, rt = await asyncio.gather(_try_movie(q, lg), _try_tv(q, lg))
-            merged = rm + rt
-            return sorted(merged, key=lambda x: x.get("popularity", 0), reverse=True)
+            return sorted(rm + rt, key=lambda x: x.get("popularity", 0), reverse=True)
 
         for search_lang in ([lang] + (["en"] if lang != "en" else [])):
             for q in queries:
                 if genre_detected in BOTH:
                     res = await _try_both(q, search_lang)
-                    if res:
-                        candidates  = res
-                        search_type = "mixed"
-                        break
+                    if res: candidates = res; search_type = "mixed"; break
                 elif genre_detected in TV_FIRST:
                     res = await _try_tv(q, search_lang)
                     if not res:
@@ -578,9 +693,7 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
                         if res: search_type = "movie"
                     else:
                         search_type = "tv"
-                    if res:
-                        candidates = res
-                        break
+                    if res: candidates = res; break
                 else:
                     res = await _try_movie(q, search_lang)
                     if not res:
@@ -588,9 +701,7 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
                         if res: search_type = "tv"
                     else:
                         search_type = "movie"
-                    if res:
-                        candidates = res
-                        break
+                    if res: candidates = res; break
             if candidates:
                 break
 
@@ -639,8 +750,7 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
         return low_conf
 
     # ── 8. Détails TMDB ──────────────────────────────────────────
-    movie_id = result["id"]
-
+    movie_id       = result["id"]
     effective_type = result.get("media_type") or search_type
     if effective_type == "mixed":
         matched = next(
@@ -659,11 +769,9 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
     except Exception:
         try:
             if effective_type == "tv":
-                print(f"⚠️ get_tv_details KO id={movie_id} → essai movie", flush=True)
                 details = await get_movie_details(movie_id, lang)
                 effective_type = "movie"
             else:
-                print(f"⚠️ get_movie_details KO id={movie_id} → essai tv", flush=True)
                 details = await get_tv_details(movie_id, lang)
                 effective_type = "tv"
         except Exception as e2:
@@ -715,6 +823,7 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
 
     return final
 
+
 # ── ROUTES PUBLIQUES ──────────────────────────────────────────────
 @app.get("/trending")
 async def trending(lang: str = "fr", type: str = "movie"):
@@ -732,6 +841,10 @@ async def trending(lang: str = "fr", type: str = "movie"):
         return response
     except Exception:
         return {"status": "error", "message": "Impossible de charger les tendances."}
+
+_trending_cache      = {}
+_trending_cache_time = {}
+CACHE_DURATION       = 300
 
 @app.get("/discover/{genre_name}")
 async def discover(genre_name: str, lang: str = "fr", page: int = 1, type: str = "movie"):
