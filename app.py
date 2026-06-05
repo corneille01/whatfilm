@@ -919,6 +919,9 @@ async def robots():
 async def index():
     return FileResponse("frontend/index.html")
 
+@app.get("/health")
+async def health():
+    return Response(status_code=200)
 @app.get("/{lang}")
 async def page_multilingue(lang: str):
     if len(lang) != 2 or not lang.isalpha():
