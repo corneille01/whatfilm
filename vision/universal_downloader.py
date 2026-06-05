@@ -1,16 +1,15 @@
+# vision/universal_downloader.py
 import os
-import subprocess
-import json
 import asyncio
-import tempfile
-from typing import Optional, Dict, Any
+import json
+from typing import Dict, Any
 
 # ══════════════════════════════════════════════════════════════
-# DÉTECTION RENDER
+# DÉTECTION RENDER (ne bloque rien hors Render)
 # ══════════════════════════════════════════════════════════════
 IS_RENDER = bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID"))
 
-YTDLP_OPTIONS = {
+YTDLP_BASE_OPTIONS = {
     "format": "mp4/best",
     "outtmpl": "%(id)s.%(ext)s",
     "quiet": True,
@@ -18,37 +17,80 @@ YTDLP_OPTIONS = {
     "extract_flat": False,
     "socket_timeout": 30,
     "retries": 2,
+    "headers": {
+        "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36"
+    },
 }
 
+# ══════════════════════════════════════════════════════════════
+# FONCTIONS INTERNES
+# ══════════════════════════════════════════════════════════════
+
 async def _download_with_ytdlp(url: str, output_path: str) -> Dict[str, Any]:
-    """Stratégie générique via yt-dlp (fonctionne sur toutes les plateformes)."""
+    """
+    Téléchargement universel via yt-dlp avec plusieurs stratégies
+    pour contourner les blocages anti-bot. Aucun cookie requis.
+    """
     try:
         import yt_dlp
     except ImportError:
         return {"ok": False, "code": "yt_dlp_missing", "message": "yt-dlp non installé"}
 
-    opts = YTDLP_OPTIONS.copy()
-    opts["outtmpl"] = os.path.join(os.path.dirname(output_path), "%(id)s.%(ext)s")
-    try:
-        loop = asyncio.get_event_loop()
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=True))
-            if info and "requested_downloads" in info:
-                downloaded_file = info["requested_downloads"][0]["filepath"]
-                if downloaded_file != output_path:
-                    os.rename(downloaded_file, output_path)
-                return {"ok": True}
-            elif info and info.get("url"):
-                return {"ok": True, "direct_url": info["url"]}
-            else:
-                return {"ok": False, "code": "ytdlp_no_stream", "message": "Aucun flux trouvé"}
-    except Exception as e:
-        return {"ok": False, "code": "ytdlp_error", "message": str(e)[:200]}
+    strategies = [
+        {
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "ios"],
+                    "skip": ["hls", "dash"],
+                }
+            }
+        },
+        {
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["web", "android"],
+                    "skip": ["hls"],
+                }
+            }
+        },
+        {
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["web"],
+                }
+            }
+        },
+    ]
+
+    last_error = ""
+
+    for strategy in strategies:
+        opts = YTDLP_BASE_OPTIONS.copy()
+        opts["outtmpl"] = os.path.join(os.path.dirname(output_path), "%(id)s.%(ext)s")
+        opts.update(strategy)
+
+        try:
+            loop = asyncio.get_event_loop()
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=True))
+                if info and "requested_downloads" in info:
+                    downloaded_file = info["requested_downloads"][0]["filepath"]
+                    if downloaded_file != output_path:
+                        os.rename(downloaded_file, output_path)
+                    return {"ok": True}
+                elif info and info.get("url"):
+                    return {"ok": True, "direct_url": info["url"]}
+                else:
+                    last_error = "Aucun flux trouvé"
+        except Exception as e:
+            last_error = str(e)[:200]
+            continue
+
+    return {"ok": False, "code": "ytdlp_error", "message": last_error}
 
 
 async def _download_tiktok_playwright_subprocess(url: str) -> Dict[str, Any]:
-    """Sur Render, lance vision/playwright_worker.py en sous‑processus pour isoler les ports UDP."""
-    # Chemin absolu vers le worker, relatif au répertoire de travail de gunicorn (/app)
+    """Sur Render, lance playwright_worker.py en sous‑processus pour isoler Playwright."""
     worker_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "playwright_worker.py")
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -145,19 +187,20 @@ async def _download_via_direct_url(direct_url: str, output_path: str) -> Dict[st
         return {"ok": False, "code": "direct_download_error", "message": str(e)[:200]}
 
 
+# ══════════════════════════════════════════════════════════════
+# FONCTION PRINCIPALE (appelée par app.py)
+# ══════════════════════════════════════════════════════════════
+
 async def download_video(url: str, output_path: str, platform: str = "unknown") -> Dict[str, Any]:
     """
-    Point d'entrée unique pour télécharger la vidéo.
-    Stratégies par ordre :
-      - Si plateforme = tiktok :
-          1. Playwright (isolé sur Render, direct sinon) → récupérer l'URL directe
-          2. yt-dlp
-      - Autres plateformes : yt-dlp uniquement.
+    Point d'entrée unique pour télécharger une vidéo.
+    Stratégies :
+      - TikTok : Playwright (direct ou sous‑processus) puis fallback yt‑dlp
+      - Autres plateformes : yt‑dlp (avec contournement anti-bot)
     """
     if os.path.exists(output_path):
         os.remove(output_path)
 
-    # ── TikTok ──
     if platform == "tiktok":
         playwright_result = None
         if IS_RENDER:
@@ -165,13 +208,11 @@ async def download_video(url: str, output_path: str, platform: str = "unknown") 
         else:
             playwright_result = await _download_tiktok_playwright_direct(url)
 
-        if playwright_result.get("ok") and playwright_result.get("direct_url"):
+        if playwright_result and playwright_result.get("ok") and playwright_result.get("direct_url"):
             dl_result = await _download_via_direct_url(playwright_result["direct_url"], output_path)
             if dl_result["ok"]:
                 return dl_result
 
-        # Fallback yt-dlp
         return await _download_with_ytdlp(url, output_path)
 
-    # ── Autres plateformes ──
     return await _download_with_ytdlp(url, output_path)

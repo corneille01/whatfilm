@@ -1,4 +1,4 @@
-# storage/cache.py  ← remplace ENTIÈREMENT l'ancien fichier
+# storage/cache.py
 import hashlib
 import json
 import os
@@ -180,7 +180,6 @@ def purge_expired() -> int:
 def purge_by_code(code: str) -> int:
     """Purge RAM + Redis : toutes les entrées url:* dont data.code == code."""
     count = 0
-    # RAM
     to_delete = [
         k for k, v in _ram.items()
         if isinstance(v.get("data"), dict)
@@ -189,7 +188,6 @@ def purge_by_code(code: str) -> int:
     for k in to_delete:
         del _ram[k]
         count += 1
-    # Redis (scan url:* uniquement)
     if _redis_available:
         try:
             for key in _redis.scan_iter("url:*", count=200):

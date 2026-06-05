@@ -25,17 +25,14 @@ def main():
             )
             page = context.new_page()
 
-            # Bloquer les ressources inutiles pour accélérer
             page.route("**/*", lambda route: route.abort()
                        if route.request.resource_type in ("image", "font", "stylesheet")
                        else route.continue_())
 
             page.goto(url, wait_until="domcontentloaded", timeout=25000)
-            page.wait_for_timeout(3000)  # laisser la page charger les scripts
+            page.wait_for_timeout(3000)
 
-            # Essayer de récupérer l'URL de la vidéo via l'API tiktok ou un sélecteur
             video_url = None
-            # Chercher une balise <video> avec src
             try:
                 video_element = page.query_selector("video")
                 if video_element:
@@ -43,7 +40,6 @@ def main():
             except:
                 pass
 
-            # Si pas trouvé, tenter via la balise meta
             if not video_url:
                 try:
                     meta = page.query_selector('meta[property="og:video"]')
@@ -52,11 +48,9 @@ def main():
                 except:
                     pass
 
-            # Si toujours pas, essayer via l'objet global __UNIVERSAL_DATA__
             if not video_url:
                 try:
                     data = page.evaluate("() => window.__UNIVERSAL_DATA__ || window.__NEXT_DATA__ || window.__DATA__")
-                    # Parcours heuristique pour trouver une URL vidéo
                     if isinstance(data, dict):
                         for key, val in data.items():
                             if isinstance(val, str) and val.startswith("http") and ".mp4" in val:

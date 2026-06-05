@@ -745,9 +745,7 @@ function gameOver() {
   if (hint) { hint.textContent = t("game_over") + gameState.score + " — TAP"; hint.style.display = "block"; }
 }
 
-// ════════════════════════════════════════════════════════════════
-// ANALYSE VIDÉO — avec polling sur /analyser_status/{session_id}
-// ════════════════════════════════════════════════════════════════
+// ════ ANALYSE VIDÉO (avec polling) ════
 async function analyserVideo(lien) {
   hideHero();
 
@@ -771,31 +769,19 @@ async function analyserVideo(lien) {
   const progressBar = document.getElementById("prog-fill");
   const percentLabel = document.getElementById("prog-percent");
 
-  // Progression simulée : monte jusqu'à 88% pendant l'attente
   let progInterval = setInterval(() => {
     if (progress < 88) {
-      progress += Math.random() * 4 + 1.5;
+      progress += Math.random() * 8 + 3;
       if (progress > 88) progress = 88;
       if (progressBar) progressBar.style.width = progress + "%";
       if (percentLabel) percentLabel.textContent = Math.round(progress) + "%";
     }
-  }, 1200);
+  }, 900);
 
   analysisAbortController = new AbortController();
   const signal = analysisAbortController.signal;
 
-  const _cleanup = (err) => {
-    clearInterval(progInterval);
-    _adFinished = true;
-    document.getElementById('ad-modal').style.display = 'none';
-    clearInterval(_adCountdownInterval);
-    overlay.classList.remove("active");
-    stopGame();
-    if (err) afficherErreurRiche(err);
-  };
-
   try {
-    // ── 1. Lancer l'analyse (réponse immédiate avec session_id) ──
     const res = await fetch("/analyser", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -809,84 +795,25 @@ async function analyserVideo(lien) {
     try { data = await res.json(); }
     catch(e) { throw new Error("json_parse"); }
 
-    // Erreur immédiate (rate limit, plateforme non supportée, etc.)
     if (data.status === "error") {
-      _cleanup();
-      afficherErreurRiche(data);
-      return;
-    }
-
-    // Cache hit : résultat direct, pas besoin de polling
-    if (data.status === "cached" || data.status === "success") {
       clearInterval(progInterval);
-      _afficherResultatFinal(data);
-      return;
-    }
-
-    // ── 2. Polling sur /analyser_status/{session_id} ─────────────
-    if (data.status === "processing" && data.session_id) {
-      const sessionId = data.session_id;
-      const MAX_POLLS = 120;   // 120 × 2.5s = 5 minutes max
-      const POLL_INTERVAL = 2500;
-      let polls = 0;
-
-      const pollResult = await new Promise((resolve, reject) => {
-        const interval = setInterval(async () => {
-          if (signal.aborted) {
-            clearInterval(interval);
-            reject(new DOMException("Aborted", "AbortError"));
-            return;
-          }
-          polls++;
-          if (polls > MAX_POLLS) {
-            clearInterval(interval);
-            resolve({ status: "error", code: "timeout",
-                      message: t("err_timeout") });
-            return;
-          }
-          try {
-            const statusRes = await fetch(`/analyser_status/${sessionId}`, { signal });
-            if (!statusRes.ok) return; // on réessaie au prochain tick
-            const statusData = await statusRes.json();
-
-            if (statusData.status === "processing") return; // encore en cours
-            // done ou error ou transcription_needed
-            clearInterval(interval);
-            resolve(statusData);
-          } catch(e) {
-            if (e.name === "AbortError") {
-              clearInterval(interval);
-              reject(e);
-            }
-            // Erreur réseau transitoire → on réessaie
-          }
-        }, POLL_INTERVAL);
-      });
-
-      data = pollResult;
-    }
-
-    clearInterval(progInterval);
-
-    // ── 3. Traitement du résultat final ──────────────────────────
-    if (data.status === "error") {
-      _cleanup();
+      _adFinished = true;
+      document.getElementById('ad-modal').style.display = 'none';
+      clearInterval(_adCountdownInterval);
+      overlay.classList.remove("active");
+      stopGame();
       afficherErreurRiche(data);
       return;
     }
 
-    // Fallback client (transcription côté navigateur)
     if (data.status === "transcription_needed") {
+      clearInterval(progInterval);
       const skipWhisper = data.skip_whisper === true;
-
       const [ocrText, transcript] = await Promise.allSettled([
         data.frames_base64?.length ? runLocalOCR(data.frames_base64) : Promise.resolve(""),
         (!skipWhisper && data.audio_base64) ? runLocalWhisper(data.audio_base64) : Promise.resolve("")
       ]);
-
-      if (skipWhisper) {
-        console.log("⏭️ Whisper.js skippé (skip_whisper=true)");
-      }
+      if (skipWhisper) console.log("⏭️ Whisper.js skippé");
 
       const continueRes = await fetch("/analyser_continue", {
         method: "POST",
@@ -898,22 +825,32 @@ async function analyserVideo(lien) {
         }),
         signal
       });
-
       let finalData;
       try { finalData = await continueRes.json(); }
       catch(e) { throw new Error("json_parse"); }
-
-      clearInterval(progInterval);
       _afficherResultatFinal(finalData);
       return;
     }
 
+    if (data.status === "processing" && data.session_id) {
+      clearInterval(progInterval);
+      const sessionId = data.session_id;
+      const finalResult = await pollAnalysisStatus(sessionId, signal);
+      _afficherResultatFinal(finalResult);
+      return;
+    }
+
+    clearInterval(progInterval);
     _afficherResultatFinal(data);
 
   } catch (e) {
     clearInterval(progInterval);
+    _adFinished = true;
+    document.getElementById('ad-modal').style.display = 'none';
+    clearInterval(_adCountdownInterval);
+    overlay.classList.remove("active");
+    stopGame();
     if (e.name === "AbortError") return;
-    _cleanup();
     if (e.message === "json_parse") {
       afficherErreurRiche({ code: "unexpected", message: t("err_generic") });
     } else if (e.message?.startsWith("http_")) {
@@ -923,6 +860,49 @@ async function analyserVideo(lien) {
       afficherErreurRiche({ code: "unexpected", message: t("err_generic") });
     }
   }
+}
+
+// ════ POLLING DU STATUT DE L'ANALYSE ════
+async function pollAnalysisStatus(sessionId, signal, maxRetries = 60) {
+  const progressBar = document.getElementById("prog-fill");
+  const percentLabel = document.getElementById("prog-percent");
+  let lastProgress = 88;
+
+  for (let i = 0; i < maxRetries; i++) {
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+
+    try {
+      const res = await fetch(`/analyser_status/${sessionId}`, { signal });
+      if (!res.ok) throw new Error("Polling failed");
+      const data = await res.json();
+
+      let stepProgress = 88;
+      if (data.step === "downloading") stepProgress = 90;
+      else if (data.step === "processing") stepProgress = 95;
+
+      if (progressBar && percentLabel) {
+        const targetProgress = Math.min(stepProgress, 98);
+        if (targetProgress > lastProgress) lastProgress = targetProgress;
+        progressBar.style.width = lastProgress + "%";
+        percentLabel.textContent = Math.round(lastProgress) + "%";
+      }
+
+      if (data.status !== "processing") {
+        if (progressBar) progressBar.style.width = "100%";
+        if (percentLabel) percentLabel.textContent = "100%";
+        return data;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 2500));
+
+    } catch (e) {
+      if (e.name === "AbortError") throw e;
+      console.warn("Polling error, retrying...", e);
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+  }
+
+  return { status: "error", code: "timeout", message: tErr("timeout") };
 }
 
 // ════ OCR CLIENT ════
