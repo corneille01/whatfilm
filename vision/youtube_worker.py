@@ -24,8 +24,20 @@ def main():
             )
             page = context.new_page()
 
-            # Accepter automatiquement les cookies YouTube si le bandeau apparaît
+            # Accepter automatiquement les dialogues (cookies, etc.)
             page.on("dialog", lambda dialog: dialog.accept())
+
+            # ── INTERCEPTION RÉSEAU : capturer l'URL de la vidéo ──
+            video_urls = []
+
+            def handle_response(response):
+                if response.status == 200:
+                    content_type = response.headers.get('content-type', '')
+                    if 'video' in content_type and ('videoplayback' in response.url or '.mp4' in response.url):
+                        video_urls.append(response.url)
+
+            page.on("response", handle_response)
+            # ──────────────────────────────────────────────────────
 
             page.goto(url, wait_until="networkidle", timeout=30000)
 
@@ -37,22 +49,27 @@ def main():
             except:
                 pass
 
-            # Attendre que la vidéo soit chargée
-            page.wait_for_timeout(5000)
+            # Attendre un peu que la vidéo commence à charger
+            page.wait_for_timeout(6000)
 
+            # Si l'interception réseau a trouvé une URL, on l'utilise
+            if video_urls:
+                browser.close()
+                print(json.dumps({"ok": True, "direct_url": video_urls[0]}, ensure_ascii=False))
+                return
+
+            # Sinon, essayer de la récupérer dans le DOM
             video_url = None
-            # Méthode 1 : Récupérer via l'API JavaScript du player YouTube
             try:
                 video_url = page.evaluate("""
                     () => {
                         const video = document.querySelector('video');
-                        return video ? video.src : '';
+                        return video ? video.src || video.currentSrc : '';
                     }
                 """)
             except:
                 pass
 
-            # Méthode 2 : Si pas d'URL directe, chercher dans les métadonnées
             if not video_url:
                 try:
                     meta = page.query_selector('meta[property="og:video"]')
@@ -61,7 +78,6 @@ def main():
                 except:
                     pass
 
-            # Méthode 3 : Pour les Shorts, l'URL peut être dans une balise video avec src
             if not video_url:
                 try:
                     video_el = page.query_selector('video')
