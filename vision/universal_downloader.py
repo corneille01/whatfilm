@@ -8,6 +8,11 @@ Cascade TikTok :
   3. yt-dlp API mobile Android
   4. yt-dlp --force-generic-extractor
   5. yt-dlp --get-url + httpx streaming
+
+Fix YouTube :
+  - Distingue "bot_detected" (sign in sans private) de "video_private"
+  - Retry avec player_client=android si bot détecté
+  - Retry avec player_client=web si android échoue aussi
 """
 
 import os
@@ -60,9 +65,22 @@ def _check_size(path: str) -> dict:
 
 def _parse_ytdlp_error(stderr: str, stdout: str) -> dict:
     err = (stderr + stdout).lower()
-    if "private" in err or "login" in err or "sign in" in err or "age" in err:
+
+    # Détection fine : "private" explicite vs "sign in" seul (anti-bot YouTube)
+    is_private   = "private" in err
+    is_age       = "age" in err or "age-restricted" in err
+    is_sign_in   = "sign in" in err or "login" in err or "log in" in err
+    is_members   = "members only" in err or "member" in err
+
+    if is_private or is_age or is_members:
         return {"ok": False, "code": "video_private",
                 "message": "Cette vidéo est privée ou nécessite une connexion."}
+
+    # "sign in" seul sans "private" = protection anti-bot YouTube (vidéo potentiellement publique)
+    if is_sign_in:
+        return {"ok": False, "code": "bot_detected",
+                "message": "YouTube a bloqué la requête (protection anti-bot). Tentative de contournement…"}
+
     if "not available" in err or "geo" in err or "country" in err or "region" in err:
         return {"ok": False, "code": "video_geo",
                 "message": "Cette vidéo n'est pas disponible dans votre région."}
@@ -110,8 +128,6 @@ async def _tiktok_strategy_0_playwright(url: str, video_path: str) -> dict:
     Ouvre TikTok dans Chromium headless, intercepte la requête vidéo CDN,
     puis la rejoue VIA fetch() dans le contexte du navigateur (même session,
     mêmes cookies, même token signé) et écrit les bytes dans video_path.
-
-    C'est la seule méthode qui contourne la signature CDN liée à la session.
     """
     try:
         from playwright.async_api import async_playwright
@@ -141,7 +157,6 @@ async def _tiktok_strategy_0_playwright(url: str, video_path: str) -> dict:
             )
             page = await context.new_page()
 
-            # ── Interception réseau pour trouver l'URL CDN ───────
             def _handle_response(response):
                 nonlocal best_url, best_size
                 ct  = response.headers.get("content-type", "")
@@ -162,12 +177,11 @@ async def _tiktok_strategy_0_playwright(url: str, video_path: str) -> dict:
             try:
                 await page.goto(url, wait_until="networkidle", timeout=45_000)
             except Exception:
-                pass  # networkidle peut timeout, la vidéo est souvent déjà interceptée
+                pass
 
             await page.evaluate("window.scrollBy(0, 100)")
             await asyncio.sleep(3)
 
-            # ── Fallback : parser le HTML si pas d'interception ──
             if not best_url:
                 html = await page.content()
                 for pattern in [
@@ -192,10 +206,6 @@ async def _tiktok_strategy_0_playwright(url: str, video_path: str) -> dict:
 
             print(f"✅ Playwright URL trouvée, DL dans le navigateur...", flush=True)
 
-            # ── Téléchargement DEPUIS le navigateur (même session) ──
-            # On utilise fetch() JS dans la page pour télécharger avec les
-            # cookies/tokens de session déjà présents — impossible à faire
-            # depuis httpx externe car l'URL est signée pour cette session.
             js_result = await page.evaluate("""
                 async (videoUrl) => {
                     try {
@@ -211,9 +221,7 @@ async def _tiktok_strategy_0_playwright(url: str, video_path: str) -> dict:
                             return { error: `HTTP ${resp.status}`, bytes: null };
                         }
                         const buffer = await resp.arrayBuffer();
-                        // Convertir en tableau d'entiers pour passage JS→Python
                         const uint8 = new Uint8Array(buffer);
-                        // Encoder en base64 par blocs pour éviter stack overflow
                         let binary = '';
                         const chunkSize = 8192;
                         for (let i = 0; i < uint8.length; i += chunkSize) {
@@ -235,7 +243,7 @@ async def _tiktok_strategy_0_playwright(url: str, video_path: str) -> dict:
                 return {"ok": False, "code": "playwright_fetch_failed",
                         "message": f"fetch() navigateur échoué: {err_msg[:80]}"}
 
-            b64_data = js_result.get("b64", "")
+            b64_data   = js_result.get("b64", "")
             size_bytes = js_result.get("size", 0)
 
             if not b64_data or size_bytes < 10_000:
@@ -256,7 +264,7 @@ async def _tiktok_strategy_0_playwright(url: str, video_path: str) -> dict:
 
 
 # ════════════════════════════════════════════════════════════════
-# STRATÉGIES 1-5 — yt-dlp / httpx
+# STRATÉGIES 1-5 — yt-dlp / httpx (TikTok)
 # ════════════════════════════════════════════════════════════════
 async def _tiktok_strategy_1_cookies(url: str, video_path: str) -> dict:
     for browser in ("chrome", "firefox", "edge", "chromium", "safari"):
@@ -431,7 +439,7 @@ async def _download_tiktok(url: str, video_path: str) -> dict:
             continue
 
         if result.get("code") in _FATAL_CODES:
-            return result  # inutile d'essayer d'autres stratégies
+            return result
 
         last_error = result
         print(f"⚠️ [{name}] KO ({result.get('code')}): "
@@ -447,12 +455,92 @@ async def _download_tiktok(url: str, video_path: str) -> dict:
 
 
 # ════════════════════════════════════════════════════════════════
-# TÉLÉCHARGEMENT GÉNÉRIQUE (non-TikTok)
+# TÉLÉCHARGEMENT YOUTUBE — avec cascade anti-bot
+# ════════════════════════════════════════════════════════════════
+async def _download_youtube(url: str, video_path: str) -> dict:
+    """
+    Cascade YouTube :
+      1. Tentative standard
+      2. Si bot_detected → retry android player_client
+      3. Si encore bot_detected → retry web player_client
+      4. Erreur finale explicite
+    """
+    fmt = "best[ext=mp4][filesize<50M]/best[filesize<50M]/best"
+
+    # ── Tentative 1 : standard ───────────────────────────────────
+    cmd = _base_ytdlp_args(video_path, UA_DESKTOP) + ["-f", fmt, url]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if r.returncode == 0 and _file_ok(video_path):
+            print("✅ YouTube standard OK", flush=True)
+            return _check_size(video_path)
+        error = _parse_ytdlp_error(r.stderr, r.stdout)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "code": "download_timeout",
+                "message": "Téléchargement YouTube trop lent. Réessayez."}
+
+    if error.get("code") not in ("bot_detected", "forbidden_403"):
+        return error
+
+    # ── Tentative 2 : android player client ─────────────────────
+    print("⏳ YouTube retry [android player_client]...", flush=True)
+    if os.path.exists(video_path):
+        os.remove(video_path)
+    cmd2 = _base_ytdlp_args(video_path, UA_ANDROID) + [
+        "--extractor-args", "youtube:player_client=android",
+        "-f", fmt, url,
+    ]
+    try:
+        r2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=60)
+        if r2.returncode == 0 and _file_ok(video_path):
+            print("✅ YouTube android client OK", flush=True)
+            return _check_size(video_path)
+        error2 = _parse_ytdlp_error(r2.stderr, r2.stdout)
+    except subprocess.TimeoutExpired:
+        error2 = {"ok": False, "code": "download_timeout", "message": "Timeout."}
+
+    if error2.get("code") not in ("bot_detected", "forbidden_403"):
+        return error2
+
+    # ── Tentative 3 : web player client ─────────────────────────
+    print("⏳ YouTube retry [web player_client]...", flush=True)
+    if os.path.exists(video_path):
+        os.remove(video_path)
+    cmd3 = _base_ytdlp_args(video_path, UA_DESKTOP) + [
+        "--extractor-args", "youtube:player_client=web",
+        "--add-header", "Accept-Language:fr-FR,fr;q=0.9,en;q=0.8",
+        "-f", fmt, url,
+    ]
+    try:
+        r3 = subprocess.run(cmd3, capture_output=True, text=True, timeout=60)
+        if r3.returncode == 0 and _file_ok(video_path):
+            print("✅ YouTube web client OK", flush=True)
+            return _check_size(video_path)
+        error3 = _parse_ytdlp_error(r3.stderr, r3.stdout)
+    except subprocess.TimeoutExpired:
+        error3 = {"ok": False, "code": "download_timeout", "message": "Timeout."}
+
+    # ── Échec final ──────────────────────────────────────────────
+    # Si toutes les tentatives renvoient bot_detected, message clair
+    final_code = error3.get("code", "download_failed")
+    if final_code == "bot_detected":
+        return {
+            "ok": False,
+            "code": "bot_detected",
+            "message": (
+                "YouTube bloque le téléchargement automatique pour cette vidéo. "
+                "Essayez avec un autre lien ou une autre vidéo."
+            ),
+        }
+    return error3
+
+
+# ════════════════════════════════════════════════════════════════
+# TÉLÉCHARGEMENT GÉNÉRIQUE (non-TikTok, non-YouTube)
 # ════════════════════════════════════════════════════════════════
 async def _download_generic(url: str, video_path: str, platform: str) -> dict:
     ua_map = {
         "instagram": UA_MOBILE,
-        "youtube":   UA_DESKTOP,
         "twitter":   UA_DESKTOP,
         "facebook":  UA_DESKTOP,
         "vimeo":     UA_DESKTOP,
@@ -478,7 +566,7 @@ async def _download_generic(url: str, video_path: str, platform: str) -> dict:
         error = _parse_ytdlp_error(r.stderr, r.stdout)
 
         # Fallback cookies Instagram
-        if platform == "instagram" and error.get("code") in ("download_failed", "forbidden_403"):
+        if platform == "instagram" and error.get("code") in ("download_failed", "forbidden_403", "bot_detected"):
             print("⏳ Instagram fallback cookies...", flush=True)
             for browser in ("chrome", "firefox"):
                 cmd2 = _base_ytdlp_args(video_path, ua) + [
@@ -518,4 +606,6 @@ async def download_video(url: str, video_path: str, platform: str) -> dict:
 
     if platform == "tiktok":
         return await _download_tiktok(url, video_path)
+    if platform == "youtube":
+        return await _download_youtube(url, video_path)
     return await _download_generic(url, video_path, platform)

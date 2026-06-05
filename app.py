@@ -118,70 +118,6 @@ async def _resolve_short_url(url: str) -> str:
 MAX_VIDEO_SECONDS = 120
 MAX_FILE_SIZE_MB  = 50
 
-async def _download_video(url: str, video_path: str, platform: str) -> dict:
-    base_args = [
-        "yt-dlp",
-        "--no-playlist",
-        "--no-check-certificate",
-        "--force-ipv4",
-        "--extractor-retries", "3",
-        "--retries", "3",
-        "--socket-timeout", "20",
-        "--download-sections", f"*0-{MAX_VIDEO_SECONDS}",
-        "--no-warnings",
-        "-o", video_path,
-    ]
-    ua_map = {
-        "tiktok":    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
-        "instagram": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
-        "youtube":   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "twitter":   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "facebook":  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    }
-    ua = ua_map.get(platform, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-    base_args += ["--user-agent", ua]
-    format_args = ["-f", "best[ext=mp4][filesize<50M]/best[filesize<50M]/best"]
-    cmd = base_args + format_args + [url]
-    try:
-        dl = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        if dl.returncode == 0 and os.path.exists(video_path):
-            size_mb = os.path.getsize(video_path) / 1024 / 1024
-            if size_mb > MAX_FILE_SIZE_MB:
-                os.remove(video_path)
-                return {"ok": False, "code": "file_too_large",
-                        "message": f"Fichier trop volumineux ({size_mb:.0f} MB). Essayez une vidéo plus courte."}
-            if os.path.getsize(video_path) < 1000:
-                return {"ok": False, "code": "download_empty",
-                        "message": "Le fichier téléchargé est vide ou corrompu."}
-            return {"ok": True}
-        err = (dl.stderr + dl.stdout).lower()
-        if "private" in err or "login" in err or "sign in" in err:
-            return {"ok": False, "code": "video_private",
-                    "message": "Cette vidéo est privée ou nécessite une connexion."}
-        if "not available" in err or "geo" in err or "country" in err or "region" in err:
-            return {"ok": False, "code": "video_geo",
-                    "message": "Cette vidéo n'est pas disponible dans votre région."}
-        if "removed" in err or "deleted" in err or "no longer" in err:
-            return {"ok": False, "code": "video_deleted",
-                    "message": "Cette vidéo a été supprimée ou n'existe plus."}
-        if "expired" in err or "story" in err:
-            return {"ok": False, "code": "video_expired",
-                    "message": "Ce contenu a expiré (story ou lien temporaire)."}
-        if "copyright" in err or "blocked" in err:
-            return {"ok": False, "code": "video_blocked",
-                    "message": "Cette vidéo est bloquée pour droits d'auteur."}
-        if "unsupported url" in err or "no video formats" in err:
-            return {"ok": False, "code": "unsupported",
-                    "message": "Format ou plateforme non supporté."}
-        if "too large" in err or "filesize" in err:
-            return {"ok": False, "code": "file_too_large",
-                    "message": "Fichier trop volumineux. Essayez une vidéo plus courte."}
-        return {"ok": False, "code": "download_failed",
-                "message": "Impossible de télécharger cette vidéo. Vérifiez qu'elle est publique."}
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "code": "download_timeout",
-                "message": "Téléchargement trop lent. Réessayez dans quelques instants."}
-
 # ── RATE LIMITING ────────────────────────────────────────────────
 from collections import defaultdict
 
@@ -305,7 +241,13 @@ async def analyser(req: VideoRequest, request: Request):
                 "message": "Cette plateforme n'est pas supportée. "
                            "Essayez TikTok, Instagram, YouTube, Twitter/X, Facebook ou Dailymotion."}
 
-    if _analysis_semaphore._value == 0:
+    # ── Vérification sémaphore : tentative non-bloquante ────────
+    # On tente d'acquérir sans bloquer. Si c'est plein → on refuse
+    # immédiatement. Sinon on relâche et on re-acquiert proprement
+    # via "async with" pour ne pas tenir le slot inutilement.
+    if _analysis_semaphore.locked():
+        # locked() est True seulement si TOUS les slots sont pris
+        # (Semaphore(3).locked() == True quand _value == 0)
         return {"status": "error", "code": "server_busy",
                 "message": "Le serveur analyse déjà plusieurs vidéos. Réessayez dans 30 secondes."}
 
@@ -501,7 +443,7 @@ async def analyser_continue(req: ContinueRequest):
                     shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
 
 # ════════════════════════════════════════════════════════════════
-# PROCESS ANALYSIS — VERSION CORRIGÉE
+# PROCESS ANALYSIS
 # ════════════════════════════════════════════════════════════════
 async def process_analysis(frames, ocr_text, transcript, url, lang):
     """
@@ -546,7 +488,6 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
 
     # ── 4. Cache niveau titre ────────────────────────────────────
     for titre_candidat in extraction.get("titres_possibles", []):
-        # Ignorer les titres incertains (préfixés ?)
         if str(titre_candidat).startswith("?"):
             continue
         title_hit = get_cache_by_title(titre_candidat, lang)
@@ -565,8 +506,6 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
         print(f"🎭 Recherche via acteurs: {len(actor_candidates)} candidats", flush=True)
         actor_result = await rerank(extraction, actor_candidates)
         if actor_result and actor_result.get("score", 0) >= 50:
-            # Déduire media_type depuis le candidat TMDB (combined_credits retourne
-            # media_type="tv" ou "movie"). Le LLM ne retourne pas ce champ.
             matched_candidate = next(
                 (c for c in actor_candidates if c.get("id") == actor_result.get("id")),
                 None
@@ -585,7 +524,6 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
     if not result:
         queries = await build_cascade_queries(extraction)
 
-        # Requêtes langue originale pour scripts non-latins
         if detected_script in ("chinese", "japanese", "korean"):
             lang_map      = {"chinese": "zh", "japanese": "ja", "korean": "ko"}
             original_lang = lang_map[detected_script]
@@ -595,16 +533,10 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
 
         genre_detected = (extraction.get("genre_apparent") or "").lower()
 
-        # Ordre de recherche selon genre :
-        #   anime/serie  → TV en premier
-        #   documentaire → les deux fusionnés
-        #   reste        → movie en premier
-        # Genres → TV en premier (séries, animés)
         TV_FIRST = {
             "anime", "serie", "série", "animation",
             "série-animation", "série-animée",
         }
-        # Genres → chercher film ET TV en parallèle
         BOTH = {
             "documentaire", "documentary",
             "documentaire-série", "docu-série",
@@ -662,7 +594,6 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
             if candidates:
                 break
 
-        # Aucun candidat → not_found
         if not candidates:
             titres = extraction.get("titres_possibles", [])
             titre  = str(titres[0]).lstrip("?") if titres else ""
@@ -676,7 +607,6 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
             set_cache(url, not_found, transcript=transcript or "", ocr_text=ocr_text or "")
             return not_found
 
-        # Reranking sur les candidats TMDB
         result = await rerank(extraction, candidates)
         if not result or not result.get("id"):
             result = {
@@ -711,10 +641,6 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
     # ── 8. Détails TMDB ──────────────────────────────────────────
     movie_id = result["id"]
 
-    # Détermine le type effectif :
-    # - résultat du rerank (acteurs) → media_type sur le résultat
-    # - recherche "mixed" (docu) → lire media_type sur le candidat choisi
-    # - sinon → search_type de la recherche textuelle
     effective_type = result.get("media_type") or search_type
     if effective_type == "mixed":
         matched = next(
@@ -731,7 +657,6 @@ async def process_analysis(frames, ocr_text, transcript, url, lang):
             else await get_movie_details(movie_id, lang)
         )
     except Exception:
-        # Fallback : essayer l'autre type (TV <-> movie)
         try:
             if effective_type == "tv":
                 print(f"⚠️ get_tv_details KO id={movie_id} → essai movie", flush=True)
