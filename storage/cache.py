@@ -1,17 +1,4 @@
-# storage/cache.py
-# Cache Redis à 3 clés complémentaires + fallback RAM si Redis indisponible
-#
-# Clé 1  url:{md5(url)}            → résultat complet   TTL 7 jours
-# Clé 2  content:{sha256(texte)}   → tmdb_id            TTL 30 jours
-# Clé 3  film:{tmdb_id}:{lang}     → résultat complet   TTL infini (pas d'expiry)
-#
-# Logique :
-#   - Toute bonne reconnaissance (score ≥ 50) est stockée sous les 3 clés
-#   - La clé 3 est universelle : Matrix sera toujours Matrix peu importe le lien
-#   - La clé 2 permet de retrouver le tmdb_id depuis un nouveau transcript
-#     et de servir la clé 3 directement sans refaire l'analyse
-#   - Fallback RAM transparent si Redis est down (déploiement progressif)
-
+# storage/cache.py  ← remplace ENTIÈREMENT l'ancien fichier
 import hashlib
 import json
 import os
@@ -19,7 +6,6 @@ import re
 import time
 from typing import Optional
 
-# ── Connexion Redis (optionnelle) ─────────────────────────────────
 _redis = None
 _redis_available = False
 
@@ -32,11 +18,8 @@ def _connect_redis():
     try:
         import redis
         _redis = redis.from_url(
-            redis_url,
-            decode_responses=True,
-            socket_connect_timeout=2,
-            socket_timeout=2,
-            retry_on_timeout=False,
+            redis_url, decode_responses=True,
+            socket_connect_timeout=2, socket_timeout=2, retry_on_timeout=False,
         )
         _redis.ping()
         _redis_available = True
@@ -47,15 +30,12 @@ def _connect_redis():
 
 _connect_redis()
 
-# ── Fallback RAM ──────────────────────────────────────────────────
 _ram: dict = {}
-
 EXPIRES_NEVER = float('inf')
-TTL_URL       = 7 * 86400    # 7 jours
-TTL_CONTENT   = 30 * 86400   # 30 jours
-TTL_UNCERTAIN = 3600         # 1h
+TTL_URL       = 7 * 86400
+TTL_CONTENT   = 30 * 86400
+TTL_UNCERTAIN = 3600
 
-# ── Clés ──────────────────────────────────────────────────────────
 def _key_url(url: str) -> str:
     return "url:" + hashlib.md5(url.encode()).hexdigest()
 
@@ -77,9 +57,7 @@ def _key_title(title: str) -> Optional[str]:
         return None
     return "title:" + normalized
 
-# ── Helpers Redis ─────────────────────────────────────────────────
 def _rget(key: str):
-    """Récupère une valeur depuis Redis (désérialisée)."""
     if not _redis_available:
         return None
     try:
@@ -89,7 +67,6 @@ def _rget(key: str):
         return None
 
 def _rset(key: str, data, ttl: Optional[int] = None) -> None:
-    """Stocke une valeur dans Redis (sérialisée)."""
     if not _redis_available:
         return
     try:
@@ -97,13 +74,11 @@ def _rset(key: str, data, ttl: Optional[int] = None) -> None:
         if ttl is not None:
             _redis.setex(key, ttl, raw)
         else:
-            _redis.set(key, raw)   # pas d'expiry → permanent
+            _redis.set(key, raw)
     except Exception as e:
         print(f"⚠️  Redis write error: {e}", flush=True)
 
-# ── Helpers RAM ───────────────────────────────────────────────────
 def _ramget(key: str):
-    """Récupère une valeur depuis le cache RAM."""
     entry = _ram.get(key)
     if not entry:
         return None
@@ -113,14 +88,10 @@ def _ramget(key: str):
     return None
 
 def _ramset(key: str, data, ttl: Optional[int] = None) -> None:
-    """Stocke une valeur dans le cache RAM avec TTL éventuel."""
     expires = EXPIRES_NEVER if ttl is None else time.time() + ttl
     _ram[key] = {"data": data, "expires": expires}
 
-# ── API publique ──────────────────────────────────────────────────
-
 def get_cache(url: str) -> Optional[dict]:
-    """Cherche par URL exacte."""
     key = _key_url(url)
     data = _rget(key) or _ramget(key)
     if data:
@@ -128,28 +99,15 @@ def get_cache(url: str) -> Optional[dict]:
     return data
 
 def get_cache_by_content(transcript: str, ocr_text: str, lang: str = "fr") -> Optional[dict]:
-    """
-    Cherche par empreinte du transcript.
-    Si trouvé → retourne le tmdb_id → cherche la clé film universelle.
-    """
     content_key = _key_content(transcript, ocr_text)
     if not content_key:
         return None
-
-    # La clé content stocke juste le tmdb_id (int)
     tmdb_id = _rget(content_key) or _ramget(content_key)
     if not tmdb_id:
         return None
-
-    # Chercher le résultat complet via la clé film universelle
     return get_cache_by_film(tmdb_id, lang)
 
 def get_cache_by_film(tmdb_id, lang: str) -> Optional[dict]:
-    """
-    Cherche directement par tmdb_id + langue.
-    Appelé dans process_analysis AVANT l'appel TMDB/Gemini
-    si on a déjà identifié le film.
-    """
     key = _key_film(tmdb_id, lang)
     data = _rget(key) or _ramget(key)
     if data:
@@ -157,10 +115,6 @@ def get_cache_by_film(tmdb_id, lang: str) -> Optional[dict]:
     return data
 
 def get_cache_by_title(title: str, lang: str) -> Optional[dict]:
-    """
-    Vérifie si un titre (exact ou proche) a déjà été identifié.
-    La clé titre stocke le tmdb_id, on retourne ensuite le film complet.
-    """
     key = _key_title(title)
     if not key:
         return None
@@ -170,90 +124,101 @@ def get_cache_by_title(title: str, lang: str) -> Optional[dict]:
     return get_cache_by_film(tmdb_id, lang)
 
 def set_cache(url: str, data: dict, transcript: str = "", ocr_text: str = "") -> None:
-    """
-    Enregistre sous les 3 clés si résultat fiable (score ≥ 50).
-    """
-    confidence = data.get("confidence", 0)
-    tmdb_id    = data.get("tmdb_id")
-    lang       = data.get("lang", "fr")
-    title      = data.get("title", "")
+    confidence     = data.get("confidence", 0)
+    tmdb_id        = data.get("tmdb_id")
+    lang           = data.get("lang", "fr")
+    title          = data.get("title", "")
     original_title = data.get("original_title", "")
 
-    # Clé 1 : URL (7 jours)
     _rset(_key_url(url), data, TTL_URL)
     _ramset(_key_url(url), data, TTL_URL)
 
     if confidence >= 50 and tmdb_id:
-        # Clé 3 : film universel (permanent — pas d'expiry)
         film_key = _key_film(tmdb_id, lang)
-        _rset(film_key, data, ttl=None)   # None = pas d'expiry dans Redis
+        _rset(film_key, data, ttl=None)
         _ramset(film_key, data, ttl=None)
         print(f"💾 Cache film permanent: {tmdb_id}:{lang}", flush=True)
 
-        # Clé 2 : content → tmdb_id (30 jours)
         content_key = _key_content(transcript, ocr_text)
         if content_key:
             _rset(content_key, tmdb_id, TTL_CONTENT)
             _ramset(content_key, tmdb_id, TTL_CONTENT)
-            print(f"💾 Cache contenu → {tmdb_id} (30j)", flush=True)
 
-        # Indexation des titres (clé title → tmdb_id, permanent)
         if title:
             set_cache_title(title, tmdb_id)
         if original_title and original_title != title:
             set_cache_title(original_title, tmdb_id)
 
 def set_cache_title(title: str, tmdb_id: int) -> None:
-    """Enregistre un titre → tmdb_id (permanent)."""
     key = _key_title(title)
     if not key:
         return
-    _rset(key, tmdb_id, ttl=None)   # permanent
+    _rset(key, tmdb_id, ttl=None)
     _ramset(key, tmdb_id, ttl=None)
-    print(f"💾 Cache titre: '{title}' → {tmdb_id}", flush=True)
 
 def cache_stats() -> dict:
-    stats = {
-        "redis": _redis_available,
-        "ram_entries": len(_ram),
-    }
+    stats = {"redis": _redis_available, "ram_entries": len(_ram)}
     if _redis_available:
         try:
             info = _redis.info("memory")
-            stats["redis_memory_mb"] = round(
-                info.get("used_memory", 0) / 1024 / 1024, 2)
+            stats["redis_memory_mb"] = round(info.get("used_memory", 0) / 1024 / 1024, 2)
             stats["redis_keys"] = _redis.dbsize()
         except Exception:
             pass
     return stats
 
 def purge_expired() -> int:
-    """Purge uniquement le cache RAM (Redis gère ses TTL tout seul)."""
     now = time.time()
     expired = [k for k, v in _ram.items()
-               if v.get("expires") != EXPIRES_NEVER
-               and now >= v.get("expires", 0)]
+               if v.get("expires") != EXPIRES_NEVER and now >= v.get("expires", 0)]
     for k in expired:
         del _ram[k]
     if expired:
         print(f"🧹 RAM purgée: {len(expired)} entrées", flush=True)
     return len(expired)
 
-
-
 def purge_by_code(code: str) -> int:
-    """Supprime toutes les entrées de cache avec un code ou status donné."""
+    """Purge RAM + Redis : toutes les entrées url:* dont data.code == code."""
     count = 0
-    for key in list(_cache.keys()):
-        entry = _cache[key]
-        if entry.get("code") == code or entry.get("status") == code:
-            del _cache[key]
-            count += 1
+    # RAM
+    to_delete = [
+        k for k, v in _ram.items()
+        if isinstance(v.get("data"), dict)
+        and (v["data"].get("code") == code or v["data"].get("status") == code)
+    ]
+    for k in to_delete:
+        del _ram[k]
+        count += 1
+    # Redis (scan url:* uniquement)
+    if _redis_available:
+        try:
+            for key in _redis.scan_iter("url:*", count=200):
+                raw = _redis.get(key)
+                if raw:
+                    try:
+                        data = json.loads(raw)
+                        if isinstance(data, dict) and (
+                            data.get("code") == code or data.get("status") == code
+                        ):
+                            _redis.delete(key)
+                            count += 1
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"⚠️ purge_by_code Redis: {e}", flush=True)
     return count
 
 def delete_cache(url: str) -> bool:
-    """Supprime une entrée de cache par URL."""
-    if url in _cache:
-        del _cache[url]
-        return True
-    return False
+    """Supprime une entrée par URL exacte (RAM + Redis)."""
+    key = _key_url(url)
+    deleted = False
+    if key in _ram:
+        del _ram[key]
+        deleted = True
+    if _redis_available:
+        try:
+            if _redis.delete(key):
+                deleted = True
+        except Exception:
+            pass
+    return deleted
