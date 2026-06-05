@@ -10,12 +10,155 @@ Fonctions principales :
   - build_cascade_queries      : génère les requêtes par ordre de précision
   - run_cascade_search         : exécute la cascade avec stratégie multi-langue
   - build_candidates_from_actors : candidats via crédits acteurs TMDB
+
+Fixes v2 :
+  - _FR_TO_EN_VISUAL : mapping FR→EN des indices visuels pour TMDB
+  - _translate_clue  : traduction d'un indice FR→EN
+  - Niveau 4         : variantes EN des clues (TMDB ne comprend pas le FR brut)
+  - Niveau 5b        : extraction de termes EN depuis la description FR
+  - run_cascade_search : effective_transcript_lang="en" pour les requêtes ASCII
 """
 
 import re
 import asyncio
 
 from data.tmdb import search_person, get_person_credits, search_multi_lang
+
+
+# ════════════════════════════════════════════════════════════════
+# MAPPING FR → EN POUR LES INDICES VISUELS
+# TMDB ne fait pas de recherche sémantique : les termes FR bruts
+# (ex: "robe de moine", "jardin japonais") ne retournent rien.
+# Ce mapping traduit les indices extraits par Gemini en termes EN
+# exploitables dans les requêtes TMDB.
+# ════════════════════════════════════════════════════════════════
+
+_FR_TO_EN_VISUAL: dict[str, str] = {
+    # Tenues / costumes
+    "robe de moine":            "monk robe",
+    "robe moine":               "monk robe",
+    "robe de chambre":          "bathrobe",
+    "tenue traditionnelle":     "traditional costume",
+    "kimono":                   "kimono",
+    "uniforme scolaire":        "school uniform",
+    "uniforme militaire":       "military uniform",
+    "costume médiéval":         "medieval costume",
+    "armure":                   "armor",
+    "cape":                     "cape",
+    "masque":                   "mask",
+    # Lieux / décors
+    "jardin japonais":          "japanese garden",
+    "temple japonais":          "japanese temple",
+    "château japonais":         "japanese castle",
+    "école japonaise":          "japanese school",
+    "château médiéval":         "medieval castle",
+    "forêt":                    "forest",
+    "désert":                   "desert",
+    "plage":                    "beach",
+    "montagne":                 "mountain",
+    "ville futuriste":          "futuristic city",
+    "espace":                   "outer space",
+    "laboratoire":              "laboratory",
+    "prison":                   "prison",
+    "arène":                    "arena",
+    "temple":                   "temple",
+    "pagode":                   "pagoda",
+    # Objets / accessoires
+    "flèche":                   "arrow",
+    "arc":                      "bow",
+    "épée":                     "sword",
+    "katana":                   "katana",
+    "éventail":                 "fan",
+    "valise rouge":             "red suitcase",
+    "valise":                   "suitcase",
+    "pistolet":                 "gun",
+    "fusil":                    "rifle",
+    "couteau":                  "knife",
+    "bouclier":                 "shield",
+    "lance":                    "spear",
+    "baguette magique":         "magic wand",
+    "grimoire":                 "spellbook",
+    "parchemin":                "scroll",
+    "lanterne":                 "lantern",
+    "bague":                    "ring",
+    "collier":                  "necklace",
+    "carte":                    "map",
+    # Personnages / archétypes
+    "samouraï":                 "samurai",
+    "ninja":                    "ninja",
+    "moine":                    "monk",
+    "guerrier":                 "warrior",
+    "sorcier":                  "wizard",
+    "chevalier":                "knight",
+    "geisha":                   "geisha",
+    "fantôme":                  "ghost",
+    "vampire":                  "vampire",
+    "zombie":                   "zombie",
+    "alien":                    "alien",
+    "robot":                    "robot",
+    "dragon":                   "dragon",
+    # Actions / concepts visuels
+    "arts martiaux":            "martial arts",
+    "combat":                   "fight",
+    "magie":                    "magic",
+    "explosion":                "explosion",
+    "course poursuite":         "car chase",
+    "enquête":                  "investigation",
+    "enquêteur":                "detective",
+    "fantaisie":                "fantasy",
+    "science-fiction":          "science fiction",
+    # Éléments narratifs
+    "crâne rasé":               "shaved head",
+    "tête rasée":               "shaved head",
+    "petite amie":              "girlfriend",
+    "petit ami":                "boyfriend",
+    "attrape":                  "catches",
+    "vole":                     "flies",
+}
+
+
+def _translate_clue(clue: str) -> str | None:
+    """
+    Traduit un indice visuel FR→EN si une correspondance existe.
+
+    Stratégie : on cherche si une clé du mapping est CONTENUE dans
+    l'indice (et non l'inverse), pour couvrir des variantes comme
+    "vêtu d'une robe de moine" → "monk robe".
+
+    Returns:
+        La traduction EN, ou None si aucune correspondance.
+    """
+    clue_lower = clue.lower().strip()
+    # Chercher d'abord les clés les plus longues (évite les faux positifs)
+    for fr_key in sorted(_FR_TO_EN_VISUAL, key=len, reverse=True):
+        if fr_key in clue_lower:
+            return _FR_TO_EN_VISUAL[fr_key]
+    return None
+
+
+def _translate_text(text: str) -> list[str]:
+    """
+    Extrait tous les termes EN présents dans un texte FR.
+
+    Utilisé pour la description_courte : on cherche tous les indices
+    du mapping qui apparaissent dans le texte, et on retourne
+    leurs traductions EN.
+
+    Returns:
+        Liste de termes EN trouvés (sans doublons, ordre de longueur).
+    """
+    if not text:
+        return []
+    text_lower = text.lower()
+    found: list[str] = []
+    seen_en: set[str] = set()
+    for fr_key in sorted(_FR_TO_EN_VISUAL, key=len, reverse=True):
+        if fr_key in text_lower:
+            en_val = _FR_TO_EN_VISUAL[fr_key]
+            if en_val not in seen_en:
+                seen_en.add(en_val)
+                found.append(en_val)
+    return found
 
 
 # ════════════════════════════════════════════════════════════════
@@ -27,14 +170,15 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
     Génère une liste de requêtes par ordre de précision décroissante.
 
     Stratégie :
-      - Niveau 1 : titres certains (les meilleurs)
-      - Niveau 2 : acteurs connus
-      - Niveau 3 : personnages
-      - Niveau 4 : combinaisons indices_visuels + objets + genre + année
-      - Niveau 5 : mots-clés extraits de description_courte
-      - Niveau 6 : titres incertains (?)
-      - Niveau 7 : spécifiques au type de média (anime, documentaire)
-      - Niveau 8 : indices seuls (dernier recours)
+      - Niveau 1  : titres certains (les meilleurs)
+      - Niveau 2  : acteurs connus
+      - Niveau 3  : personnages
+      - Niveau 4  : combinaisons indices_visuels + objets (FR + EN)
+      - Niveau 5  : mots-clés extraits de description_courte (FR)
+      - Niveau 5b : termes EN extraits de description_courte
+      - Niveau 6  : titres incertains (?)
+      - Niveau 7  : spécifiques au type de média (anime, documentaire)
+      - Niveau 8  : indices seuls (dernier recours)
     """
     titres_certains   = []
     titres_incertains = []
@@ -54,6 +198,9 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
     description = (extraction.get("description_courte", "") or "").strip()
     indices     = extraction.get("indices_visuels",   []) or []
     objets      = extraction.get("objets_importants", []) or []
+
+    # Normalisation du genre pour les requêtes EN
+    genre_en = genre.replace("film-", "").replace("série", "series").strip()
 
     queries = []
 
@@ -76,10 +223,22 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
     for perso in personnages[:2]:
         queries.append(f"{perso} {genre}".strip())
 
-    # ── Niveau 4 : combinaisons indices + objets ─────────────────
-    # On combine au moins 2 indices pour éviter les requêtes trop génériques.
+    # ── Niveau 4 : combinaisons indices + objets (FR + EN) ───────
+    # TMDB ne comprend pas les termes FR bruts.
+    # On génère donc les paires FR (pour compatibilité) ET les paires EN
+    # (plus efficaces sur TMDB).
     all_clues = [o for o in objets if o] + [i for i in indices if i]
 
+    # Traduire les clues FR → EN
+    all_clues_en = []
+    seen_en_clues: set[str] = set()
+    for c in all_clues:
+        translated = _translate_clue(c)
+        if translated and translated not in seen_en_clues:
+            seen_en_clues.add(translated)
+            all_clues_en.append(translated)
+
+    # Paires FR (comportement original conservé)
     if len(all_clues) >= 2:
         for i in range(min(3, len(all_clues) - 1)):
             pair = f"{all_clues[i]} {all_clues[i+1]}"
@@ -95,7 +254,19 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
         if genre:
             queries.append(f"{triple} {genre}")
 
-    # ── Niveau 5 : mots-clés extraits de description_courte ──────
+    # Paires EN (plus efficaces sur TMDB — ajoutées juste après les FR)
+    if len(all_clues_en) >= 2:
+        for i in range(min(2, len(all_clues_en) - 1)):
+            pair_en = f"{all_clues_en[i]} {all_clues_en[i+1]}"
+            queries.append(pair_en)
+            if genre_en:
+                queries.append(f"{pair_en} {genre_en}")
+
+    # Clues EN isolées (souvent suffisantes pour TMDB)
+    for clue_en in all_clues_en[:3]:
+        queries.append(clue_en)
+
+    # ── Niveau 5 : mots-clés extraits de description_courte (FR) ─
     if description:
         keywords = _extract_keywords(description)
         if len(keywords) >= 3:
@@ -110,6 +281,18 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
             if genre:
                 queries.append(f"{noun} {genre}")
 
+    # ── Niveau 5b : termes EN extraits de la description FR ──────
+    # Complément du Niveau 5 : on cherche tous les termes du mapping
+    # FR→EN présents dans la description pour formuler des requêtes EN.
+    if description:
+        desc_en_terms = _translate_text(description)
+        if desc_en_terms:
+            queries.append(" ".join(desc_en_terms[:3]))
+            if genre_en:
+                queries.append(f"{' '.join(desc_en_terms[:2])} {genre_en}")
+            if annee:
+                queries.append(f"{' '.join(desc_en_terms[:2])} {annee}")
+
     # ── Niveau 6 : titres incertains ─────────────────────────────
     for titre in titres_incertains:
         queries.append(titre)
@@ -117,12 +300,14 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
             queries.append(f"{titre} {acteurs[0]}")
 
     # ── Niveau 7 : requêtes spécifiques au type de média ─────────
-
     if genre in ("anime", "serie-animation", "serie-animée"):
         for titre in (titres_certains + titres_incertains)[:2]:
             queries.append(f"{titre} anime")
         for perso in personnages[:1]:
             queries.append(f"{perso} anime")
+        # Clues EN + "anime" : très efficace sur TMDB
+        for clue_en in all_clues_en[:2]:
+            queries.append(f"{clue_en} anime")
 
     if "document" in genre:
         for titre in titres_certains[:2]:
@@ -170,6 +355,11 @@ async def run_cascade_search(
       - Accumule les candidats uniques jusqu'à max_candidates
       - Early stop si un titre certain remonte suffisamment de résultats
 
+    Fix v2 : si la requête courante est en ASCII pur (= probablement EN,
+    issue de _translate_clue), on force transcript_lang="en" pour que
+    search_multi_lang priorise la locale en-US — les requêtes EN obtiennent
+    de meilleurs résultats TMDB avec la locale EN.
+
     Args:
         extraction:      Dict issu de l'extraction Gemini/multimodal.
         transcript_lang: Code ISO 639-1 de la langue de la transcription.
@@ -200,9 +390,20 @@ async def run_cascade_search(
         if len(candidates) >= max_candidates:
             break
 
+        # Fix v2 : requête ASCII pure → probablement EN (issue de _translate_clue)
+        # Forcer la locale EN pour maximiser les résultats TMDB.
+        # On ne le fait que si la transcription n'est pas déjà EN pour éviter
+        # de dégrader les cas où transcript_lang="en" est déjà correct.
+        effective_transcript_lang = transcript_lang
+        if (
+            transcript_lang not in (None, "en")
+            and re.fullmatch(r'[a-zA-Z0-9 \-]+', query)
+        ):
+            effective_transcript_lang = "en"
+
         results = await search_multi_lang(
             query,
-            transcript_lang=transcript_lang,
+            transcript_lang=effective_transcript_lang,
             browser_lang=browser_lang,
         )
 

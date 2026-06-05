@@ -106,7 +106,9 @@ RÈGLES STRICTES
 NE JAMAIS inventer. Un champ vide vaut mieux qu'une donnée fausse.
 
 Réponds UNIQUEMENT avec ce JSON valide sur une seule ligne, sans markdown ni explication :
-{{"titres_possibles":[],"acteurs":[],"personnages":[],"objets_importants":[],"description_courte":"","genre_apparent":"","annee_estimee":null,"langue_originale":"","indices_visuels":[]}}"""
+{{"titres_possibles":[],"acteurs":[],"personnages":[],"objets_importants":[],"description_courte":"","genre_apparent":"","annee_estimee":null,"langue_originale":"","indices_visuels":[]}}
+
+IMPORTANT : garde description_courte sous 120 caractères. Sois ultra-concis sur tous les champs texte."""
 
 
 RERANK_PROMPT = """Tu es un expert en identification de films et séries TV du monde entier.
