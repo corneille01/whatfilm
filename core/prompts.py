@@ -77,7 +77,7 @@ RÈGLES STRICTES
    Si la transcription est un commentaire descriptif, reprends-en les éléments clés ici.
    C'est le champ de secours si aucun titre n'est identifié — sois très précis.
 
-6. "genre_apparent" : action|comédie|horreur|drame|animation|thriller|romance|documentaire|anime|série
+6. "genre_apparent" : film-action|film-comédie|film-horreur|film-drame|film-thriller|film-romance|film-animation|série|série-animation|anime|documentaire|documentaire-série
 
 7. "annee_estimee" : visible dans l'OCR/transcription, ou estimable visuellement.
 

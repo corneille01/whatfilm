@@ -1254,3 +1254,5 @@ body {
   padding: 6px;
   border-bottom: 1px solid var(--border);
 }
+.progress-bar-track { height: 10px; border-radius: 5px; }
+#prog-percent { font-size: 1.1rem; font-weight: 700; margin-top: 8px; }

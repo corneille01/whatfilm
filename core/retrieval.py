@@ -1,15 +1,5 @@
 """
 core/retrieval.py — Construction des requêtes de recherche TMDB.
-
-Ordre de priorité v2 :
-  1. Acteurs reconnus × mots-clés transcript  (signal le plus fiable)
-  2. Titres certains extraits
-  3. Titres + acteur combinés
-  4. Acteur + genre + année
-  5. Personnages iconiques
-  6. Objets / indices visuels
-  7. Titres incertains ("?Titre")
-  8. Description libre (dernier recours)
 """
 
 import re
@@ -17,139 +7,153 @@ from data.tmdb import search_person, get_person_credits
 
 
 # ════════════════════════════════════════════════════════════════
-# MOTS-CLÉS TRANSCRIPT → requête croisée acteur
-# Extrait les mots significatifs du transcript pour former
-# une requête "acteur + contexte" plus précise que "acteur seul".
-# ════════════════════════════════════════════════════════════════
-def _keywords_from_transcript(transcript: str, n: int = 3) -> list[str]:
-    """
-    Extrait les N mots les plus significatifs du transcript.
-    Ignore les stopwords et les mots trop courts.
-    Retourne [] si transcript vide.
-    Ex: "les frères Duke ont décidé de vendre la bourse"
-        → ["frères", "Duke", "bourse"]
-    """
-    if not transcript:
-        return []
-    # Majuscules = noms propres → priorité
-    proper_nouns = re.findall(r"\b[A-ZÀ-Ÿ][a-zà-ÿ]{2,}\b", transcript)
-    # Mots longs en minuscules
-    long_words = [
-        w for w in re.findall(r"\b[a-zà-ÿ]{5,}\b", transcript.lower())
-        if w not in _STOPWORDS
-    ]
-    combined = list(dict.fromkeys(proper_nouns + long_words))
-    return combined[:n]
-
-
-# ════════════════════════════════════════════════════════════════
 # BUILD CASCADE QUERIES
 # ════════════════════════════════════════════════════════════════
 async def build_cascade_queries(extraction: dict) -> list[str]:
     """
-    Génère une liste ordonnée de requêtes TMDB.
-    Priorité : acteurs×transcript → titres → acteur seul → indices.
+    Génère une liste de requêtes par ordre de précision décroissante.
+
+    Stratégie :
+      - Niveau 1 : titres certains (les meilleurs)
+      - Niveau 2 : acteurs connus
+      - Niveau 3 : combinaisons indices_visuels + objets + genre + année
+      - Niveau 4 : description_courte découpée en mots-clés combinés
+      - Niveau 5 : titres incertains (?)
+      - Niveau 6 : indices seuls (en dernier, trop génériques seuls)
     """
+    titres_certains   = []
+    titres_incertains = []
+    for t in extraction.get("titres_possibles", []):
+        t = str(t).strip()
+        if not t:
+            continue
+        if t.startswith("?"):
+            titres_incertains.append(t[1:])
+        else:
+            titres_certains.append(t)
+
+    acteurs     = extraction.get("acteurs", []) or []
+    personnages = extraction.get("personnages", []) or []
+    genre       = (extraction.get("genre_apparent", "") or "").strip()
+    annee       = str(extraction.get("annee_estimee") or "").strip()
+    description = (extraction.get("description_courte", "") or "").strip()
+    indices     = extraction.get("indices_visuels", []) or []
+    objets      = extraction.get("objets_importants", []) or []
+
     queries = []
 
-    titres           = [str(t) for t in extraction.get("titres_possibles", [])
-                        if t and not str(t).startswith("?")]
-    titres_uncertain = [str(t)[1:] for t in extraction.get("titres_possibles", [])
-                        if str(t).startswith("?")]
-    acteurs          = [str(a) for a in (extraction.get("acteurs", []) or []) if a]
-    personnages      = [str(p) for p in (extraction.get("personnages", []) or []) if p]
-    genre            = str(extraction.get("genre_apparent", "") or "")
-    annee            = str(extraction.get("annee_estimee") or "")
-    description      = str(extraction.get("description_courte", "") or "")
-    indices          = [str(i) for i in (extraction.get("indices_visuels", []) or []) if i]
-    objets           = [str(o) for o in (extraction.get("objets_importants", []) or []) if o]
-    transcript       = str(extraction.get("_transcript_raw", "") or "")
-
-    # ── Niveau 0 : acteur × mots-clés transcript ─────────────────
-    # C'est le croisement le plus puissant :
-    # "Eddie Murphy bourse" → "Un fauteuil pour deux" en 1 requête
-    if acteurs:
-        kws = _keywords_from_transcript(transcript)
-        for acteur in acteurs[:2]:
-            if kws:
-                # Requête croisée : acteur + 2 mots-clés transcript
-                queries.append(f"{acteur} {' '.join(kws[:2])}")
-            # Acteur + genre + année
-            if genre and annee:
-                queries.append(f"{acteur} {genre} {annee}")
-            elif genre:
-                queries.append(f"{acteur} {genre}")
-            elif annee:
-                queries.append(f"{acteur} {annee}")
-
-    # ── Niveau 1 : titres certains ────────────────────────────────
-    for titre in titres:
+    # ── Niveau 1 : titres certains ───────────────────────────────
+    for titre in titres_certains:
         queries.append(titre)
         if acteurs:
             queries.append(f"{titre} {acteurs[0]}")
+        if annee:
+            queries.append(f"{titre} {annee}")
 
-    # ── Niveau 2 : acteur seul (fallback si croisements ratent) ──
-    for acteur in acteurs[:2]:
-        queries.append(acteur)
+    # ── Niveau 2 : acteurs ───────────────────────────────────────
+    if acteurs:
+        queries.append(f"{acteurs[0]} {genre} {annee}".strip())
+        queries.append(acteurs[0])
     if len(acteurs) >= 2:
         queries.append(f"{acteurs[0]} {acteurs[1]}")
 
-    # ── Niveau 3 : personnages iconiques ─────────────────────────
+    # ── Niveau 3 : personnages ───────────────────────────────────
     for perso in personnages[:2]:
-        queries.append(perso)
-        if genre:
-            queries.append(f"{perso} {genre}")
+        queries.append(f"{perso} {genre}".strip())
 
-    # ── Niveau 4 : objets et indices visuels ─────────────────────
-    for item in (objets + indices)[:3]:
-        queries.append(item)
-        if genre:
-            queries.append(f"{item} {genre} {annee}".strip())
+    # ── Niveau 4 : combinaisons indices + objets (le cœur du fix)
+    # On combine TOUJOURS au moins 2 indices pour éviter les requêtes
+    # trop génériques comme "argent" ou "aéroport" seuls.
+    all_clues = [o for o in objets if o] + [i for i in indices if i]
 
-    # ── Niveau 5 : titres incertains ─────────────────────────────
-    for titre in titres_uncertain:
+    # Combinaisons 2-à-2 avec genre/année
+    if len(all_clues) >= 2:
+        # Top 3 paires
+        for i in range(min(3, len(all_clues) - 1)):
+            pair = f"{all_clues[i]} {all_clues[i+1]}"
+            queries.append(pair)
+            if genre:
+                queries.append(f"{pair} {genre}")
+            if annee:
+                queries.append(f"{pair} {annee}")
+
+    # Triple combinaison si assez d'indices
+    if len(all_clues) >= 3:
+        triple = f"{all_clues[0]} {all_clues[1]} {all_clues[2]}"
+        queries.append(triple)
+        if genre:
+            queries.append(f"{triple} {genre}")
+
+    # ── Niveau 5 : mots-clés extraits de description_courte ──────
+    # On extrait les groupes nominaux significatifs, pas les mots isolés
+    if description:
+        keywords = _extract_keywords(description)
+        if len(keywords) >= 3:
+            # Requête avec les 3-4 meilleurs mots-clés combinés
+            queries.append(" ".join(keywords[:4]))
+            if genre:
+                queries.append(f"{' '.join(keywords[:3])} {genre}")
+            if annee:
+                queries.append(f"{' '.join(keywords[:3])} {annee}")
+        # Cherche aussi des noms propres dans la description
+        proper_nouns = _extract_proper_nouns(description)
+        for noun in proper_nouns[:2]:
+            queries.append(noun)
+            if genre:
+                queries.append(f"{noun} {genre}")
+
+    # ── Niveau 6 : titres incertains ─────────────────────────────
+    for titre in titres_incertains:
         queries.append(titre)
         if acteurs:
             queries.append(f"{titre} {acteurs[0]}")
 
-    # ── Niveau 6 : description libre ─────────────────────────────
-    if description:
-        mots = [m for m in re.findall(r"\b\w{4,}\b", description)
-                if m.lower() not in _STOPWORDS]
-        if mots:
-            queries.append(" ".join(mots[:5]))
+    # ── Niveau 6b : requêtes spécifiques au type de média ─────────
+
+    # Anime : suffixe "anime" pour orienter TMDB
+    if genre in ("anime", "serie-animation", "serie-animee", "serie-animée"):
+        for titre in (titres + titres_incertains)[:2]:
+            queries.append(f"{titre} anime")
+        for perso in personnages[:1]:
+            queries.append(f"{perso} anime")
+
+    # Documentaire : suffixe "documentary" en anglais
+    if "document" in genre:
+        for titre in titres[:2]:
+            queries.append(f"{titre} documentary")
+        mots_doc = [m for m in re.findall(r"\b\w{5,}\b", description)
+                    if m.lower() not in _STOPWORDS]
+        if mots_doc:
+            queries.append(f"{' '.join(mots_doc[:3])} documentary")
+
+    # ── Niveau 7 : indices seuls (fallback de dernier recours) ───
+    # Seulement si l'indice est suffisamment spécifique (> 8 chars)
+    for clue in all_clues[:3]:
+        if len(clue) > 8:
+            queries.append(clue)
 
     # ── Dédoublonnage en conservant l'ordre ──────────────────────
     seen   = set()
     result = []
     for q in queries:
         q = q.strip()
-        if q and q.lower() not in seen:
-            seen.add(q.lower())
+        if q and q not in seen and len(q) > 2:
+            seen.add(q)
             result.append(q)
 
-    print(f"🔍 Requêtes cascade ({len(result)}): {result[:5]}", flush=True)
+    print(f"🔍 Requêtes cascade ({len(result)}): {result[:6]}", flush=True)
     return result
 
 
 # ════════════════════════════════════════════════════════════════
 # BUILD CANDIDATES FROM ACTORS
-# Inchangé — appelé en priorité dans app.py avant les requêtes texte
 # ════════════════════════════════════════════════════════════════
 async def build_candidates_from_actors(extraction: dict, lang: str = "fr") -> list:
-    """
-    Pour chaque acteur reconnu, récupère sa filmographie TMDB.
-    Filtre ensuite par mots-clés transcript pour réduire les candidats.
-    Retourne [] si aucun acteur reconnu.
-    """
-    acteurs = [str(a) for a in (extraction.get("acteurs", []) or []) if a]
+    acteurs = extraction.get("acteurs", []) or []
     if not acteurs:
         return []
 
     acteurs = acteurs[:3]
-    transcript = str(extraction.get("_transcript_raw", "") or "")
-    kws = _keywords_from_transcript(transcript, n=5)
-
     all_credits: list[list[dict]] = []
 
     for nom in acteurs:
@@ -168,29 +172,20 @@ async def build_candidates_from_actors(extraction: dict, lang: str = "fr") -> li
     if not all_credits:
         return []
 
-    # ── Intersection si plusieurs acteurs ────────────────────────
     if len(all_credits) >= 2:
         ids_first  = {c["id"] for c in all_credits[0]}
         common_ids = ids_first
         for credits in all_credits[1:]:
             common_ids &= {c["id"] for c in credits}
-
         if common_ids:
             candidates = [c for c in all_credits[0] if c["id"] in common_ids]
-            candidates = sorted(candidates,
-                                key=lambda x: x.get("popularity", 0), reverse=True)
-            print(f"✅ Intersection acteurs: {len(candidates)} films communs",
-                  flush=True)
-            # Affiner par mots-clés transcript si dispo
-            if kws:
-                candidates = _score_by_keywords(candidates, kws) or candidates
+            candidates = sorted(candidates, key=lambda x: x.get("popularity", 0), reverse=True)
+            print(f"✅ Intersection acteurs: {len(candidates)} films communs", flush=True)
             return candidates[:20]
-
         print("⚠️ Aucune intersection acteurs → union top films", flush=True)
 
-    # ── Union des top crédits (ou acteur unique) ─────────────────
     seen_ids: set = set()
-    merged: list  = []
+    merged:   list = []
     for credits in all_credits:
         for c in credits[:15]:
             if c["id"] not in seen_ids:
@@ -199,19 +194,12 @@ async def build_candidates_from_actors(extraction: dict, lang: str = "fr") -> li
 
     merged = sorted(merged, key=lambda x: x.get("popularity", 0), reverse=True)
 
-    # ── Filtre genre/année ────────────────────────────────────────
     genre = (extraction.get("genre_apparent") or "").lower()
     annee = str(extraction.get("annee_estimee") or "")
     if genre or annee:
         filtered = _filter_by_genre_year(merged, genre, annee)
         if len(filtered) >= 3:
             merged = filtered
-
-    # ── Affiner par mots-clés transcript ─────────────────────────
-    # Ex: Eddie Murphy a 149 films — si transcript dit "bourse"
-    # on remonte "Un fauteuil pour deux" en tête de liste
-    if kws:
-        merged = _score_by_keywords(merged, kws) or merged
 
     print(f"✅ Candidats via acteurs: {len(merged[:20])}", flush=True)
     return merged[:20]
@@ -220,35 +208,47 @@ async def build_candidates_from_actors(extraction: dict, lang: str = "fr") -> li
 # ════════════════════════════════════════════════════════════════
 # HELPERS PRIVÉS
 # ════════════════════════════════════════════════════════════════
-def _score_by_keywords(candidates: list, keywords: list[str]) -> list:
-    """
-    Re-trie les candidats en fonction du nombre de mots-clés du transcript
-    présents dans leur titre ou synopsis.
-    Les candidats sans correspondance restent en queue, triés par popularité.
-    """
-    kws_lower = [k.lower() for k in keywords]
+_STOPWORDS = {
+    # Français
+    "dans", "avec", "pour", "qui", "que", "les", "des", "une", "est",
+    "sont", "cette", "leur", "plus", "tout", "mais", "dont", "elle",
+    "lui", "ils", "elles", "nous", "vous", "très", "bien", "même",
+    "aussi", "comme", "quand", "alors", "après", "avant", "jusqu",
+    "entre", "contre", "sans", "sous", "sur", "par", "depuis",
+    # Anglais
+    "when", "what", "that", "this", "with", "from", "have", "they",
+    "which", "been", "were", "their", "there", "about", "would",
+    "could", "should", "other", "into", "than", "then", "some",
+    # Espagnol/Allemand
+    "sehr", "wird", "eine", "auch", "oder", "para", "esto", "como",
+    "donde", "tiene", "pero", "porque",
+    # Mots trop génériques pour une recherche film
+    "film", "scene", "scène", "vidéo", "video", "homme", "femme",
+    "jeune", "vieux", "grand", "petit", "faire", "aller", "venir",
+    "voir", "dire", "avoir", "être",
+}
 
-    def kw_score(c: dict) -> float:
-        text = (
-            (c.get("title") or c.get("name") or "") + " " +
-            (c.get("overview") or "")
-        ).lower()
-        hits     = sum(1 for kw in kws_lower if kw in text)
-        pop      = c.get("popularity", 0)
-        return hits * 1000 + pop   # priorité aux hits, tie-break par popularité
+def _extract_keywords(text: str) -> list[str]:
+    """Extrait les mots-clés significatifs d'une description, filtre les stopwords."""
+    words = re.findall(r"\b\w{4,}\b", text, re.UNICODE)
+    result = []
+    seen   = set()
+    for w in words:
+        w_lower = w.lower()
+        if w_lower not in _STOPWORDS and w_lower not in seen:
+            seen.add(w_lower)
+            result.append(w)
+    return result
 
-    scored = sorted(candidates, key=kw_score, reverse=True)
-
-    # Log si on a reclassé quelque chose
-    if scored and scored[0] != candidates[0]:
-        top = scored[0]
-        print(
-            f"🔑 Transcript keywords {keywords} → "
-            f"'{top.get('title') or top.get('name')}' remonté en tête",
-            flush=True
-        )
-    return scored
-
+def _extract_proper_nouns(text: str) -> list[str]:
+    """Extrait les noms propres (mots commençant par une majuscule, pas en début de phrase)."""
+    # Cherche les mots en majuscule qui ne sont pas en début de phrase
+    candidates = re.findall(r"(?<=[.!?]\s{0,5}|[,;]\s)([A-Z][a-zÀ-ÿ]{2,}(?:\s[A-Z][a-zÀ-ÿ]{2,})?)", text)
+    # Aussi les mots majuscule au milieu d'une phrase
+    mid_caps   = re.findall(r"\b([A-Z][a-zÀ-ÿ]{3,})\b", text)
+    all_nouns  = candidates + [w for w in mid_caps if w not in candidates]
+    # Filtrer les mots génériques
+    return [n for n in all_nouns if n.lower() not in _STOPWORDS][:5]
 
 _GENRE_TMDB_IDS = {
     "action":          28,
@@ -271,7 +271,6 @@ _GENRE_TMDB_IDS = {
     "anime":           16,
 }
 
-
 def _filter_by_genre_year(candidates: list, genre: str, annee: str) -> list:
     genre_id  = _GENRE_TMDB_IDS.get(genre)
     annee_int = int(annee) if annee and annee.isdigit() else None
@@ -288,22 +287,3 @@ def _filter_by_genre_year(candidates: list, genre: str, annee: str) -> list:
                 continue
         result.append(c)
     return result
-
-
-_STOPWORDS = {
-    # FR
-    "dans", "avec", "pour", "qui", "que", "les", "des", "une", "est",
-    "sont", "cette", "leur", "plus", "tout", "mais", "dont", "alors",
-    "comme", "quand", "donc", "bien", "très", "aussi", "même", "encore",
-    "toujours", "après", "avant", "sous", "entre", "vers", "depuis",
-    # EN
-    "when", "what", "that", "this", "with", "from", "have", "they",
-    "which", "their", "there", "were", "been", "into", "will", "would",
-    "could", "should", "about", "after", "before", "some", "your",
-    # DE
-    "sehr", "wird", "eine", "auch", "oder", "nicht", "mehr", "nach",
-    # ES/PT
-    "para", "esto", "como", "donde", "tiene", "pero", "todo", "esta",
-    # JA/ZH/KO (mots latins résiduels)
-    "nani", "kore", "sono",
-}

@@ -55,12 +55,11 @@ const dict = {
     err_low_confidence: "Movie not identified with enough confidence. Try searching manually.",
     search_manually: "Search manually",
     err_rate_limited: "Too many requests. Wait a minute before retrying.",
-err_rate_limited_daily: "Daily limit reached. Come back tomorrow.",
-err_video_too_short: "Video too short. Try a clip of at least 3 seconds.",
-err_file_too_large: "File too large. Try a shorter video.",
-err_video_blocked: "Video blocked for copyright reasons.",
-err_unsupported: "Unsupported platform or format.",
-    
+    err_rate_limited_daily: "Daily limit reached. Come back tomorrow.",
+    err_video_too_short: "Video too short. Try a clip of at least 3 seconds.",
+    err_file_too_large: "File too large. Try a shorter video.",
+    err_video_blocked: "Video blocked for copyright reasons.",
+    err_unsupported: "Unsupported platform or format.",
     genres: {
       horror: "Horror", action: "Action", comedy: "Comedy", scifi: "Sci-Fi",
       trending: "🔥 Trending", romance: "Romance", animation: "Animation",
@@ -97,11 +96,11 @@ err_unsupported: "Unsupported platform or format.",
     err_low_confidence: "Movie not identified with enough confidence. Try searching manually.",
     search_manually: "Search manually",
     err_rate_limited: "Too many requests. Wait a minute before retrying.",
-err_rate_limited_daily: "Daily limit reached. Come back tomorrow.",
-err_video_too_short: "Video too short. Try a clip of at least 3 seconds.",
-err_file_too_large: "File too large. Try a shorter video.",
-err_video_blocked: "Video blocked for copyright reasons.",
-err_unsupported: "Unsupported platform or format.",
+    err_rate_limited_daily: "Daily limit reached. Come back tomorrow.",
+    err_video_too_short: "Video too short. Try a clip of at least 3 seconds.",
+    err_file_too_large: "File too large. Try a shorter video.",
+    err_video_blocked: "Video blocked for copyright reasons.",
+    err_unsupported: "Unsupported platform or format.",
     genres: {
       horror: "Horror", action: "Action", comedy: "Comedy", scifi: "Sci-Fi",
       trending: "🔥 Trending", romance: "Romance", animation: "Animation",
@@ -180,12 +179,11 @@ err_unsupported: "Unsupported platform or format.",
     err_low_confidence: "Película no identificada con certeza. Busca manualmente.",
     search_manually: "Buscar manualmente",
     err_rate_limited: "Demasiadas solicitudes. Espera un minuto antes de reintentar.",
-err_rate_limited_daily: "Límite diario alcanzado. Vuelve mañana.",
-err_video_too_short: "Video demasiado corto. Prueba con un clip de al menos 3 segundos.",
-err_file_too_large: "Archivo demasiado grande. Prueba con un video más corto.",
-err_video_blocked: "Video bloqueado por derechos de autor.",
-err_unsupported: "Plataforma o formato no compatible.",
-
+    err_rate_limited_daily: "Límite diario alcanzado. Vuelve mañana.",
+    err_video_too_short: "Video demasiado corto. Prueba con un clip de al menos 3 segundos.",
+    err_file_too_large: "Archivo demasiado grande. Prueba con un video más corto.",
+    err_video_blocked: "Video bloqueado por derechos de autor.",
+    err_unsupported: "Plataforma o formato no compatible.",
     genres: {
       horror: "Terror", action: "Acción", comedy: "Comedia", scifi: "Ciencia Ficción",
       trending: "🔥 Tendencias", romance: "Romance", animation: "Animación",
@@ -222,11 +220,11 @@ err_unsupported: "Plataforma o formato no compatible.",
     err_low_confidence: "Film nicht sicher identifiziert. Suche manuell.",
     search_manually: "Manuell suchen",
     err_rate_limited: "Zu viele Anfragen. Warte eine Minute, bevor du es erneut versuchst.",
-err_rate_limited_daily: "Tägliches Limit erreicht. Komm morgen wieder.",
-err_video_too_short: "Video zu kurz. Versuche einen Clip von mindestens 3 Sekunden.",
-err_file_too_large: "Datei zu groß. Versuche ein kürzeres Video.",
-err_video_blocked: "Video aus urheberrechtlichen Gründen gesperrt.",
-err_unsupported: "Nicht unterstützte Plattform oder Format.",
+    err_rate_limited_daily: "Tägliches Limit erreicht. Komm morgen wieder.",
+    err_video_too_short: "Video zu kurz. Versuche einen Clip von mindestens 3 Sekunden.",
+    err_file_too_large: "Datei zu groß. Versuche ein kürzeres Video.",
+    err_video_blocked: "Video aus urheberrechtlichen Gründen gesperrt.",
+    err_unsupported: "Nicht unterstützte Plattform oder Format.",
     genres: {
       horror: "Horror", action: "Action", comedy: "Komödie", scifi: "Science-Fiction",
       trending: "🔥 Trends", romance: "Romantik", animation: "Animation",
@@ -262,11 +260,11 @@ err_unsupported: "Nicht unterstützte Plattform oder Format.",
     err_low_confidence: "无法确定识别电影，请手动搜索。",
     search_manually: "手动搜索",
     err_rate_limited: "请求过多。请等待一分钟后再试。",
-err_rate_limited_daily: "已达每日限额。请明天再来。",
-err_video_too_short: "视频太短。请尝试至少3秒的片段。",
-err_file_too_large: "文件太大。请尝试较短的视频。",
-err_video_blocked: "视频因版权原因被屏蔽。",
-err_unsupported: "不支持的平台或格式。",
+    err_rate_limited_daily: "已达每日限额。请明天再来。",
+    err_video_too_short: "视频太短。请尝试至少3秒的片段。",
+    err_file_too_large: "文件太大。请尝试较短的视频。",
+    err_video_blocked: "视频因版权原因被屏蔽。",
+    err_unsupported: "不支持的平台或格式。",
     genres: {
       horror: "恐怖", action: "动作", comedy: "喜剧", scifi: "科幻",
       trending: "🔥 热门", romance: "爱情", animation: "动画",
@@ -330,10 +328,10 @@ function tErr(code) {
     rate_limited_daily: d.err_rate_limited_daily || "Limite journalière atteinte.",
     video_too_short: d.err_video_too_short || "Vidéo trop courte (moins de 3s).",
     file_too_large: d.err_file_too_large || "Fichier trop volumineux. Essayez une vidéo plus courte.",
-   download_timeout: d.err_timeout,
-   video_blocked: d.err_video_blocked || "Vidéo bloquée pour droits d'auteur.",
-   unsupported_platform: d.err_unsupported || "Plateforme non supportée.",
-   unsupported: d.err_unsupported || "Format non supporté.",
+    download_timeout: d.err_timeout,
+    video_blocked: d.err_video_blocked || "Vidéo bloquée pour droits d'auteur.",
+    unsupported_platform: d.err_unsupported || "Plateforme non supportée.",
+    unsupported: d.err_unsupported || "Format non supporté.",
   };
   return map[code] || d.err_generic;
 }
@@ -469,10 +467,6 @@ function afficherErreur(msg) {
 function cacherErreur() { const el = document.getElementById("error-message"); el.classList.remove("visible"); el.style.display = "none"; }
 function toast(msg, dur = 3000) { const t = document.getElementById("toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), dur); }
 
-/**
- * Affiche une erreur riche, centrée dans la zone de contenu, avec lien de recherche.
- * Utilisée après annulation de l'overlay d'analyse.
- */
 function afficherErreurRiche(data) {
   const d = dict[currentLang] || dict.fr;
   const code = data.code || "unexpected";
@@ -551,7 +545,6 @@ async function gererRechercheGlobal() {
     cacherErreur();
     document.getElementById("genre-grid").style.display = "none";
     document.getElementById("page-film-detail").style.display = "none";
-    // Détection universelle de liens vidéo (toutes plateformes supportées)
     const isLink = /^https?:\/\//i.test(input) && (
       /tiktok\.com|vm\.tiktok\.com|vt\.tiktok\.com/.test(input) ||
       /instagram\.com/.test(input) ||
@@ -566,12 +559,12 @@ async function gererRechercheGlobal() {
       /linkedin\.com/.test(input) ||
       /reddit\.com|redd\.it/.test(input) ||
       /pinterest\.|pin\.it/.test(input) ||
-     /bit\.ly|t\.co|tinyurl\.com|ow\.ly|buff\.ly|short\.io|lnk\.to/.test(input)
-    ) || /^https?:\/\//i.test(input); 
+      /bit\.ly|t\.co|tinyurl\.com|ow\.ly|buff\.ly|short\.io|lnk\.to/.test(input)
+    ) || /^https?:\/\//i.test(input);
     if (isLink) {
-        demarrerPub();  // ← pub avant l'analyse
+        demarrerPub();
         analyserVideo(input);
-} else {
+    } else {
         hideHero();
         try {
             const data = await safeFetch(`/rechercher?query=${encodeURIComponent(input)}&lang=${getTMDBLang()}`);
@@ -589,7 +582,7 @@ async function gererRechercheGlobal() {
 // ════ ANNULER ANALYSE ════
 function annulerAnalyse() {
   if (analysisAbortController) analysisAbortController.abort();
-  _adFinished = true;  // ← ajoute cette ligne
+  _adFinished = true;
   _analysisResult = null;
   document.getElementById('ad-modal').style.display = 'none';
   clearInterval(_adCountdownInterval);
@@ -598,7 +591,7 @@ function annulerAnalyse() {
   retourAccueil();
 }
 
-// ════ MINI-JEU (requestAnimationFrame — pas de setInterval, 0 fuite mémoire) ════
+// ════ MINI-JEU ════
 let gameState = {
   running: false, score: 0, lives: 3, level: 1,
   heroY: 0, heroVY: 0, jumping: false,
@@ -612,6 +605,12 @@ function gameJump() {
   if (!gameState.jumping) { gameState.heroVY = -9; gameState.jumping = true; }
 }
 
+// ── Masquer le banner de message joueur ──────────────────────────
+function _hideGameMsgBanner() {
+  const banner = document.getElementById("game-msg-banner");
+  if (banner) banner.style.display = "none";
+}
+
 function startGame() {
   stopGame();
   Object.assign(gameState, {
@@ -620,16 +619,25 @@ function startGame() {
     obstacles: [], coins: [], frame: 0, speed: 3,
     dead: false, started: true, lastTime: 0
   });
-  // Nettoyer obstacles/coins du DOM
   const canvas = document.getElementById("game-canvas");
   if (canvas) {
     canvas.querySelectorAll(".game-obstacle, .game-coin").forEach(el => el.remove());
   }
+
+  // ── Message AU-DESSUS du jeu, dans le banner dédié ──────────────
+  const banner = document.getElementById("game-msg-banner");
+  if (banner) {
+    banner.innerHTML = (t("game_playing_msg") || "🎬 On cherche votre film… Jouez en attendant !").replace(/\n/g, "<br>");
+    banner.style.display = "block";
+  }
+
+  // ── Hint dans le canvas = seulement l'instruction de saut ───────
   const hint = document.getElementById("game-hint");
   if (hint) {
-    hint.innerHTML = (t("game_playing_msg") || "🎬 On cherche votre film… Jouez en attendant !").replace(/\n/g, "<br>");
+    hint.textContent = t("game_hint") || "TAP / ESPACE pour sauter";
     hint.style.display = "block";
   }
+
   initAudio();
   startBgMusic();
   gameState.rafId = requestAnimationFrame(gameLoop);
@@ -639,9 +647,10 @@ function stopGame() {
   if (gameState.rafId) { cancelAnimationFrame(gameState.rafId); gameState.rafId = null; }
   gameState.running = false;
   stopBgMusic();
-  // Nettoyer les éléments dynamiques du jeu
   const canvas = document.getElementById("game-canvas");
   if (canvas) canvas.querySelectorAll(".game-obstacle, .game-coin").forEach(el => el.remove());
+  // Masquer le banner message au stop
+  _hideGameMsgBanner();
 }
 
 let _lastFrameTime = 0;
@@ -651,7 +660,6 @@ const FRAME_MS = 1000 / TARGET_FPS;
 function gameLoop(timestamp) {
   if (!gameState.running) return;
 
-  // Limiter à 60fps pour économiser le CPU
   const delta = timestamp - _lastFrameTime;
   if (delta < FRAME_MS - 2) {
     gameState.rafId = requestAnimationFrame(gameLoop);
@@ -666,7 +674,6 @@ function gameLoop(timestamp) {
   const hero = document.getElementById("game-hero");
   if (!hero) return;
 
-  // Physique héros
   if (gameState.jumping) {
     gameState.heroVY += 0.55;
     gameState.heroY -= gameState.heroVY;
@@ -674,13 +681,11 @@ function gameLoop(timestamp) {
   }
   hero.style.bottom = 28 + gameState.heroY + "px";
 
-  // Vitesse & niveau
   gameState.speed = 3 + Math.floor(gameState.score / 50) * 0.4;
   gameState.level = Math.floor(gameState.score / 50) + 1;
   const lvlEl = document.getElementById("game-level");
   if (lvlEl) lvlEl.textContent = "LVL " + gameState.level;
 
-  // Spawner obstacles
   const obsInterval = Math.max(55, 110 - gameState.level * 4);
   if (gameState.frame % obsInterval === 0) {
     const obs = document.createElement("div");
@@ -691,7 +696,6 @@ function gameLoop(timestamp) {
     gameState.obstacles.push({ el: obs, x: W });
   }
 
-  // Spawner pièces
   if (gameState.frame % 80 === 40) {
     const coin = document.createElement("div");
     coin.className = "game-coin";
@@ -702,7 +706,6 @@ function gameLoop(timestamp) {
     gameState.coins.push({ el: coin, x: W, y: cy });
   }
 
-  // Obstacles
   gameState.obstacles = gameState.obstacles.filter(ob => {
     ob.x -= gameState.speed;
     ob.el.style.left = ob.x + "px";
@@ -719,7 +722,6 @@ function gameLoop(timestamp) {
     return true;
   });
 
-  // Pièces
   gameState.coins = gameState.coins.filter(c => {
     c.x -= gameState.speed;
     c.el.style.left = c.x + "px";
@@ -729,7 +731,6 @@ function gameLoop(timestamp) {
     return true;
   });
 
-  // Score
   if (gameState.frame % 10 === 0) gameState.score++;
   const scoreEl = document.getElementById("game-score");
   if (scoreEl) scoreEl.textContent = gameState.score;
@@ -743,6 +744,8 @@ function gameOver() {
   if (gameState.rafId) { cancelAnimationFrame(gameState.rafId); gameState.rafId = null; }
   playGameOverSound();
   stopBgMusic();
+  // Masquer le banner message sur game over
+  _hideGameMsgBanner();
   const hint = document.getElementById("game-hint");
   if (hint) { hint.textContent = t("game_over") + gameState.score + " — TAP"; hint.style.display = "block"; }
 }
@@ -751,23 +754,18 @@ function gameOver() {
 async function analyserVideo(lien) {
   hideHero();
 
-  // Reset état pub/analyse
   _adFinished = false;
   _analysisResult = null;
 
-  // Démarrer pub et analyse EN PARALLÈLE
-  // Ne pas attendre que la pub soit finie pour lancer l'analyse
   const lastAd = parseInt(localStorage.getItem('last_ad') || '0');
   const showAd = Date.now() - lastAd > 30 * 60 * 1000;
   if (showAd) {
     localStorage.setItem('last_ad', Date.now().toString());
     demarrerPub();
   } else {
-    // Pas de pub → comportement direct
     _adFinished = true;
   }
 
-  // Overlay de chargement + jeu
   const overlay = document.getElementById("loading-overlay");
   overlay.classList.add("active");
   startGame();
@@ -805,7 +803,6 @@ async function analyserVideo(lien) {
     clearInterval(progInterval);
 
     if (data.status === "error") {
-      // Erreur → fermer pub immédiatement et afficher erreur
       _adFinished = true;
       document.getElementById('ad-modal').style.display = 'none';
       clearInterval(_adCountdownInterval);
@@ -816,10 +813,18 @@ async function analyserVideo(lien) {
     }
 
     if (data.status === "transcription_needed") {
+      // ── MODIFICATION : lire skip_whisper pour éviter de charger Whisper.js
+      //    si la vidéo est muette ou sans voix détectée côté serveur
+      const skipWhisper = data.skip_whisper === true;
+
       const [ocrText, transcript] = await Promise.allSettled([
         data.frames_base64?.length ? runLocalOCR(data.frames_base64) : Promise.resolve(""),
-        data.audio_base64 ? runLocalWhisper(data.audio_base64) : Promise.resolve("")
+        (!skipWhisper && data.audio_base64) ? runLocalWhisper(data.audio_base64) : Promise.resolve("")
       ]);
+
+      if (skipWhisper) {
+        console.log("⏭️ Whisper.js skippé (skip_whisper=true — vidéo sans voix)");
+      }
 
       const continueRes = await fetch("/analyser_continue", {
         method: "POST",
@@ -837,12 +842,10 @@ async function analyserVideo(lien) {
       catch(e) { throw new Error("json_parse"); }
 
       clearInterval(progInterval);
-      // Passer par _afficherResultatFinal qui attend la pub si nécessaire
       _afficherResultatFinal(finalData);
       return;
     }
 
-    // Passer par _afficherResultatFinal qui attend la pub si nécessaire
     _afficherResultatFinal(data);
 
   } catch (e) {
@@ -1185,14 +1188,12 @@ function afficherDetailFilm(data) {
   document.getElementById("genre-grid").style.display = "none";
   document.getElementById("hero").style.display = "none";
   document.getElementById("back-label").innerText = lastGrid ? t("back_list") : t("back_home");
-  document.getElementById("fake_alert").innerHTML = data.is_fake ? `<div class="fake-alert"><i class="fas fa-exclamation-triangle"></i> Contenu humoristique possible — résultat peut être imprécis.</div>` : "";
   document.getElementById("fake_alert").innerHTML =
- data._lowConfWarning
- ? `<div class="fake-alert"><i class="fas fa-exclamation-triangle"></i> Résultat incertain — ` +
- `(${Math.round(data.confidence)}% de confiance). Vérifiez manuellement si besoin.</div>`
- : data.is_fake
- ? `<div class="fake-alert"><i class="fas fa-exclamation-triangle"></i> Contenu humoristique possible.</div>`
- : "";
+    data._lowConfWarning
+      ? `<div class="fake-alert"><i class="fas fa-exclamation-triangle"></i> Résultat incertain — (${Math.round(data.confidence)}% de confiance). Vérifiez manuellement si besoin.</div>`
+      : data.is_fake
+        ? `<div class="fake-alert"><i class="fas fa-exclamation-triangle"></i> Contenu humoristique possible.</div>`
+        : "";
   document.getElementById("titre_film").innerText = data.title || "Inconnu";
   const imgEl = document.getElementById("affiche_film");
   if (data.image) { imgEl.src = data.image; imgEl.style.display = "block"; } else imgEl.style.display = "none";
@@ -1207,7 +1208,11 @@ function afficherDetailFilm(data) {
   if (data.confidence !== null && data.confidence !== undefined) {
     const pct = Math.round(data.confidence);
     const color = pct >= 70 ? "#00ffcc" : pct >= 40 ? "#ffd700" : "#ff4444";
-    const lbl = pct >= 70 ? (currentLang.startsWith("en") ? "High confidence" : "Confiance élevée") : pct >= 40 ? (currentLang.startsWith("en") ? "Medium confidence" : "Confiance moyenne") : (currentLang.startsWith("en") ? "Low confidence" : "Confiance faible");
+    const lbl = pct >= 70
+      ? (currentLang.startsWith("en") ? "High confidence" : "Confiance élevée")
+      : pct >= 40
+        ? (currentLang.startsWith("en") ? "Medium confidence" : "Confiance moyenne")
+        : (currentLang.startsWith("en") ? "Low confidence" : "Confiance faible");
     confWrap.style.display = "block";
     document.getElementById("conf-bar-inner").style.width = pct + "%";
     document.getElementById("conf-bar-inner").style.background = color;
@@ -1216,7 +1221,9 @@ function afficherDetailFilm(data) {
   } else confWrap.style.display = "none";
 
   const ratingEl = document.getElementById("detail_rating");
-  ratingEl.innerHTML = data.vote_average ? `<i class="fas fa-star" style="color:var(--gold)"></i> ${parseFloat(data.vote_average).toFixed(1)}<small> / 10 · ${data.vote_count ? data.vote_count.toLocaleString() + " votes" : ""}</small>` : "";
+  ratingEl.innerHTML = data.vote_average
+    ? `<i class="fas fa-star" style="color:var(--gold)"></i> ${parseFloat(data.vote_average).toFixed(1)}<small> / 10 · ${data.vote_count ? data.vote_count.toLocaleString() + " votes" : ""}</small>`
+    : "";
 
   const synEl = document.getElementById("synopsis_film");
   if (data.scene_description) {
@@ -1227,7 +1234,6 @@ function afficherDetailFilm(data) {
 
   setTimeout(() => document.getElementById("food-partner").classList.add("visible"), 400);
 
-  // Streaming
   const streamEl = document.getElementById("streaming_section");
   const streamList = data.streaming || [], streamLogos = data.streaming_logos || [];
   if (streamList.length > 0) {
@@ -1246,7 +1252,6 @@ function afficherDetailFilm(data) {
     streamEl.innerHTML = `<h3><i class="fas fa-satellite-dish"></i> Streaming</h3><p style="color:var(--muted);font-size:.85rem">${t("no_streaming_country")}</p><div class="streaming-buttons" style="margin-top:8px"><a href="https://www.amazon.fr/gp/video/search?phrase=${encodeURIComponent(data.title || "")}" target="_blank" class="btn-stream affiliate" style="border-color:#00a8e040"><i class="fas fa-search" style="color:#00a8e0"></i> Amazon Prime</a><a href="https://www.google.com/search?q=${encodeURIComponent((data.title || "") + " streaming")}" target="_blank" class="btn-stream"><i class="fab fa-google"></i> Google</a></div>`;
   }
 
-  // Saisons
   const seasonsEl = document.getElementById("seasons_section");
   if (data.is_series && data.seasons && data.seasons.length > 0) {
     const seasons = data.seasons.filter(s => s.season_number > 0 || s.episode_count > 0);
@@ -1259,17 +1264,17 @@ function afficherDetailFilm(data) {
     seasonsEl.innerHTML = `<h3><i class="fas fa-layer-group"></i> ${t("seasons_title")}</h3>${seasonCards}`;
   } else seasonsEl.innerHTML = "";
 
-  // Cast
   const castEl = document.getElementById("cast_section");
   if ((data.cast || []).length > 0) {
     const items = data.cast.map(c => {
-      const photo = c.profile_path ? `https://image.tmdb.org/t/p/w185${c.profile_path}` : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Crect width='60' height='60' fill='%231a1a24' rx='30'/%3E%3Ctext x='50%25' y='50%25' fill='%23555' font-size='24' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%91%A4%3C/text%3E%3C/svg%3E";
+      const photo = c.profile_path
+        ? `https://image.tmdb.org/t/p/w185${c.profile_path}`
+        : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Crect width='60' height='60' fill='%231a1a24' rx='30'/%3E%3Ctext x='50%25' y='50%25' fill='%23555' font-size='24' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%91%A4%3C/text%3E%3C/svg%3E";
       return `<div class="cast-card"><img src="${photo}" alt="${c.name}" loading="lazy"><p>${c.name}${c.character ? `<br><span style="color:var(--primary);font-size:.58rem">${c.character}</span>` : ""}</p></div>`;
     }).join("");
     castEl.innerHTML = `<h3><i class="fas fa-users"></i> ${t("cast_title")}</h3><div class="cast-list">${items}</div>`;
   } else castEl.innerHTML = "";
 
-  // Trailer
   const trailerEl = document.getElementById("trailer_section");
   if (data.trailer) {
     const embedUrl = data.trailer.replace("watch?v=", "embed/").replace("youtu.be/", "www.youtube.com/embed/");
@@ -1279,12 +1284,13 @@ function afficherDetailFilm(data) {
     trailerEl.innerHTML = `<h3><i class="fab fa-youtube"></i> ${t("trailer_title")}</h3><a href="https://www.youtube.com/results?search_query=${q}" target="_blank" rel="noopener" class="btn-trailer"><i class="fas fa-search"></i> ${t("search_trailer")}</a>`;
   }
 
-  // Films similaires
   const similarEl = document.getElementById("similar_section");
   const similarList = data.similar || [];
   if (similarList.length > 0) {
     const cards = similarList.map(s => {
-      const poster = s.poster_path ? `https://image.tmdb.org/t/p/w200${s.poster_path}` : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='300' fill='%231a1a24'%3E%3Crect width='200' height='300'/%3E%3Ctext x='50%25' y='50%25' fill='%23444' font-size='28' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E";
+      const poster = s.poster_path
+        ? `https://image.tmdb.org/t/p/w200${s.poster_path}`
+        : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='300' fill='%231a1a24'%3E%3Crect width='200' height='300'/%3E%3Ctext x='50%25' y='50%25' fill='%23444' font-size='28' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E";
       const isTv = s.media_type === "tv" || !!s.first_air_date;
       return `<div class="movie-card" onclick="afficherDetails(${s.id},'${isTv ? "tv" : "movie"}')" style="cursor:pointer"><img src="${poster}" alt="${s.title || s.name || "?"}" loading="lazy" style="aspect-ratio:2/3;object-fit:cover"><div class="card-body"><h4>${s.title || s.name || "?"}</h4></div></div>`;
     }).join("");
@@ -1327,16 +1333,6 @@ async function toggleSaison(seriesId, seasonNumber) {
   }
 }
 
-
-
-
-
-
-
-
-
-
-
 // ════ PUBLICITÉ PARALLÈLE ════
 let _adFinished = false;
 let _analysisResult = null;
@@ -1365,7 +1361,6 @@ function demarrerPub() {
       countdown.textContent = '✕';
       closeBtn.style.background = 'rgba(0,255,204,0.2)';
       closeBtn.style.color = 'var(--primary)';
-      // Pub terminée naturellement
       _publicitéTerminée();
     }
   }, 1000);
@@ -1382,23 +1377,18 @@ function _publicitéTerminée() {
   _adFinished = true;
   const modal = document.getElementById('ad-modal');
   modal.style.display = 'none';
-
-  // Si l'analyse est déjà terminée → afficher le résultat
   if (_analysisResult !== null) {
     _afficherResultatFinal(_analysisResult);
     _analysisResult = null;
   }
-  // Sinon on attend → l'analyse appellera _afficherResultatFinal quand elle finit
 }
 
 function _afficherResultatFinal(data) {
-  // Si la pub n'est pas encore finie → stocker et attendre
   if (!_adFinished) {
     _analysisResult = data;
     return;
   }
 
-  // Pub finie → afficher
   const overlay = document.getElementById("loading-overlay");
   const progressBar = document.getElementById("prog-fill");
   const percentLabel = document.getElementById("prog-percent");
@@ -1422,8 +1412,10 @@ function _afficherResultatFinal(data) {
 
 // ════ CONFIDENTIALITÉ ════
 function afficherPrivacy() {
-  document.getElementById("hero").style.display = "none"; document.getElementById("genre-nav").style.display = "none";
-  document.getElementById("genre-grid").style.display = "none"; document.getElementById("page-film-detail").style.display = "none";
+  document.getElementById("hero").style.display = "none";
+  document.getElementById("genre-nav").style.display = "none";
+  document.getElementById("genre-grid").style.display = "none";
+  document.getElementById("page-film-detail").style.display = "none";
   document.getElementById("privacy-page").style.display = "block";
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -1463,10 +1455,9 @@ window.onload = () => {
         <div class="game-lives" id="game-lives">❤️❤️❤️</div>
         <div class="game-level-display" id="game-level">LVL 1</div>
         <div id="game-hero" style="left:60px">🥷</div>
-        <div class="game-tap-hint" id="game-hint">TAP / ESPACE pour sauter</div>`;
+        <div class="game-tap-hint" id="game-hint">${t("game_hint")}</div>`;
     }
   }
-  // Cookie consent
   if (!localStorage.getItem("cookies_accepted")) {
     setTimeout(() => { document.getElementById("cookie-consent").style.display = "flex"; }, 2000);
   }
