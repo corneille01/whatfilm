@@ -605,7 +605,6 @@ function gameJump() {
   if (!gameState.jumping) { gameState.heroVY = -9; gameState.jumping = true; }
 }
 
-// ── Masquer le banner de message joueur ──────────────────────────
 function _hideGameMsgBanner() {
   const banner = document.getElementById("game-msg-banner");
   if (banner) banner.style.display = "none";
@@ -624,14 +623,12 @@ function startGame() {
     canvas.querySelectorAll(".game-obstacle, .game-coin").forEach(el => el.remove());
   }
 
-  // ── Message AU-DESSUS du jeu, dans le banner dédié ──────────────
   const banner = document.getElementById("game-msg-banner");
   if (banner) {
     banner.innerHTML = (t("game_playing_msg") || "🎬 On cherche votre film… Jouez en attendant !").replace(/\n/g, "<br>");
     banner.style.display = "block";
   }
 
-  // ── Hint dans le canvas = seulement l'instruction de saut ───────
   const hint = document.getElementById("game-hint");
   if (hint) {
     hint.textContent = t("game_hint") || "TAP / ESPACE pour sauter";
@@ -649,7 +646,6 @@ function stopGame() {
   stopBgMusic();
   const canvas = document.getElementById("game-canvas");
   if (canvas) canvas.querySelectorAll(".game-obstacle, .game-coin").forEach(el => el.remove());
-  // Masquer le banner message au stop
   _hideGameMsgBanner();
 }
 
@@ -744,13 +740,14 @@ function gameOver() {
   if (gameState.rafId) { cancelAnimationFrame(gameState.rafId); gameState.rafId = null; }
   playGameOverSound();
   stopBgMusic();
-  // Masquer le banner message sur game over
   _hideGameMsgBanner();
   const hint = document.getElementById("game-hint");
   if (hint) { hint.textContent = t("game_over") + gameState.score + " — TAP"; hint.style.display = "block"; }
 }
 
-// ════ ANALYSE VIDÉO ════
+// ════════════════════════════════════════════════════════════════
+// ANALYSE VIDÉO — avec polling sur /analyser_status/{session_id}
+// ════════════════════════════════════════════════════════════════
 async function analyserVideo(lien) {
   hideHero();
 
@@ -774,19 +771,31 @@ async function analyserVideo(lien) {
   const progressBar = document.getElementById("prog-fill");
   const percentLabel = document.getElementById("prog-percent");
 
+  // Progression simulée : monte jusqu'à 88% pendant l'attente
   let progInterval = setInterval(() => {
     if (progress < 88) {
-      progress += Math.random() * 8 + 3;
+      progress += Math.random() * 4 + 1.5;
       if (progress > 88) progress = 88;
       if (progressBar) progressBar.style.width = progress + "%";
       if (percentLabel) percentLabel.textContent = Math.round(progress) + "%";
     }
-  }, 900);
+  }, 1200);
 
   analysisAbortController = new AbortController();
   const signal = analysisAbortController.signal;
 
+  const _cleanup = (err) => {
+    clearInterval(progInterval);
+    _adFinished = true;
+    document.getElementById('ad-modal').style.display = 'none';
+    clearInterval(_adCountdownInterval);
+    overlay.classList.remove("active");
+    stopGame();
+    if (err) afficherErreurRiche(err);
+  };
+
   try {
+    // ── 1. Lancer l'analyse (réponse immédiate avec session_id) ──
     const res = await fetch("/analyser", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -800,21 +809,74 @@ async function analyserVideo(lien) {
     try { data = await res.json(); }
     catch(e) { throw new Error("json_parse"); }
 
-    clearInterval(progInterval);
-
+    // Erreur immédiate (rate limit, plateforme non supportée, etc.)
     if (data.status === "error") {
-      _adFinished = true;
-      document.getElementById('ad-modal').style.display = 'none';
-      clearInterval(_adCountdownInterval);
-      overlay.classList.remove("active");
-      stopGame();
+      _cleanup();
       afficherErreurRiche(data);
       return;
     }
 
+    // Cache hit : résultat direct, pas besoin de polling
+    if (data.status === "cached" || data.status === "success") {
+      clearInterval(progInterval);
+      _afficherResultatFinal(data);
+      return;
+    }
+
+    // ── 2. Polling sur /analyser_status/{session_id} ─────────────
+    if (data.status === "processing" && data.session_id) {
+      const sessionId = data.session_id;
+      const MAX_POLLS = 120;   // 120 × 2.5s = 5 minutes max
+      const POLL_INTERVAL = 2500;
+      let polls = 0;
+
+      const pollResult = await new Promise((resolve, reject) => {
+        const interval = setInterval(async () => {
+          if (signal.aborted) {
+            clearInterval(interval);
+            reject(new DOMException("Aborted", "AbortError"));
+            return;
+          }
+          polls++;
+          if (polls > MAX_POLLS) {
+            clearInterval(interval);
+            resolve({ status: "error", code: "timeout",
+                      message: t("err_timeout") });
+            return;
+          }
+          try {
+            const statusRes = await fetch(`/analyser_status/${sessionId}`, { signal });
+            if (!statusRes.ok) return; // on réessaie au prochain tick
+            const statusData = await statusRes.json();
+
+            if (statusData.status === "processing") return; // encore en cours
+            // done ou error ou transcription_needed
+            clearInterval(interval);
+            resolve(statusData);
+          } catch(e) {
+            if (e.name === "AbortError") {
+              clearInterval(interval);
+              reject(e);
+            }
+            // Erreur réseau transitoire → on réessaie
+          }
+        }, POLL_INTERVAL);
+      });
+
+      data = pollResult;
+    }
+
+    clearInterval(progInterval);
+
+    // ── 3. Traitement du résultat final ──────────────────────────
+    if (data.status === "error") {
+      _cleanup();
+      afficherErreurRiche(data);
+      return;
+    }
+
+    // Fallback client (transcription côté navigateur)
     if (data.status === "transcription_needed") {
-      // ── MODIFICATION : lire skip_whisper pour éviter de charger Whisper.js
-      //    si la vidéo est muette ou sans voix détectée côté serveur
       const skipWhisper = data.skip_whisper === true;
 
       const [ocrText, transcript] = await Promise.allSettled([
@@ -823,7 +885,7 @@ async function analyserVideo(lien) {
       ]);
 
       if (skipWhisper) {
-        console.log("⏭️ Whisper.js skippé (skip_whisper=true — vidéo sans voix)");
+        console.log("⏭️ Whisper.js skippé (skip_whisper=true)");
       }
 
       const continueRes = await fetch("/analyser_continue", {
@@ -850,12 +912,8 @@ async function analyserVideo(lien) {
 
   } catch (e) {
     clearInterval(progInterval);
-    _adFinished = true;
-    document.getElementById('ad-modal').style.display = 'none';
-    clearInterval(_adCountdownInterval);
-    overlay.classList.remove("active");
-    stopGame();
     if (e.name === "AbortError") return;
+    _cleanup();
     if (e.message === "json_parse") {
       afficherErreurRiche({ code: "unexpected", message: t("err_generic") });
     } else if (e.message?.startsWith("http_")) {

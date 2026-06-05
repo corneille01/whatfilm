@@ -28,7 +28,6 @@ async def _download_with_ytdlp(url: str, output_path: str) -> Dict[str, Any]:
         return {"ok": False, "code": "yt_dlp_missing", "message": "yt-dlp non installé"}
 
     opts = YTDLP_OPTIONS.copy()
-    # Force la sortie dans le dossier temp avec le bon nom
     opts["outtmpl"] = os.path.join(os.path.dirname(output_path), "%(id)s.%(ext)s")
     try:
         loop = asyncio.get_event_loop()
@@ -36,12 +35,10 @@ async def _download_with_ytdlp(url: str, output_path: str) -> Dict[str, Any]:
             info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=True))
             if info and "requested_downloads" in info:
                 downloaded_file = info["requested_downloads"][0]["filepath"]
-                # Renommer vers output_path
                 if downloaded_file != output_path:
                     os.rename(downloaded_file, output_path)
                 return {"ok": True}
             elif info and info.get("url"):
-                # On a une URL directe (ex: youtube)
                 return {"ok": True, "direct_url": info["url"]}
             else:
                 return {"ok": False, "code": "ytdlp_no_stream", "message": "Aucun flux trouvé"}
@@ -50,10 +47,12 @@ async def _download_with_ytdlp(url: str, output_path: str) -> Dict[str, Any]:
 
 
 async def _download_tiktok_playwright_subprocess(url: str) -> Dict[str, Any]:
-    """Sur Render, lance playwright_worker.py en sous‑processus pour isoler les ports UDP."""
+    """Sur Render, lance vision/playwright_worker.py en sous‑processus pour isoler les ports UDP."""
+    # Chemin absolu vers le worker, relatif au répertoire de travail de gunicorn (/app)
+    worker_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "playwright_worker.py")
     try:
         proc = await asyncio.create_subprocess_exec(
-            "python3", "playwright_worker.py", url,
+            "python3", worker_path, url,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
@@ -65,7 +64,7 @@ async def _download_tiktok_playwright_subprocess(url: str) -> Dict[str, Any]:
         return result
     except FileNotFoundError:
         return {"ok": False, "code": "playwright_worker_missing",
-                "message": "playwright_worker.py introuvable"}
+                "message": f"playwright_worker.py introuvable à {worker_path}"}
     except json.JSONDecodeError:
         return {"ok": False, "code": "playwright_worker_output",
                 "message": "Réponse JSON invalide du worker Playwright"}
@@ -155,7 +154,6 @@ async def download_video(url: str, output_path: str, platform: str = "unknown") 
           2. yt-dlp
       - Autres plateformes : yt-dlp uniquement.
     """
-    # Nettoyage
     if os.path.exists(output_path):
         os.remove(output_path)
 
@@ -168,11 +166,10 @@ async def download_video(url: str, output_path: str, platform: str = "unknown") 
             playwright_result = await _download_tiktok_playwright_direct(url)
 
         if playwright_result.get("ok") and playwright_result.get("direct_url"):
-            # On a une URL directe, on télécharge le fichier
             dl_result = await _download_via_direct_url(playwright_result["direct_url"], output_path)
             if dl_result["ok"]:
                 return dl_result
-            # Si le téléchargement direct échoue, on continue vers yt-dlp
+
         # Fallback yt-dlp
         return await _download_with_ytdlp(url, output_path)
 
