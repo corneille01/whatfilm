@@ -2,6 +2,7 @@
 import os
 import asyncio
 import json
+import tempfile
 from typing import Dict, Any
 
 # ══════════════════════════════════════════════════════════════
@@ -30,6 +31,7 @@ async def _download_with_ytdlp(url: str, output_path: str) -> Dict[str, Any]:
     """
     Téléchargement universel via yt-dlp avec plusieurs stratégies
     pour contourner les blocages anti-bot. Aucun cookie personnel requis.
+    En cas d'échec sur YouTube, un fallback Playwright est déclenché.
     """
     try:
         import yt_dlp
@@ -37,13 +39,11 @@ async def _download_with_ytdlp(url: str, output_path: str) -> Dict[str, Any]:
         return {"ok": False, "code": "yt_dlp_missing", "message": "yt-dlp non installé"}
 
     # ── Génération d'un cookie CONSENT (contourne le blocage YouTube) ──
-    import tempfile
     cookie_file = os.path.join(tempfile.gettempdir(), "yt_consent_cookies.txt")
     with open(cookie_file, "w") as f:
         f.write("# Netscape HTTP Cookie File\n")
         f.write(".youtube.com\tTRUE\t/\tFALSE\t0\tCONSENT\tYES+\n")
         f.write(".google.com\tTRUE\t/\tFALSE\t0\tCONSENT\tYES+\n")
-    # ────────────────────────────────────────────────────────────────
 
     strategies = [
         {
@@ -76,7 +76,7 @@ async def _download_with_ytdlp(url: str, output_path: str) -> Dict[str, Any]:
     for strategy in strategies:
         opts = YTDLP_BASE_OPTIONS.copy()
         opts["outtmpl"] = os.path.join(os.path.dirname(output_path), "%(id)s.%(ext)s")
-        opts["cookiefile"] = cookie_file   # <-- cookie CONSENT obligatoire
+        opts["cookiefile"] = cookie_file
         opts.update(strategy)
 
         try:
@@ -96,14 +96,54 @@ async def _download_with_ytdlp(url: str, output_path: str) -> Dict[str, Any]:
             last_error = str(e)[:200]
             continue
         finally:
-            # Nettoyer le fichier temporaire après chaque tentative
             try:
                 if os.path.exists(cookie_file):
                     os.remove(cookie_file)
             except:
                 pass
 
+    # ── Fallback Playwright pour YouTube ──
+    if "youtube.com" in url or "youtu.be" in url:
+        print("🔄 Fallback YouTube Playwright après échec yt-dlp", flush=True)
+        pw_result = await _download_youtube_playwright(url)
+        if pw_result.get("ok") and pw_result.get("direct_url"):
+            dl_result = await _download_via_direct_url(pw_result["direct_url"], output_path)
+            if dl_result["ok"]:
+                return dl_result
+            else:
+                return {"ok": False, "code": "youtube_direct_dl_failed",
+                        "message": "Playwright a extrait l'URL mais le téléchargement direct a échoué"}
+        else:
+            return {"ok": False, "code": "youtube_blocked",
+                    "message": "YouTube exige une vérification humaine. Réessayez plus tard."}
+
     return {"ok": False, "code": "ytdlp_error", "message": last_error}
+
+
+async def _download_youtube_playwright(url: str) -> Dict[str, Any]:
+    """Fallback Playwright pour YouTube quand yt-dlp est bloqué."""
+    worker_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "youtube_worker.py")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "python3", worker_path, url,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            return {"ok": False, "code": "playwright_subprocess_error",
+                    "message": f"YouTube worker échoué (exit {proc.returncode}): {stderr.decode()[:200]}"}
+        result = json.loads(stdout.decode())
+        return result
+    except FileNotFoundError:
+        return {"ok": False, "code": "youtube_worker_missing",
+                "message": f"youtube_worker.py introuvable à {worker_path}"}
+    except json.JSONDecodeError:
+        return {"ok": False, "code": "playwright_worker_output",
+                "message": "Réponse JSON invalide du worker YouTube"}
+    except Exception as e:
+        return {"ok": False, "code": "playwright_subprocess_error", "message": str(e)[:200]}
+
 
 async def _download_tiktok_playwright_subprocess(url: str) -> Dict[str, Any]:
     """Sur Render, lance playwright_worker.py en sous‑processus pour isoler Playwright."""
@@ -212,7 +252,7 @@ async def download_video(url: str, output_path: str, platform: str = "unknown") 
     Point d'entrée unique pour télécharger une vidéo.
     Stratégies :
       - TikTok : Playwright (direct ou sous‑processus) puis fallback yt‑dlp
-      - Autres plateformes : yt‑dlp (avec contournement anti-bot)
+      - Autres plateformes : yt‑dlp (avec contournement anti-bot + fallback Playwright pour YouTube)
     """
     if os.path.exists(output_path):
         os.remove(output_path)
