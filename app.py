@@ -915,6 +915,12 @@ async def robots():
         "Sitemap: https://quelfilm.app/sitemap.xml\n"
     )
 
+@app.get("/")
+async def index():
+    return FileResponse("frontend/index.html")
+
 @app.get("/{lang}")
 async def page_multilingue(lang: str):
+    if len(lang) != 2 or not lang.isalpha():
+        return Response(status_code=404)
     return FileResponse("frontend/index.html")
