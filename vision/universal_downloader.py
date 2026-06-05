@@ -102,7 +102,6 @@ async def _download_with_ytdlp(url: str, output_path: str) -> Dict[str, Any]:
     if "youtube.com" in url or "youtu.be" in url:
         print("🔄 Fallback YouTube Playwright après échec yt-dlp", flush=True)
         pw_result = await _download_youtube_playwright(url)
-        # Afficher l'erreur exacte du worker dans les logs
         if not pw_result.get("ok"):
             print(f"❌ Playwright a échoué : {pw_result.get('message', 'Erreur inconnue')}", flush=True)
         if pw_result.get("ok") and pw_result.get("direct_url"):
@@ -114,7 +113,6 @@ async def _download_with_ytdlp(url: str, output_path: str) -> Dict[str, Any]:
                 return {"ok": False, "code": "youtube_direct_dl_failed",
                         "message": "Playwright a extrait l'URL mais le téléchargement direct a échoué"}
         else:
-            # Message plus explicite
             return {"ok": False, "code": "youtube_blocked",
                     "message": f"YouTube bloque l'accès (même avec Playwright). Raison : {pw_result.get('message', 'Échec extraction URL')}"}
 
@@ -226,18 +224,17 @@ async def _download_tiktok_playwright_direct(url: str) -> Dict[str, Any]:
 
 
 async def _download_via_direct_url(direct_url: str, output_path: str) -> Dict[str, Any]:
-    """Télécharge la vidéo à partir d'une URL directe (mp4)."""
+    """Télécharge la vidéo à partir d'une URL directe (mp4) avec httpx."""
     try:
-        import aiohttp
-        import aiofiles
-        async with aiohttp.ClientSession() as session:
-            async with session.get(direct_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
-                if resp.status != 200:
+        import httpx
+        async with httpx.AsyncClient(timeout=60) as client:
+            async with client.stream("GET", direct_url) as resp:
+                if resp.status_code != 200:
                     return {"ok": False, "code": "direct_download_failed",
-                            "message": f"Échec du téléchargement direct (HTTP {resp.status})"}
-                async with aiofiles.open(output_path, 'wb') as f:
-                    async for chunk in resp.content.iter_chunked(8192):
-                        await f.write(chunk)
+                            "message": f"Échec du téléchargement direct (HTTP {resp.status_code})"}
+                with open(output_path, 'wb') as f:
+                    async for chunk in resp.aiter_bytes(chunk_size=8192):
+                        f.write(chunk)
         if os.path.getsize(output_path) > 1000:
             return {"ok": True}
         else:
