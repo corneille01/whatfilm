@@ -38,10 +38,18 @@ Si TYPE A (dialogues) : la transcription donne l'ambiance et la langue, rarement
 ════════════════════════════════════════════════
 Regarde chaque image attentivement :
 - Visages : si tu reconnais un acteur connu, note son nom dans "acteurs".
-- Textes à l'écran : générique, affiche, sous-titre, logo chaîne → "titres_possibles" ou "objets_importants".
+- Textes à l'écran : générique, affiche, sous-titre, logo chaîne → lis-les EXACTEMENT et mets-les dans "titres_possibles" ou "ocr_visible".
 - Décor, costumes, époque, style visuel → "indices_visuels".
 - Objets/véhicules iconiques → "objets_importants".
 - Style de production : budget apparent, qualité image, époque de tournage estimée.
+
+IMPORTANT — TEXTE À L'ÉCRAN :
+Si tu vois des caractères japonais (kanji, hiragana, katakana), coréens (hangul),
+chinois, arabes ou autres scripts non-latins dans les images :
+→ Lis-les et transcris-les EXACTEMENT dans "titres_possibles" avec "?" si c'est un titre probable.
+→ Exemple : tu vois "千と千尋の神隠し" → mets "?千と千尋の神隠し" dans titres_possibles.
+→ Ajoute aussi la romanisation si tu la connais : "?Sen to Chihiro".
+→ Ces caractères sur une bannière, affiche ou générique SONT probablement le titre.
 
 ════════════════════════════════════════════════
 ÉTAPE 2 — ANALYSE TRANSCRIPTION
@@ -65,6 +73,17 @@ Si aucun titre n'est cité explicitement mais que la transcription décrit une s
 - Si tu identifies quelque chose, mets-le dans "titres_possibles" avec "?" obligatoire.
 - JAMAIS inventer un titre inexistant. Seulement si tu as une vraie piste.
 
+IDENTIFICATION DE CONTENUS JAPONAIS/ASIATIQUES :
+Si les indices visuels pointent clairement vers un contenu japonais (kimono, samouraï,
+jardin japonais, temple, caractères japonais, style anime, etc.) ET qu'aucun titre
+n'est encore identifié :
+→ Essaie d'identifier le film/anime/drama japonais à partir de la combinaison visuelle.
+→ Si tu as une piste, fournis le titre en japonais ET en romaji dans "titres_possibles"
+  avec "?" (ex: ["?Rashomon", "?羅生門"]).
+→ Même logique pour les contenus coréens (K-drama, film coréen), chinois, etc.
+→ Un homme en kimono qui attrape une flèche dans un jardin japonais = probable film
+  de samouraï ou drama historique japonais → cherche lequel.
+
 ════════════════════════════════════════════════
 ÉTAPE 4 — CROISEMENT VISION + TRANSCRIPTION
 ════════════════════════════════════════════════
@@ -79,6 +98,8 @@ RÈGLES STRICTES
 1. "titres_possibles" :
    - Titre explicite (vu ou cité) → sans préfixe
    - Titre reconnu visuellement ou par synopsis → préfixé "?" (ex: "?Les Intouchables")
+   - Pour les titres japonais/coréens/chinois : donne les deux formes si possible
+     (ex: ["?Rashomon", "?羅生門"] ou ["?Oldboy", "?올드보이"])
    - JAMAIS inventer un titre inexistant
    - Si rien de certain, laisser []
 
@@ -89,10 +110,9 @@ RÈGLES STRICTES
 4. "objets_importants" : objets/véhicules/logos iconiques.
    Ex: ["DeLorean", "Batmobile", "sabre laser", "logo Netflix", "maillot PSG"]
 
-5. "description_courte" : synthèse en 2-4 phrases de ce que tu VOIS + ce que dit la transcription.
-   Si la transcription est un commentaire descriptif, reprends-en les éléments clés ici.
-   Sois TRÈS PRÉCIS sur l'action : qui fait quoi, où, avec quoi. C'est le champ de secours.
-   Inclus les éléments visuels distinctifs (couleurs dominantes, décor, costumes, époque).
+5. "description_courte" : 1-2 phrases MAX, ultra-concis, sur l'action principale visible.
+   Exemple : "Homme en kimono attrape une flèche au vol dans un jardin japonais."
+   PAS de phrases longues. PAS de répétition. MAX 100 caractères.
 
 6. "genre_apparent" : film-action|film-comédie|film-horreur|film-drame|film-thriller|film-romance|film-animation|série|série-animation|anime|documentaire|documentaire-série
 
@@ -100,15 +120,14 @@ RÈGLES STRICTES
 
 8. "langue_originale" : langue principale de la transcription (fr|en|es|de|ja|ko|zh|ar|pt|it|ru)
 
-9. "indices_visuels" : détails visuels distinctifs non couverts ailleurs.
-   Ex: ["uniforme scolaire japonais", "voiture années 80", "skyline New York nuit", "piscine intérieure éclairée", "maillots de bain sombres"]
+9. "indices_visuels" : détails visuels distinctifs non couverts ailleurs. MAX 5 éléments courts.
+   Ex: ["kimono homme", "jardin japonais", "bannière rouge kanji", "flèche arc"]
 
 NE JAMAIS inventer. Un champ vide vaut mieux qu'une donnée fausse.
+Sois ULTRA-CONCIS sur tous les champs texte pour éviter la troncature JSON.
 
 Réponds UNIQUEMENT avec ce JSON valide sur une seule ligne, sans markdown ni explication :
-{{"titres_possibles":[],"acteurs":[],"personnages":[],"objets_importants":[],"description_courte":"","genre_apparent":"","annee_estimee":null,"langue_originale":"","indices_visuels":[]}}
-
-IMPORTANT : garde description_courte sous 120 caractères. Sois ultra-concis sur tous les champs texte."""
+{{"titres_possibles":[],"acteurs":[],"personnages":[],"objets_importants":[],"description_courte":"","genre_apparent":"","annee_estimee":null,"langue_originale":"","indices_visuels":[]}}"""
 
 
 RERANK_PROMPT = """Tu es un expert en identification de films et séries TV du monde entier.

@@ -11,12 +11,12 @@ Fonctions principales :
   - run_cascade_search         : exécute la cascade avec stratégie multi-langue
   - build_candidates_from_actors : candidats via crédits acteurs TMDB
 
-Fixes v2 :
-  - _FR_TO_EN_VISUAL : mapping FR→EN des indices visuels pour TMDB
-  - _translate_clue  : traduction d'un indice FR→EN
-  - Niveau 4         : variantes EN des clues (TMDB ne comprend pas le FR brut)
-  - Niveau 5b        : extraction de termes EN depuis la description FR
-  - run_cascade_search : effective_transcript_lang="en" pour les requêtes ASCII
+Fixes v3 :
+  - _FR_TO_EN_VISUAL enrichi (tenues, lieux, objets, archétypes, actions)
+  - _JP_VISUAL_TERMS : mapping FR→JP pour recherches TMDB en japonais
+  - Niveau 5c : requêtes japonaises si indices visuels JP détectés
+  - run_cascade_search : effective_transcript_lang="ja" pour requêtes JP,
+    "en" pour requêtes ASCII
 """
 
 import re
@@ -35,85 +35,139 @@ from data.tmdb import search_person, get_person_credits, search_multi_lang
 
 _FR_TO_EN_VISUAL: dict[str, str] = {
     # Tenues / costumes
-    "robe de moine":            "monk robe",
-    "robe moine":               "monk robe",
-    "robe de chambre":          "bathrobe",
-    "tenue traditionnelle":     "traditional costume",
-    "kimono":                   "kimono",
-    "uniforme scolaire":        "school uniform",
-    "uniforme militaire":       "military uniform",
-    "costume médiéval":         "medieval costume",
-    "armure":                   "armor",
-    "cape":                     "cape",
-    "masque":                   "mask",
+    "robe de moine":                    "monk robe",
+    "robe moine":                       "monk robe",
+    "robe de chambre":                  "bathrobe",
+    "tenue traditionnelle":             "traditional costume",
+    "vêtements traditionnels japonais": "japanese traditional clothing",
+    "kimono":                           "kimono",
+    "uniforme scolaire":                "school uniform",
+    "uniforme militaire":               "military uniform",
+    "costume médiéval":                 "medieval costume",
+    "armure":                           "armor",
+    "cape":                             "cape",
+    "masque":                           "mask",
     # Lieux / décors
-    "jardin japonais":          "japanese garden",
-    "temple japonais":          "japanese temple",
-    "château japonais":         "japanese castle",
-    "école japonaise":          "japanese school",
-    "château médiéval":         "medieval castle",
-    "forêt":                    "forest",
-    "désert":                   "desert",
-    "plage":                    "beach",
-    "montagne":                 "mountain",
-    "ville futuriste":          "futuristic city",
-    "espace":                   "outer space",
-    "laboratoire":              "laboratory",
-    "prison":                   "prison",
-    "arène":                    "arena",
-    "temple":                   "temple",
-    "pagode":                   "pagoda",
+    "jardin japonais":                  "japanese garden",
+    "temple japonais":                  "japanese temple",
+    "château japonais":                 "japanese castle",
+    "école japonaise":                  "japanese school",
+    "château médiéval":                 "medieval castle",
+    "forêt":                            "forest",
+    "désert":                           "desert",
+    "plage":                            "beach",
+    "montagne":                         "mountain",
+    "ville futuriste":                  "futuristic city",
+    "espace":                           "outer space",
+    "laboratoire":                      "laboratory",
+    "prison":                           "prison",
+    "arène":                            "arena",
+    "temple":                           "temple",
+    "pagode":                           "pagoda",
     # Objets / accessoires
-    "flèche":                   "arrow",
-    "arc":                      "bow",
-    "épée":                     "sword",
-    "katana":                   "katana",
-    "éventail":                 "fan",
-    "valise rouge":             "red suitcase",
-    "valise":                   "suitcase",
-    "pistolet":                 "gun",
-    "fusil":                    "rifle",
-    "couteau":                  "knife",
-    "bouclier":                 "shield",
-    "lance":                    "spear",
-    "baguette magique":         "magic wand",
-    "grimoire":                 "spellbook",
-    "parchemin":                "scroll",
-    "lanterne":                 "lantern",
-    "bague":                    "ring",
-    "collier":                  "necklace",
-    "carte":                    "map",
+    "flèche":                           "arrow",
+    "arc":                              "bow",
+    "épée":                             "sword",
+    "katana":                           "katana",
+    "éventail":                         "fan",
+    "valise rouge":                     "red suitcase",
+    "valise":                           "suitcase",
+    "pistolet":                         "gun",
+    "fusil":                            "rifle",
+    "couteau":                          "knife",
+    "bouclier":                         "shield",
+    "lance":                            "spear",
+    "baguette magique":                 "magic wand",
+    "grimoire":                         "spellbook",
+    "parchemin":                        "scroll",
+    "lanterne":                         "lantern",
+    "bague":                            "ring",
+    "collier":                          "necklace",
+    "carte":                            "map",
     # Personnages / archétypes
-    "samouraï":                 "samurai",
-    "ninja":                    "ninja",
-    "moine":                    "monk",
-    "guerrier":                 "warrior",
-    "sorcier":                  "wizard",
-    "chevalier":                "knight",
-    "geisha":                   "geisha",
-    "fantôme":                  "ghost",
-    "vampire":                  "vampire",
-    "zombie":                   "zombie",
-    "alien":                    "alien",
-    "robot":                    "robot",
-    "dragon":                   "dragon",
+    "samouraï":                         "samurai",
+    "ninja":                            "ninja",
+    "moine":                            "monk",
+    "guerrier":                         "warrior",
+    "sorcier":                          "wizard",
+    "chevalier":                        "knight",
+    "geisha":                           "geisha",
+    "fantôme":                          "ghost",
+    "vampire":                          "vampire",
+    "zombie":                           "zombie",
+    "alien":                            "alien",
+    "robot":                            "robot",
+    "dragon":                           "dragon",
     # Actions / concepts visuels
-    "arts martiaux":            "martial arts",
-    "combat":                   "fight",
-    "magie":                    "magic",
-    "explosion":                "explosion",
-    "course poursuite":         "car chase",
-    "enquête":                  "investigation",
-    "enquêteur":                "detective",
-    "fantaisie":                "fantasy",
-    "science-fiction":          "science fiction",
-    # Éléments narratifs
-    "crâne rasé":               "shaved head",
-    "tête rasée":               "shaved head",
-    "petite amie":              "girlfriend",
-    "petit ami":                "boyfriend",
-    "attrape":                  "catches",
-    "vole":                     "flies",
+    "arts martiaux":                    "martial arts",
+    "combat":                           "fight",
+    "magie":                            "magic",
+    "explosion":                        "explosion",
+    "course poursuite":                 "car chase",
+    "enquête":                          "investigation",
+    "enquêteur":                        "detective",
+    "fantaisie":                        "fantasy",
+    "science-fiction":                  "science fiction",
+    # Éléments narratifs / descriptifs
+    "crâne rasé":                       "shaved head",
+    "tête rasée":                       "shaved head",
+    "homme crâne rasé":                 "shaved head man",
+    "bannière rouge":                   "red banner",
+    "bannière rouge caractères japonais": "red banner japanese",
+    "femme asiatique":                  "asian woman",
+    "jardin verdoyant":                 "lush garden",
+    "petite amie":                      "girlfriend",
+    "petit ami":                        "boyfriend",
+    "attrape":                          "catches",
+    "vole":                             "flies",
+}
+
+
+# ════════════════════════════════════════════════════════════════
+# MAPPING FR → JP POUR LES INDICES VISUELS JAPONAIS
+# Utilisé en Niveau 5c pour générer des requêtes TMDB en japonais.
+# Les titres japonais sur TMDB sont souvent mieux indexés en JP qu'en EN.
+# ════════════════════════════════════════════════════════════════
+
+_JP_VISUAL_TERMS: dict[str, str] = {
+    # Tenues / personnages
+    "kimono":                           "着物",
+    "robe de moine":                    "僧侶",
+    "moine":                            "僧侶",
+    "samouraï":                         "侍",
+    "ninja":                            "忍者",
+    "geisha":                           "芸者",
+    "guerrier":                         "武士",
+    "arts martiaux":                    "武道",
+    "katana":                           "刀",
+    "vêtements traditionnels japonais": "和服",
+    "homme crâne rasé":                 "坊主",
+    "crâne rasé":                       "坊主",
+    # Lieux
+    "jardin japonais":                  "日本庭園",
+    "temple japonais":                  "寺",
+    "château japonais":                 "城",
+    "pagode":                           "塔",
+    # Objets
+    "flèche":                           "矢",
+    "arc":                              "弓",
+    "épée":                             "剣",
+    "bannière rouge":                   "赤い旗",
+    "lanterne":                         "提灯",
+    # Concepts
+    "combat":                           "戦い",
+    "fantôme":                          "幽霊",
+    "magie":                            "魔法",
+    "dragon":                           "龍",
+}
+
+# Indices qui signalent fortement un contenu japonais
+_JP_SIGNAL_TERMS = {
+    "jardin japonais", "temple japonais", "château japonais", "école japonaise",
+    "pagode", "kimono", "samouraï", "ninja", "geisha", "katana",
+    "vêtements traditionnels japonais", "bannière rouge caractères japonais",
+    "style anime", "anime", "caractères japonais", "homme crâne rasé",
+    "robe de moine",
 }
 
 
@@ -129,7 +183,6 @@ def _translate_clue(clue: str) -> str | None:
         La traduction EN, ou None si aucune correspondance.
     """
     clue_lower = clue.lower().strip()
-    # Chercher d'abord les clés les plus longues (évite les faux positifs)
     for fr_key in sorted(_FR_TO_EN_VISUAL, key=len, reverse=True):
         if fr_key in clue_lower:
             return _FR_TO_EN_VISUAL[fr_key]
@@ -161,6 +214,31 @@ def _translate_text(text: str) -> list[str]:
     return found
 
 
+def _is_japanese_content(all_clues: list, description: str, indices: list) -> bool:
+    """
+    Détecte si le contenu est probablement japonais à partir des indices visuels.
+    """
+    all_text = " ".join(all_clues + indices + [description]).lower()
+    matches = sum(1 for term in _JP_SIGNAL_TERMS if term in all_text)
+    return matches >= 2
+
+
+def _get_jp_terms(all_clues: list, description: str, indices: list) -> list[str]:
+    """
+    Retourne les termes japonais correspondant aux indices visuels détectés.
+    """
+    all_text = " ".join(all_clues + indices + [description]).lower()
+    jp_terms = []
+    seen: set[str] = set()
+    for fr_key in sorted(_JP_VISUAL_TERMS, key=len, reverse=True):
+        if fr_key in all_text:
+            jp_val = _JP_VISUAL_TERMS[fr_key]
+            if jp_val not in seen:
+                seen.add(jp_val)
+                jp_terms.append(jp_val)
+    return jp_terms
+
+
 # ════════════════════════════════════════════════════════════════
 # BUILD CASCADE QUERIES
 # ════════════════════════════════════════════════════════════════
@@ -176,6 +254,7 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
       - Niveau 4  : combinaisons indices_visuels + objets (FR + EN)
       - Niveau 5  : mots-clés extraits de description_courte (FR)
       - Niveau 5b : termes EN extraits de description_courte
+      - Niveau 5c : termes JP si contenu japonais détecté
       - Niveau 6  : titres incertains (?)
       - Niveau 7  : spécifiques au type de média (anime, documentaire)
       - Niveau 8  : indices seuls (dernier recours)
@@ -224,9 +303,6 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
         queries.append(f"{perso} {genre}".strip())
 
     # ── Niveau 4 : combinaisons indices + objets (FR + EN) ───────
-    # TMDB ne comprend pas les termes FR bruts.
-    # On génère donc les paires FR (pour compatibilité) ET les paires EN
-    # (plus efficaces sur TMDB).
     all_clues = [o for o in objets if o] + [i for i in indices if i]
 
     # Traduire les clues FR → EN
@@ -254,7 +330,7 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
         if genre:
             queries.append(f"{triple} {genre}")
 
-    # Paires EN (plus efficaces sur TMDB — ajoutées juste après les FR)
+    # Paires EN (plus efficaces sur TMDB)
     if len(all_clues_en) >= 2:
         for i in range(min(2, len(all_clues_en) - 1)):
             pair_en = f"{all_clues_en[i]} {all_clues_en[i+1]}"
@@ -262,7 +338,7 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
             if genre_en:
                 queries.append(f"{pair_en} {genre_en}")
 
-    # Clues EN isolées (souvent suffisantes pour TMDB)
+    # Clues EN isolées
     for clue_en in all_clues_en[:3]:
         queries.append(clue_en)
 
@@ -282,8 +358,6 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
                 queries.append(f"{noun} {genre}")
 
     # ── Niveau 5b : termes EN extraits de la description FR ──────
-    # Complément du Niveau 5 : on cherche tous les termes du mapping
-    # FR→EN présents dans la description pour formuler des requêtes EN.
     if description:
         desc_en_terms = _translate_text(description)
         if desc_en_terms:
@@ -292,6 +366,26 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
                 queries.append(f"{' '.join(desc_en_terms[:2])} {genre_en}")
             if annee:
                 queries.append(f"{' '.join(desc_en_terms[:2])} {annee}")
+
+    # ── Niveau 5c : requêtes japonaises si contenu JP détecté ────
+    # TMDB indexe souvent mieux les films japonais avec des requêtes en JP.
+    # On détecte le contenu JP via les indices visuels et on génère
+    # des requêtes avec les termes kanji correspondants.
+    if _is_japanese_content(all_clues, description, indices):
+        jp_terms = _get_jp_terms(all_clues, description, indices)
+        if jp_terms:
+            print(f"🇯🇵 Contenu japonais détecté → requêtes JP: {jp_terms[:3]}", flush=True)
+            # Paire JP (les 2 premiers termes les plus spécifiques)
+            if len(jp_terms) >= 2:
+                queries.append(f"{jp_terms[0]} {jp_terms[1]}")
+            queries.append(jp_terms[0])
+            if annee:
+                queries.append(f"{jp_terms[0]} {annee}")
+            # Requête EN + "japanese" (souvent efficace sur TMDB)
+            if all_clues_en:
+                queries.append(f"{all_clues_en[0]} japanese")
+                if genre_en:
+                    queries.append(f"japanese {genre_en} {annee}".strip())
 
     # ── Niveau 6 : titres incertains ─────────────────────────────
     for titre in titres_incertains:
@@ -305,7 +399,6 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
             queries.append(f"{titre} anime")
         for perso in personnages[:1]:
             queries.append(f"{perso} anime")
-        # Clues EN + "anime" : très efficace sur TMDB
         for clue_en in all_clues_en[:2]:
             queries.append(f"{clue_en} anime")
 
@@ -350,33 +443,25 @@ async def run_cascade_search(
     """
     Lance la cascade de requêtes TMDB avec stratégie multi-langue.
 
-    Pour chaque requête générée par build_cascade_queries :
-      - Appelle search_multi_lang (film + TV, toutes langues pertinentes)
-      - Accumule les candidats uniques jusqu'à max_candidates
-      - Early stop si un titre certain remonte suffisamment de résultats
-
-    Fix v2 : si la requête courante est en ASCII pur (= probablement EN,
-    issue de _translate_clue), on force transcript_lang="en" pour que
-    search_multi_lang priorise la locale en-US — les requêtes EN obtiennent
-    de meilleurs résultats TMDB avec la locale EN.
+    Fix v3 :
+    - Requête en caractères japonais → effective_transcript_lang="ja"
+    - Requête ASCII pure → effective_transcript_lang="en"
+    - Requête FR brute → effective_transcript_lang inchangé
 
     Args:
         extraction:      Dict issu de l'extraction Gemini/multimodal.
         transcript_lang: Code ISO 639-1 de la langue de la transcription.
-                         Si None, utilise extraction["langue_originale"].
         browser_lang:    Code ISO 639-1 de la langue du navigateur utilisateur.
         max_candidates:  Nombre max de candidats à retourner.
 
     Returns:
         Liste fusionnée, dédoublonnée, triée par popularité. Max max_candidates items.
     """
-    # Récupérer la langue de la transcription depuis l'extraction si non fournie
     if not transcript_lang:
         transcript_lang = extraction.get("langue_originale") or None
 
     queries = await build_cascade_queries(extraction)
 
-    # Titres certains pour l'early stop
     titres_certains = {
         str(t).strip()
         for t in extraction.get("titres_possibles", [])
@@ -390,15 +475,23 @@ async def run_cascade_search(
         if len(candidates) >= max_candidates:
             break
 
-        # Fix v2 : requête ASCII pure → probablement EN (issue de _translate_clue)
-        # Forcer la locale EN pour maximiser les résultats TMDB.
-        # On ne le fait que si la transcription n'est pas déjà EN pour éviter
-        # de dégrader les cas où transcript_lang="en" est déjà correct.
+        # Détecter la langue effective pour cette requête spécifique
         effective_transcript_lang = transcript_lang
-        if (
+
+        if re.search(r'[぀-ゟ゠-ヿ一-鿿]', query):
+            # Requête contient des caractères japonais → locale JP
+            effective_transcript_lang = "ja"
+        elif re.search(r'[가-힯ᄀ-ᇿ]', query):
+            # Requête contient des caractères coréens → locale KO
+            effective_transcript_lang = "ko"
+        elif re.search(r'[一-鿿]', query) and not re.search(r'[぀-ゟ゠-ヿ]', query):
+            # Requête contient des caractères chinois → locale ZH
+            effective_transcript_lang = "zh"
+        elif (
             transcript_lang not in (None, "en")
             and re.fullmatch(r'[a-zA-Z0-9 \-]+', query)
         ):
+            # Requête ASCII pure (issue de _translate_clue) → locale EN
             effective_transcript_lang = "en"
 
         results = await search_multi_lang(
@@ -422,8 +515,6 @@ async def run_cascade_search(
                 flush=True
             )
 
-        # Early stop : titre certain avec assez de candidats → inutile
-        # de continuer avec les requêtes plus floues
         if query in titres_certains and len(candidates) >= 3:
             print(f"⚡ Early stop : titre certain '{query}' trouvé", flush=True)
             break
@@ -446,15 +537,6 @@ async def build_candidates_from_actors(
 ) -> list:
     """
     Construit des candidats TMDB à partir des acteurs reconnus dans l'extraction.
-
-    Stratégie :
-      - Si plusieurs acteurs → cherche l'intersection de leurs filmographies
-      - Si aucune intersection → union des top films triés par popularité
-      - Filtre optionnel par genre/année si assez de résultats
-
-    Args:
-        extraction: Dict issu de l'extraction multimodale.
-        lang:       Code ISO 639-1 pour les appels TMDB (titres localisés).
     """
     acteurs = extraction.get("acteurs", []) or []
     if not acteurs:
@@ -515,7 +597,6 @@ async def build_candidates_from_actors(
         if len(filtered) >= 3:
             merged = filtered
 
-    # Injecter media_type si absent
     for c in merged:
         if "media_type" not in c:
             c["media_type"] = "tv" if "first_air_date" in c else "movie"
