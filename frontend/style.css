@@ -1256,3 +1256,243 @@ body {
 }
 .progress-bar-track { height: 10px; border-radius: 5px; }
 #prog-percent { font-size: 1.1rem; font-weight: 700; margin-top: 8px; }
+
+
+/* ── Équipe créative ───────────────────────────────────────── */
+.crew-section-inner,
+.locations-section-inner,
+.finance-section-inner {
+    background: var(--card2, #12121c);
+    border: 1px solid var(--border, rgba(255,255,255,.08));
+    border-radius: 14px;
+    padding: 20px;
+    margin-top: 8px;
+}
+ 
+.crew-section-inner h3,
+.locations-section-inner h3,
+.finance-section-inner h3 {
+    margin: 0 0 14px;
+    font-size: .95rem;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+ 
+.crew-section-inner h3 i,
+.locations-section-inner h3 i,
+.finance-section-inner h3 i {
+    color: var(--primary, #00ffcc);
+}
+ 
+.prod-co {
+    font-size: .78rem;
+    color: var(--muted);
+    margin: -8px 0 12px;
+}
+ 
+.crew-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+ 
+.crew-row {
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+    font-size: .83rem;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border, rgba(255,255,255,.05));
+}
+.crew-row:last-child { border-bottom: none; }
+ 
+.crew-label {
+    flex-shrink: 0;
+    width: 140px;
+    color: var(--muted);
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.crew-label i { color: var(--primary, #00ffcc); opacity: .7; width: 14px; text-align: center; }
+ 
+.crew-value {
+    flex: 1;
+    color: var(--text);
+    line-height: 1.6;
+}
+ 
+.crew-name {
+    display: inline-block;
+}
+ 
+/* ── Lieux de tournage ──────────────────────────────────────── */
+.filming-map-container {
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border, rgba(255,255,255,.08));
+    margin-bottom: 14px;
+}
+ 
+.location-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+ 
+.location-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0,255,204,.06);
+    border: 1px solid rgba(0,255,204,.15);
+    border-radius: 20px;
+    padding: 5px 12px;
+    font-size: .8rem;
+    transition: background .2s, border-color .2s;
+}
+.location-chip:hover {
+    background: rgba(0,255,204,.12);
+    border-color: rgba(0,255,204,.3);
+}
+ 
+.loc-maps-link {
+    color: var(--text);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.loc-maps-link:hover { color: var(--primary, #00ffcc); }
+ 
+.loc-wd-link {
+    color: var(--muted);
+    font-size: .75rem;
+    text-decoration: none;
+    opacity: .6;
+    transition: opacity .2s;
+}
+.loc-wd-link:hover { opacity: 1; color: var(--primary, #00ffcc); }
+ 
+.loc-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--primary, #00ffcc);
+    color: #000;
+    font-size: .65rem;
+    font-weight: 700;
+    border-radius: 10px;
+    padding: 1px 7px;
+    margin-left: 6px;
+}
+ 
+.loc-affiliate {
+    font-size: .78rem;
+    color: var(--muted);
+    margin: 8px 0 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.loc-booking-link {
+    color: var(--primary, #00ffcc);
+    text-decoration: none;
+    font-weight: 500;
+}
+.loc-booking-link:hover { text-decoration: underline; }
+ 
+/* ── Finance ────────────────────────────────────────────────── */
+.finance-grid {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+ 
+.finance-card {
+    flex: 1;
+    min-width: 120px;
+    background: rgba(255,255,255,.04);
+    border: 1px solid var(--border, rgba(255,255,255,.08));
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.finance-card.success { border-color: rgba(0,255,204,.2); background: rgba(0,255,204,.05); }
+ 
+.finance-label {
+    font-size: .68rem;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+}
+ 
+.finance-value {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text);
+}
+.finance-card.success .finance-value { color: var(--primary, #00ffcc); }
+ 
+/* ── EIDR Badge ─────────────────────────────────────────────── */
+.eidr-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255,255,255,.04);
+    border: 1px solid var(--border, rgba(255,255,255,.08));
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-size: .72rem;
+    color: var(--muted);
+    cursor: default;
+}
+.eidr-badge i { color: var(--primary, #00ffcc); }
+.eidr-badge code {
+    font-family: monospace;
+    color: var(--text);
+    font-size: .7rem;
+    letter-spacing: .03em;
+}
+ 
+/* ── Source Wikidata ────────────────────────────────────────── */
+.wd-source {
+    font-size: .68rem;
+    color: var(--muted);
+    margin: 8px 0 0;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    opacity: .6;
+}
+.wd-source a {
+    color: var(--muted);
+    text-decoration: none;
+}
+.wd-source a:hover { color: var(--primary, #00ffcc); }
+ 
+/* ── Loading skeleton ───────────────────────────────────────── */
+.wd-loading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px;
+    color: var(--muted);
+    font-size: .82rem;
+}
+ 
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 480px) {
+    .crew-label { width: 110px; font-size: .68rem; }
+    .crew-row   { font-size: .78rem; }
+    .finance-card { min-width: 90px; }
+}

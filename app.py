@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from core.web_search import should_trigger_web_fallback, web_search_fallback
-from core.wikidata import wikidata_search_candidates, should_trigger_wikidata
+from core.wikidata import wikidata_search_candidates, should_trigger_wikidata, get_wikidata_enrichment, get_filming_locations
 from vision.scene_detection import extract_keyframes
 from vision.universal_downloader import download_video
 from vision.ocr_engine import extract_text_from_images, start_loading
@@ -925,6 +925,44 @@ async def discover(genre_name: str, lang: str = "fr", page: int = 1, type: str =
         return {"status": "success", **data}
     except Exception:
         return {"status": "error", "message": "Erreur lors du chargement du genre."}
+
+# ════════════════════════════════════════════════════════════════
+# ROUTE : Lieux de tournage
+# ════════════════════════════════════════════════════════════════
+@app.get("/movie/{movie_id}/locations")
+async def get_locations(movie_id: int, type: str = "movie"):
+    """
+    Retourne les lieux de tournage d'un film avec coordonnées GPS.
+    Source : Wikidata (P915 + P625).
+
+    Réponse :
+      {
+        "status": "success",
+        "locations": [
+          {"name": "Château de Pierrefonds", "lat": 49.35, "lng": 2.98, "wikidata_id": "Q1234"},
+          {"name": "Pinewood Studios",        "lat": 51.55, "lng": -0.54, "wikidata_id": "Q5678"},
+        ]
+      }
+
+    Utilisation frontend :
+      - Carte Leaflet/Mapbox affichant les marqueurs GPS
+      - Liens vers Google Maps / Wikipedia du lieu
+      - SEO : "Films tournés à Paris", "Décors réels de [Film]"
+
+    Monétisation :
+      - Liens affiliés vers hôtels/tours à proximité (TripAdvisor, Booking.com)
+      - Contenu SEO long tail "where was X filmed"
+      - Feature premium : notifications "ce film a été tourné près de vous"
+    """
+    try:
+        from core.wikidata import get_filming_locations
+        locations = await get_filming_locations(movie_id, type)
+        return {"status": "success", "count": len(locations), "locations": locations}
+    except Exception as e:
+        print(f"❌ /locations: {e}", flush=True)
+        return {"status": "error", "message": "Lieux de tournage indisponibles.", "locations": []}
+
+
 
 @app.get("/movie/{movie_id}")
 async def get_movie(movie_id: int, lang: str = "fr", type: str = "movie"):

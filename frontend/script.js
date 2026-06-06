@@ -1217,8 +1217,11 @@ function showDetailLoading() {
   ["synopsis_film", "detail_tags", "detail_rating", "streaming_section",
    "cast_section", "trailer_section", "similar_section", "seasons_section", "fake_alert"
   ].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ""; });
+  ["crew_section", "locations_section", "finance_section", "eidr_badge"]
+   .forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ""; })
   document.getElementById("confidence_wrap").style.display = "none";
   document.getElementById("food-partner").classList.remove("visible");
+  
 }
 
 function afficherDetailFilm(data) {
@@ -1334,7 +1337,10 @@ function afficherDetailFilm(data) {
     }).join("");
     similarEl.innerHTML = `<h3>${t("similar_title")}</h3><div id="similar_cards">${cards}</div>`;
   } else similarEl.innerHTML = "";
-
+// Wikidata enrichment (lazy, ne bloque pas l'affichage)
+  if (data.tmdb_id) {
+      chargerEnrichissementWikidata(data.tmdb_id, data.media_type || "movie");
+  }
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -1502,3 +1508,418 @@ window.onload = () => {
     setTimeout(() => { document.getElementById("cookie-consent").style.display = "flex"; }, 2000);
   }
 };
+
+async function chargerEnrichissementWikidata(tmdb_id, media_type = "movie") {
+    const sections = {
+        crew:      document.getElementById("crew_section"),
+        locations: document.getElementById("locations_section"),
+        finance:   document.getElementById("finance_section"),
+        eidr:      document.getElementById("eidr_badge"),
+    };
+ 
+    // Squelettes de chargement immédiats (évite le layout shift)
+    if (sections.crew) sections.crew.innerHTML = `
+        <div class="wd-loading">
+            <i class="fas fa-circle-notch fa-spin"></i>
+            <span style="color:var(--muted);font-size:.82rem">Chargement équipe créative…</span>
+        </div>`;
+ 
+    try {
+        const [wdData, locData] = await Promise.allSettled([
+            safeFetch(`/movie/${tmdb_id}/wikidata?type=${media_type}`),
+            safeFetch(`/movie/${tmdb_id}/locations?type=${media_type}`),
+        ]);
+ 
+        const wd  = wdData.status  === "fulfilled" ? wdData.value  : null;
+        const loc = locData.status === "fulfilled" ? locData.value : null;
+ 
+        // ── Équipe créative ───────────────────────────────────────
+        if (sections.crew) {
+            afficherCrewWikidata(sections.crew, wd);
+        }
+ 
+        // ── Lieux de tournage ─────────────────────────────────────
+        if (sections.locations) {
+            afficherLocationsWikidata(
+                sections.locations,
+                loc?.locations || [],
+                wd?.locations || []
+            );
+        }
+ 
+        // ── Finance (budget / box-office) ─────────────────────────
+        if (sections.finance) {
+            afficherFinanceWikidata(sections.finance, wd);
+        }
+ 
+        // ── Badge EIDR (identifiant industrie) ─────────────────────
+        if (sections.eidr && wd?.eidr_id) {
+            sections.eidr.innerHTML = `
+                <span class="eidr-badge" title="Identifiant EIDR standard industrie audiovisuelle">
+                    <i class="fas fa-fingerprint"></i>
+                    EIDR&nbsp;<code>${wd.eidr_id}</code>
+                </span>`;
+            sections.eidr.style.display = "flex";
+        }
+ 
+    } catch (e) {
+        console.warn("Wikidata enrichment KO:", e);
+        if (sections.crew) sections.crew.innerHTML = "";
+    }
+}
+ 
+ 
+// ════ SECTION ÉQUIPE CRÉATIVE ════════════════════════════════════
+ 
+function afficherCrewWikidata(container, wd) {
+    if (!wd || wd.status === "error") {
+        container.innerHTML = "";
+        return;
+    }
+ 
+    const crew = wd.crew || {};
+    const castWd = wd.cast_wd || [];
+ 
+    // On ne montre les sections que si elles ont du contenu
+    const rows = [];
+ 
+    const addRow = (icon, label, items) => {
+        if (!items || items.length === 0) return;
+        const links = items.map(name =>
+            `<span class="crew-name">${escapeHtml(name)}</span>`
+        ).join(", ");
+        rows.push(`
+            <div class="crew-row">
+                <span class="crew-label"><i class="${icon}"></i> ${label}</span>
+                <span class="crew-value">${links}</span>
+            </div>`);
+    };
+ 
+    addRow("fas fa-video",        crewLabel("directors"),       crew.directors);
+    addRow("fas fa-pen-nib",      crewLabel("screenwriters"),   crew.screenwriters);
+    addRow("fas fa-camera",       crewLabel("cinematographers"),crew.cinematographers);
+    addRow("fas fa-cut",          crewLabel("editors"),         crew.editors);
+    addRow("fas fa-music",        crewLabel("composers"),       crew.composers);
+    addRow("fas fa-briefcase",    crewLabel("producers"),       crew.producers);
+    addRow("fas fa-truck",        crewLabel("distributors"),    crew.distributors);
+ 
+    // Cast Wikidata (souvent plus riche pour films anciens/asiatiques)
+    if (castWd.length > 0) {
+        const castHtml = castWd.slice(0, 6).map(c =>
+            `<span class="crew-name">${escapeHtml(c.name)}${c.character ? ` <em style="color:var(--muted);font-size:.75em">— ${escapeHtml(c.character)}</em>` : ""}</span>`
+        ).join(", ");
+        rows.push(`
+            <div class="crew-row">
+                <span class="crew-label"><i class="fas fa-users"></i> ${crewLabel("cast")}</span>
+                <span class="crew-value">${castHtml}</span>
+            </div>`);
+    }
+ 
+    if (rows.length === 0) {
+        container.innerHTML = "";
+        return;
+    }
+ 
+    const companies = (wd.companies || []).map(c => escapeHtml(c.name)).join(" · ");
+ 
+    container.innerHTML = `
+        <div class="crew-section-inner">
+            <h3><i class="fas fa-id-card"></i> ${crewLabel("title")}</h3>
+            ${companies ? `<p class="prod-co"><i class="fas fa-building"></i> ${companies}</p>` : ""}
+            <div class="crew-grid">
+                ${rows.join("")}
+            </div>
+            <p class="wd-source">
+                <i class="fab fa-wikipedia-w"></i>
+                ${crewLabel("source")}
+                ${wd.wikidata_id
+                    ? `<a href="https://www.wikidata.org/wiki/${wd.wikidata_id}"
+                          target="_blank" rel="noopener">${wd.wikidata_id}</a>`
+                    : ""}
+            </p>
+        </div>`;
+}
+ 
+ 
+// ════ SECTION LIEUX DE TOURNAGE ══════════════════════════════════
+ 
+function afficherLocationsWikidata(container, locations) {
+    // Fusionner et dédoublonner
+    const allLocs = [...locations];
+ 
+    if (allLocs.length === 0) {
+        container.innerHTML = "";
+        return;
+    }
+ 
+    const withGPS = allLocs.filter(l => l.lat !== null && l.lat !== undefined);
+    const withoutGPS = allLocs.filter(l => l.lat === null || l.lat === undefined);
+ 
+    // Liste de lieux cliquables (Google Maps)
+    const locItems = allLocs.map(loc => {
+        const hasCoord = loc.lat !== null && loc.lat !== undefined;
+        const mapsUrl = hasCoord
+            ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}`
+            : `https://www.google.com/maps/search/${encodeURIComponent(loc.name)}`;
+        const wdUrl = loc.wikidata_id
+            ? `https://www.wikidata.org/wiki/${loc.wikidata_id}`
+            : null;
+ 
+        return `
+            <div class="location-chip">
+                <a href="${mapsUrl}" target="_blank" rel="noopener" class="loc-maps-link"
+                   title="Voir sur Google Maps">
+                    <i class="fas fa-map-marker-alt" style="color:var(--primary)"></i>
+                    ${escapeHtml(loc.name)}
+                    ${hasCoord ? '<i class="fas fa-external-link-alt" style="font-size:.6rem;opacity:.5"></i>' : ""}
+                </a>
+                ${wdUrl ? `<a href="${wdUrl}" target="_blank" rel="noopener" class="loc-wd-link" title="Wikipedia/Wikidata"><i class="fab fa-wikipedia-w"></i></a>` : ""}
+            </div>`;
+    }).join("");
+ 
+    // Mini-carte statique (si au moins 1 lieu avec GPS)
+    // On utilise un iframe Google Maps embed (gratuit sans clé jusqu'à un quota raisonnable)
+    // Alternative : leaflet.js avec OpenStreetMap (100% gratuit, sans clé)
+    let mapHtml = "";
+    if (withGPS.length > 0) {
+        const center = withGPS[0];
+        // Leaflet embed léger via CDN
+        mapHtml = `
+            <div id="filming-map" class="filming-map-container" style="height:220px;border-radius:12px;overflow:hidden;margin-bottom:16px;border:1px solid var(--border)">
+                <div id="filming-map-inner" style="width:100%;height:100%"></div>
+            </div>`;
+    }
+ 
+    container.innerHTML = `
+        <div class="locations-section-inner">
+            <h3><i class="fas fa-map-marked-alt"></i> ${locLabel("title")} <span class="loc-count">${allLocs.length}</span></h3>
+            ${mapHtml}
+            <div class="location-chips">
+                ${locItems}
+            </div>
+            ${withGPS.length > 0 ? `
+            <p class="loc-affiliate">
+                <i class="fas fa-bed"></i>
+                <a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(withGPS[0].name)}&aid=YOUR_AFFILIATE_ID"
+                   target="_blank" rel="sponsored noopener" class="loc-booking-link">
+                    Trouver un hôtel près du lieu de tournage →
+                </a>
+            </p>` : ""}
+            <p class="wd-source"><i class="fab fa-wikipedia-w"></i> ${locLabel("source")}</p>
+        </div>`;
+ 
+    // Initialisation de la carte Leaflet (si disponible + lieux GPS)
+    if (withGPS.length > 0 && typeof L !== "undefined") {
+        initFilmingMap(withGPS);
+    } else if (withGPS.length > 0) {
+        // Leaflet pas encore chargé → charge à la demande
+        loadLeaflet(() => initFilmingMap(withGPS));
+    }
+}
+ 
+function initFilmingMap(locations) {
+    try {
+        const mapEl = document.getElementById("filming-map-inner");
+        if (!mapEl || !window.L) return;
+ 
+        // Détruit la carte précédente si elle existe
+        if (window._filmingMap) {
+            window._filmingMap.remove();
+            window._filmingMap = null;
+        }
+ 
+        const center = [locations[0].lat, locations[0].lng];
+        const map = L.map(mapEl, { zoomControl: true, scrollWheelZoom: false });
+        window._filmingMap = map;
+ 
+        // Tuiles OpenStreetMap (100% gratuit)
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+            maxZoom: 18,
+        }).addTo(map);
+ 
+        // Marqueurs custom
+        const icon = L.divIcon({
+            className: "",
+            html: `<div style="
+                background:var(--primary,#00ffcc);
+                width:28px;height:28px;border-radius:50% 50% 50% 0;
+                transform:rotate(-45deg);border:2px solid #000;
+                box-shadow:0 2px 8px rgba(0,255,204,.4)"></div>`,
+            iconSize: [28, 28],
+            iconAnchor: [14, 28],
+        });
+ 
+        const bounds = [];
+        locations.forEach(loc => {
+            const marker = L.marker([loc.lat, loc.lng], { icon }).addTo(map);
+            marker.bindPopup(`
+                <strong>${loc.name}</strong><br>
+                <a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}"
+                   target="_blank" style="color:#00ffcc;font-size:.8rem">
+                    Voir sur Maps →
+                </a>`);
+            bounds.push([loc.lat, loc.lng]);
+        });
+ 
+        if (bounds.length === 1) {
+            map.setView(center, 12);
+        } else {
+            map.fitBounds(bounds, { padding: [30, 30] });
+        }
+    } catch (e) {
+        console.warn("Leaflet map KO:", e);
+    }
+}
+ 
+function loadLeaflet(callback) {
+    if (window.L) { callback(); return; }
+ 
+    // CSS
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+    document.head.appendChild(link);
+ 
+    // JS
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.onload = callback;
+    document.head.appendChild(script);
+}
+ 
+ 
+// ════ SECTION FINANCE ═══════════════════════════════════════════
+ 
+function afficherFinanceWikidata(container, wd) {
+    if (!wd || (!wd.budget_usd && !wd.box_office_usd)) {
+        container.innerHTML = "";
+        return;
+    }
+ 
+    const fmt = (n) => n ? "$" + (n >= 1e9
+        ? (n / 1e9).toFixed(2) + " Md"
+        : n >= 1e6
+            ? Math.round(n / 1e6) + " M"
+            : n.toLocaleString()) : null;
+ 
+    const budget = fmt(wd.budget_usd);
+    const bo     = fmt(wd.box_office_usd);
+    const roi    = (wd.budget_usd && wd.box_office_usd)
+        ? ((wd.box_office_usd / wd.budget_usd) * 100).toFixed(0) + "% ROI"
+        : null;
+ 
+    container.innerHTML = `
+        <div class="finance-section-inner">
+            <h3><i class="fas fa-chart-line"></i> ${finLabel("title")}</h3>
+            <div class="finance-grid">
+                ${budget ? `<div class="finance-card"><span class="finance-label">${finLabel("budget")}</span><span class="finance-value">${budget}</span></div>` : ""}
+                ${bo     ? `<div class="finance-card success"><span class="finance-label">${finLabel("box_office")}</span><span class="finance-value">${bo}</span></div>` : ""}
+                ${roi    ? `<div class="finance-card"><span class="finance-label">ROI</span><span class="finance-value">${roi}</span></div>` : ""}
+            </div>
+            <p class="wd-source"><i class="fab fa-wikipedia-w"></i> ${finLabel("source")}</p>
+        </div>`;
+}
+ 
+ 
+// ════ I18N DES NOUVELLES SECTIONS ═══════════════════════════════
+ 
+const wdI18n = {
+    fr: {
+        crew: {
+            title: "Équipe créative", directors: "Réalisation", screenwriters: "Scénario",
+            cinematographers: "Chef opérateur", editors: "Montage", composers: "Musique",
+            producers: "Production", distributors: "Distribution", cast: "Acteurs",
+            source: "Source Wikidata ·",
+        },
+        loc: {
+            title: "Lieux de tournage",
+            source: "Source Wikidata WikiProject Filming Locations",
+        },
+        fin: {
+            title: "Chiffres clés", budget: "Budget", box_office: "Box-office mondial",
+            source: "Source Wikidata",
+        },
+    },
+    "en-US": {
+        crew: {
+            title: "Creative Team", directors: "Director(s)", screenwriters: "Screenplay",
+            cinematographers: "Cinematography", editors: "Film Editing", composers: "Music",
+            producers: "Produced by", distributors: "Distribution", cast: "Cast",
+            source: "Source Wikidata ·",
+        },
+        loc: {
+            title: "Filming Locations",
+            source: "Source Wikidata WikiProject Filming Locations",
+        },
+        fin: {
+            title: "Key Numbers", budget: "Budget", box_office: "Worldwide Box Office",
+            source: "Source Wikidata",
+        },
+    },
+    "en-GB": {
+        crew: {
+            title: "Creative Team", directors: "Director(s)", screenwriters: "Screenplay",
+            cinematographers: "Cinematography", editors: "Film Editing", composers: "Music",
+            producers: "Produced by", distributors: "Distribution", cast: "Cast",
+            source: "Source Wikidata ·",
+        },
+        loc: {
+            title: "Filming Locations",
+            source: "Source Wikidata WikiProject Filming Locations",
+        },
+        fin: {
+            title: "Key Numbers", budget: "Budget", box_office: "Worldwide Box Office",
+            source: "Source Wikidata",
+        },
+    },
+    es: {
+        crew: {
+            title: "Equipo creativo", directors: "Dirección", screenwriters: "Guión",
+            cinematographers: "Fotografía", editors: "Montaje", composers: "Música",
+            producers: "Producción", distributors: "Distribución", cast: "Reparto",
+            source: "Fuente Wikidata ·",
+        },
+        loc: { title: "Lugares de rodaje", source: "Fuente Wikidata" },
+        fin: { title: "Cifras clave", budget: "Presupuesto", box_office: "Recaudación mundial", source: "Fuente Wikidata" },
+    },
+    de: {
+        crew: {
+            title: "Filmteam", directors: "Regie", screenwriters: "Drehbuch",
+            cinematographers: "Kamera", editors: "Schnitt", composers: "Musik",
+            producers: "Produktion", distributors: "Verleih", cast: "Besetzung",
+            source: "Quelle Wikidata ·",
+        },
+        loc: { title: "Drehorte", source: "Quelle Wikidata" },
+        fin: { title: "Zahlen & Fakten", budget: "Budget", box_office: "Weltweites Einspielergebnis", source: "Quelle Wikidata" },
+    },
+    zh: {
+        crew: {
+            title: "创作团队", directors: "导演", screenwriters: "编剧",
+            cinematographers: "摄影", editors: "剪辑", composers: "音乐",
+            producers: "制片", distributors: "发行", cast: "演员",
+            source: "来源 Wikidata ·",
+        },
+        loc: { title: "拍摄地点", source: "来源 Wikidata" },
+        fin: { title: "关键数据", budget: "预算", box_office: "全球票房", source: "来源 Wikidata" },
+    },
+};
+ 
+function _getWdI18n(lang) {
+    return wdI18n[lang] || wdI18n["en-US"];
+}
+function crewLabel(key) { return _getWdI18n(currentLang).crew[key] || key; }
+function locLabel(key)  { return _getWdI18n(currentLang).loc[key]  || key; }
+function finLabel(key)  { return _getWdI18n(currentLang).fin[key]  || key; }
+ 
+ 
+// ════ UTILITAIRE ════════════════════════════════════════════════
+ 
+function escapeHtml(str) {
+    if (!str) return "";
+    return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
