@@ -16,6 +16,8 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Res
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from core.web_search import should_trigger_web_fallback, web_search_fallback
+from core.wikidata import wikidata_search_candidates, should_trigger_wikidata
 from vision.scene_detection import extract_keyframes
 from vision.universal_downloader import download_video
 from vision.ocr_engine import extract_text_from_images, start_loading
@@ -227,13 +229,13 @@ def cleanup_files(video_path, audio_path, frame_dir, audio_exists):
 class VideoRequest(BaseModel):
     url:          str
     lang:         str = "fr"
-    browser_lang: str = "fr"   # ← langue du navigateur (navigator.language côté JS)
+    browser_lang: str = "fr"
 
 class ContinueRequest(BaseModel):
     session_id:   str
     ocr_text:     str = ""
     transcript:   str = ""
-    browser_lang: str = "fr"   # ← transmis aussi pour le fallback client
+    browser_lang: str = "fr"
 
 # ════════════════════════════════════════════════════════════════
 # TÂCHE DE FOND : download + analyse complète
@@ -243,7 +245,7 @@ async def _run_download_and_analyse(
     url: str,
     platform: str,
     lang: str,
-    browser_lang: str,          # ← propagé jusqu'à process_analysis
+    browser_lang: str,
 ):
     session = _dl_sessions.get(session_id)
     if not session:
@@ -389,14 +391,14 @@ async def _run_download_and_analyse(
 
             fallback_sid = str(uuid.uuid4())[:12]
             sessions[fallback_sid] = {
-                "url":        url,
-                "lang":       lang,
+                "url":          url,
+                "lang":         lang,
                 "browser_lang": browser_lang,
-                "video_path": video_path,
-                "audio_path": audio_path,
-                "frame_dir":  frame_dir,
-                "ocr_text":   "",
-                "timestamp":  time.time(),
+                "video_path":   video_path,
+                "audio_path":   audio_path,
+                "frame_dir":    frame_dir,
+                "ocr_text":     "",
+                "timestamp":    time.time(),
             }
             session["status"] = "done"
             session["result"] = {
@@ -571,8 +573,11 @@ async def process_analysis(
     transcript,
     url,
     lang,
-    browser_lang: str = "fr",    # ← nouveau paramètre
+    browser_lang: str | None = None,
 ):
+    # Si browser_lang non transmis, fallback sur lang
+    browser_lang = browser_lang or lang
+
     # ── 1. Cache niveau contenu ──────────────────────────────────
     if transcript or ocr_text:
         content_hit = get_cache_by_content(transcript, ocr_text, lang)
@@ -602,8 +607,6 @@ async def process_analysis(
         extraction["detected_script"] = detected_script
     extraction["_transcript_raw"] = transcript or ""
 
-    # Langue de la transcription : priorité à ce que Gemini a détecté,
-    # sinon on infère depuis le script détecté.
     transcript_lang = extraction.get("langue_originale") or None
     if not transcript_lang and detected_script != "latin":
         _script_to_lang = {
@@ -656,35 +659,106 @@ async def process_analysis(
                 flush=True
             )
 
-    # ── 6. Fallback : cascade multi-langue ───────────────────────
+    # ── 6. Fallback : cascade TMDB multi-langue ──────────────────
     if not result:
         candidates = await run_cascade_search(
             extraction,
             transcript_lang=transcript_lang,
             browser_lang=browser_lang,
         )
+        if candidates:
+            result = await rerank(extraction, candidates)
+            if not result or not result.get("id"):
+                result = {
+                    "meilleur_titre": candidates[0].get("title") or candidates[0].get("name", "Inconnu"),
+                    "id":             candidates[0]["id"],
+                    "score":          35,
+                    "media_type":     candidates[0].get("media_type", "movie"),
+                }
 
-        if not candidates:
-            titres    = extraction.get("titres_possibles", [])
-            titre     = str(titres[0]).lstrip("?") if titres else ""
-            not_found = {
-                "status":         "not_found",
-                "message":        "Aucun film ou série trouvé pour cette vidéo.",
-                "search_youtube": f"https://www.youtube.com/results?search_query={titre}+film",
-                "search_google":  f"https://www.google.com/search?q={titre}+film",
-                "search_tmdb":    f"https://www.themoviedb.org/search?query={titre}",
-            }
-            set_cache(url, not_found, transcript=transcript or "", ocr_text=ocr_text or "")
-            return not_found
+    # ── 6b. Wikidata fallback ─────────────────────────────────────
+    # Priorité sur DDG : Wikidata indexe nativement kanji/hangeul,
+    # retourne directement des TMDB IDs → plus rapide et plus précis
+    # que scraper des snippets web pour les contenus asiatiques.
+    # Aussi déclenché si score < 40 + langue non-latine détectée.
+    current_score = result.get("score", 0) if result else 0
+    if should_trigger_wikidata(current_score, extraction, ocr_text or ""):
+        print("🌐 Déclenchement Wikidata fallback...", flush=True)
+        wd_candidates = await wikidata_search_candidates(
+            extraction,
+            ocr_text=ocr_text or "",
+            browser_lang=browser_lang,
+        )
+        if wd_candidates:
+            print(f"🌐 Wikidata → {len(wd_candidates)} candidats TMDB", flush=True)
+            existing_ids = {c.get("id") for c in candidates if c.get("id")}
+            merged_wd    = wd_candidates + [
+                c for c in candidates if c.get("id") not in {w.get("id") for w in wd_candidates}
+            ]
+            wd_result = await rerank(extraction, merged_wd)
+            if wd_result and wd_result.get("score", 0) > current_score:
+                print(
+                    f"✅ Wikidata améliore le score: {current_score} → {wd_result['score']}",
+                    flush=True
+                )
+                result        = wd_result
+                candidates    = merged_wd
+                current_score = wd_result["score"]
+            elif wd_result and not result:
+                result        = wd_result
+                candidates    = merged_wd
+                current_score = wd_result.get("score", 0)
 
-        result = await rerank(extraction, candidates)
-        if not result or not result.get("id"):
-            result = {
-                "meilleur_titre": candidates[0].get("title") or candidates[0].get("name", "Inconnu"),
-                "id":             candidates[0]["id"],
-                "score":          35,
-                "media_type":     candidates[0].get("media_type", "movie"),
-            }
+    # ── 6c. Web search fallback (DDG) ────────────────────────────
+    # Déclenché si score encore insuffisant après Wikidata,
+    # ou candidats vides, ou CJK très obscur sans TMDB ID sur Wikidata.
+    if should_trigger_web_fallback(current_score, candidates, extraction, ocr_text or ""):
+        print("🌐 Déclenchement web search fallback...", flush=True)
+        web_candidates = await web_search_fallback(
+            extraction,
+            ocr_text=ocr_text or "",
+            browser_lang=browser_lang,
+        )
+        if web_candidates:
+            print(f"🌐 Web search → {len(web_candidates)} candidats TMDB supplémentaires", flush=True)
+            existing_ids      = {c.get("id") for c in candidates if c.get("id")}
+            merged_candidates = web_candidates + [
+                c for c in candidates if c.get("id") not in {w.get("id") for w in web_candidates}
+            ]
+            web_result = await rerank(extraction, merged_candidates)
+            if web_result and web_result.get("score", 0) > current_score:
+                print(
+                    f"✅ Web fallback améliore le score: "
+                    f"{current_score} → {web_result['score']}",
+                    flush=True
+                )
+                result     = web_result
+                candidates = merged_candidates
+            elif web_result and not result:
+                result     = web_result
+                candidates = merged_candidates
+
+    # ── Aucun résultat même après tous les fallbacks ──────────────
+    if not candidates and not result:
+        titres    = extraction.get("titres_possibles", [])
+        titre     = str(titres[0]).lstrip("?") if titres else ""
+        not_found = {
+            "status":         "not_found",
+            "message":        "Aucun film ou série trouvé pour cette vidéo.",
+            "search_youtube": f"https://www.youtube.com/results?search_query={titre}+film",
+            "search_google":  f"https://www.google.com/search?q={titre}+film",
+            "search_tmdb":    f"https://www.themoviedb.org/search?query={titre}",
+        }
+        set_cache(url, not_found, transcript=transcript or "", ocr_text=ocr_text or "")
+        return not_found
+
+    if not result or not result.get("id"):
+        result = {
+            "meilleur_titre": candidates[0].get("title") or candidates[0].get("name", "Inconnu"),
+            "id":             candidates[0]["id"],
+            "score":          35,
+            "media_type":     candidates[0].get("media_type", "movie"),
+        }
 
     # ── 7. Score de confiance ────────────────────────────────────
     confidence = result.get("score", 0)
@@ -695,7 +769,7 @@ async def process_analysis(
             set_cache(url, film_hit, transcript=transcript or "", ocr_text=ocr_text or "")
             return {"status": "cached", **film_hit}
 
-    if confidence < 30:
+    if confidence < 35:
         titre    = result.get("meilleur_titre", "")
         low_conf = {
             "status":         "not_found",
@@ -712,7 +786,6 @@ async def process_analysis(
     movie_id       = result["id"]
     effective_type = result.get("media_type", "movie")
 
-    # Si effective_type non résolu, chercher dans les candidats
     if not effective_type or effective_type == "mixed":
         matched = next(
             (c for c in candidates if c.get("id") == movie_id), None
@@ -721,8 +794,6 @@ async def process_analysis(
 
     print(f"📋 Détails TMDB id={movie_id} type={effective_type}", flush=True)
 
-    # Langue pour les détails : navigateur d'abord (affichage utilisateur),
-    # puis langue de l'interface.
     details_lang = browser_lang or lang
 
     try:
@@ -733,7 +804,6 @@ async def process_analysis(
         )
     except Exception:
         try:
-            # Essayer l'autre type si le premier échoue
             if effective_type == "tv":
                 details        = await get_movie_details(movie_id, details_lang)
                 effective_type = "movie"
@@ -745,7 +815,6 @@ async def process_analysis(
             return {"status": "error", "code": "tmdb_error",
                     "message": "Impossible de récupérer les détails du film."}
 
-    # Région pour les plateformes de streaming (basée sur la langue navigateur)
     _lang_to_region = {
         "fr": "FR", "en": "US", "es": "ES", "de": "DE",
         "zh": "CN", "ja": "JP", "ko": "KR", "pt": "BR",
@@ -922,6 +991,7 @@ async def index():
 @app.get("/health")
 async def health():
     return Response(status_code=200)
+
 @app.get("/{lang}")
 async def page_multilingue(lang: str):
     if len(lang) != 2 or not lang.isalpha():
