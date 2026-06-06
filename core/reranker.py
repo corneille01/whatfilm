@@ -4,22 +4,20 @@ core/reranker.py — Sélection du meilleur candidat TMDB.
 Cascade anti-coût :
   1. Score direct    → titre extrait == candidat (0 API)
   2. Groq Llama      → reranking LLM texte, gratuit
-  3. Gemini Flash    → fallback si Groq KO
+  3. Gemini Flash    → fallback si Groq KO ou score < 40
   4. Heuristique     → popularité TMDB (0 API)
 
-Fixes v3 :
-  - _parse_rerank_response : id=None → fallback popularité au lieu de crash
-  - _build_groq_messages : ids valides injectés dans le system prompt
-  - score=0 accepté (= incertain, pas erreur)
-  - heuristique finale trie par popularité pondérée
-  - logs précis pour debugging
+Fixes v4 :
+  - Gemini appelé si score Groq < 40 (Groq peu fiable sur les séries TV)
+  - _candidates_for_prompt : passe les 15 premiers au lieu de 10
+  - _best_by_popularity : suppression de la pénalité TV (biais injustifié)
+  - logs : affiche le score Groq avant de décider si fallback Gemini
 """
 
 import json
 import os
 import re
 import httpx
-import traceback
 
 from core.prompts import RERANK_PROMPT
 
@@ -32,6 +30,9 @@ GEMINI_URL = (
 )
 GROQ_TEXT_URL   = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_TEXT_MODEL = "llama-3.3-70b-versatile"
+
+# Seuil en dessous duquel on considère que Groq est peu sûr → fallback Gemini
+GROQ_CONFIDENCE_THRESHOLD = 40
 
 
 # ════════════════════════════════════════════════════════════════
@@ -85,7 +86,6 @@ def _clean_json_fences(text: str) -> str:
         text = text.split("```")[1]
         if text.startswith("json"):
             text = text[4:]
-    # Extraire le premier objet JSON valide si du texte parasite l'entoure
     start = text.find("{")
     end   = text.rfind("}")
     if start != -1 and end != -1 and end > start:
@@ -94,6 +94,11 @@ def _clean_json_fences(text: str) -> str:
 
 
 def _candidates_for_prompt(candidates: list) -> list:
+    """
+    Prépare les candidats pour le prompt LLM.
+    On passe les 15 premiers (au lieu de 10) pour donner plus de contexte,
+    notamment quand les séries TV sont en fin de liste.
+    """
     return [
         {
             "id":           c.get("id"),
@@ -103,7 +108,7 @@ def _candidates_for_prompt(candidates: list) -> list:
             "vote_average": c.get("vote_average"),
             "media_type":   c.get("media_type", "movie"),
         }
-        for c in candidates[:10]
+        for c in candidates[:15]
     ]
 
 
@@ -116,14 +121,13 @@ def _parse_rerank_response(text: str, candidates: list) -> dict:
       le plus populaire, score plafonné à 30
     """
     text   = _clean_json_fences(text)
-    result = json.loads(text)   # lève JSONDecodeError si tronqué
+    result = json.loads(text)
 
     if not isinstance(result, dict):
         raise ValueError(f"Réponse non-dict : {type(result)}")
 
     candidate_ids = {c["id"] for c in candidates}
 
-    # id manquant, None, ou hors liste → fallback popularité
     result_id = result.get("id")
     if not result_id or result_id not in candidate_ids:
         best = max(candidates, key=lambda c: c.get("popularity", 0), default=None)
@@ -141,7 +145,6 @@ def _parse_rerank_response(text: str, candidates: list) -> dict:
         result["raison"]         = (result.get("raison") or "") + " [id fallback popularité]"
         return result
 
-    # Normaliser meilleur_titre si absent
     if not result.get("meilleur_titre"):
         matched = next((c for c in candidates if c.get("id") == result_id), None)
         result["meilleur_titre"] = (
@@ -149,13 +152,11 @@ def _parse_rerank_response(text: str, candidates: list) -> dict:
             if matched else "Inconnu"
         )
 
-    # Injecter media_type depuis les candidats
     if not result.get("media_type"):
         matched = next((c for c in candidates if c.get("id") == result_id), None)
         if matched:
             result["media_type"] = matched.get("media_type", "movie")
 
-    # score manquant → 50 par défaut
     if "score" not in result or result["score"] is None:
         result["score"] = 50
 
@@ -163,11 +164,7 @@ def _parse_rerank_response(text: str, candidates: list) -> dict:
 
 
 def _build_groq_messages(prompt: str, candidates: list) -> list:
-    """
-    Construit les messages pour Groq en injectant les ids valides
-    dans le system prompt pour éviter les réponses id=None.
-    """
-    valid_ids = [str(c["id"]) for c in candidates[:10]]
+    valid_ids = [str(c["id"]) for c in candidates[:15]]
     ids_str   = ", ".join(valid_ids)
 
     return [
@@ -191,13 +188,12 @@ def _build_groq_messages(prompt: str, candidates: list) -> list:
 def _best_by_popularity(candidates: list) -> dict:
     """
     Heuristique finale : trier par vote_count × vote_average.
-    Légère pénalité TV vs film pour éviter les séries obscures.
+    Pas de pénalité TV — une série populaire vaut autant qu'un film populaire.
     """
     def pop_score(c):
-        va           = c.get("vote_average") or 0
-        vc           = c.get("vote_count")   or 0
-        media_bonus  = 1.0 if c.get("media_type") == "movie" else 0.85
-        return va * vc * media_bonus
+        va = c.get("vote_average") or 0
+        vc = c.get("vote_count")   or 0
+        return va * vc
 
     best = max(candidates, key=pop_score)
     print(
@@ -267,7 +263,7 @@ async def _rerank_groq(extraction: dict, candidates: list) -> dict | None:
 
 
 # ════════════════════════════════════════════════════════════════
-# NIVEAU 2 — Gemini Flash (fallback si Groq KO)
+# NIVEAU 2 — Gemini Flash (fallback si Groq KO ou score < seuil)
 # ════════════════════════════════════════════════════════════════
 
 async def _rerank_gemini(extraction: dict, candidates: list) -> dict | None:
@@ -335,11 +331,20 @@ async def _rerank_gemini(extraction: dict, candidates: list) -> dict | None:
 async def rerank(extraction: dict, candidates: list) -> dict:
     """
     Retourne toujours un dict valide : {id, meilleur_titre, score, media_type, raison?}
+
+    Cascade :
+      0. Match direct titre (0 API)
+      1. Groq Llama
+         → si score >= GROQ_CONFIDENCE_THRESHOLD : retourne le résultat
+         → si score < seuil : tente Gemini pour confirmation
+      2. Gemini Flash (fallback Groq KO ou score bas)
+         → si Gemini score > Groq score : retourne Gemini
+         → sinon : retourne Groq quand même (mieux que rien)
+      3. Heuristique popularité (0 API)
     """
     if not candidates:
         return {"meilleur_titre": "Inconnu", "id": None, "score": 0, "media_type": "movie"}
 
-    # Cas trivial : un seul candidat
     if len(candidates) == 1:
         c = candidates[0]
         return {
@@ -356,14 +361,45 @@ async def rerank(extraction: dict, candidates: list) -> dict:
         return result
 
     # ── 1. Groq Llama ─────────────────────────────────────────────
-    result = await _rerank_groq(extraction, candidates)
-    if result:
-        return result
+    groq_result = await _rerank_groq(extraction, candidates)
+
+    if groq_result and groq_result.get("score", 0) >= GROQ_CONFIDENCE_THRESHOLD:
+        # Groq confiant → pas besoin de Gemini
+        return groq_result
+
+    if groq_result:
+        print(
+            f"⚠️ Groq score faible ({groq_result['score']} < {GROQ_CONFIDENCE_THRESHOLD}) "
+            f"→ tentative Gemini pour confirmation",
+            flush=True
+        )
 
     # ── 2. Gemini Flash ───────────────────────────────────────────
-    result = await _rerank_gemini(extraction, candidates)
-    if result:
-        return result
+    gemini_result = await _rerank_gemini(extraction, candidates)
+
+    if gemini_result and groq_result:
+        # Les deux ont répondu : prendre le meilleur score
+        if gemini_result.get("score", 0) >= groq_result.get("score", 0):
+            print(
+                f"✅ Gemini retenu sur Groq "
+                f"({gemini_result['score']} >= {groq_result['score']})",
+                flush=True
+            )
+            return gemini_result
+        else:
+            print(
+                f"✅ Groq retenu sur Gemini "
+                f"({groq_result['score']} > {gemini_result['score']})",
+                flush=True
+            )
+            return groq_result
+
+    if gemini_result:
+        return gemini_result
+
+    if groq_result:
+        # Groq seul, score bas mais mieux que heuristique
+        return groq_result
 
     # ── 3. Heuristique popularité (0 API) ─────────────────────────
     return _best_by_popularity(candidates)

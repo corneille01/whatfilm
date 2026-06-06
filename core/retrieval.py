@@ -7,16 +7,17 @@ Stratégie multi-langue :
   3. Anglais                     → fallback universel
 
 Fonctions principales :
-  - build_cascade_queries      : génère les requêtes par ordre de précision
-  - run_cascade_search         : exécute la cascade avec stratégie multi-langue
+  - build_cascade_queries        : génère les requêtes par ordre de précision
+  - run_cascade_search           : exécute la cascade avec stratégie multi-langue
   - build_candidates_from_actors : candidats via crédits acteurs TMDB
 
-Fixes v3 :
-  - _FR_TO_EN_VISUAL enrichi (tenues, lieux, objets, archétypes, actions)
-  - _JP_VISUAL_TERMS : mapping FR→JP pour recherches TMDB en japonais
-  - Niveau 5c : requêtes japonaises si indices visuels JP détectés
-  - run_cascade_search : effective_transcript_lang="ja" pour requêtes JP,
-    "en" pour requêtes ASCII
+Fixes v4 :
+  - build_candidates_from_actors : credits[:30] au lieu de [:15]
+    → évite de rater des séries TV moins populaires (ex: The Shield)
+  - build_candidates_from_actors : filtre genre/année désactivé pour les
+    genres génériques (film-action, drame…) qui excluent les séries TV
+  - _GENERIC_GENRES : liste des genres trop larges pour filtrer
+  - Pas d'autres changements vs v3
 """
 
 import re
@@ -27,10 +28,6 @@ from data.tmdb import search_person, get_person_credits, search_multi_lang
 
 # ════════════════════════════════════════════════════════════════
 # MAPPING FR → EN POUR LES INDICES VISUELS
-# TMDB ne fait pas de recherche sémantique : les termes FR bruts
-# (ex: "robe de moine", "jardin japonais") ne retournent rien.
-# Ce mapping traduit les indices extraits par Gemini en termes EN
-# exploitables dans les requêtes TMDB.
 # ════════════════════════════════════════════════════════════════
 
 _FR_TO_EN_VISUAL: dict[str, str] = {
@@ -125,12 +122,9 @@ _FR_TO_EN_VISUAL: dict[str, str] = {
 
 # ════════════════════════════════════════════════════════════════
 # MAPPING FR → JP POUR LES INDICES VISUELS JAPONAIS
-# Utilisé en Niveau 5c pour générer des requêtes TMDB en japonais.
-# Les titres japonais sur TMDB sont souvent mieux indexés en JP qu'en EN.
 # ════════════════════════════════════════════════════════════════
 
 _JP_VISUAL_TERMS: dict[str, str] = {
-    # Tenues / personnages
     "kimono":                           "着物",
     "robe de moine":                    "僧侶",
     "moine":                            "僧侶",
@@ -143,25 +137,21 @@ _JP_VISUAL_TERMS: dict[str, str] = {
     "vêtements traditionnels japonais": "和服",
     "homme crâne rasé":                 "坊主",
     "crâne rasé":                       "坊主",
-    # Lieux
     "jardin japonais":                  "日本庭園",
     "temple japonais":                  "寺",
     "château japonais":                 "城",
     "pagode":                           "塔",
-    # Objets
     "flèche":                           "矢",
     "arc":                              "弓",
     "épée":                             "剣",
     "bannière rouge":                   "赤い旗",
     "lanterne":                         "提灯",
-    # Concepts
     "combat":                           "戦い",
     "fantôme":                          "幽霊",
     "magie":                            "魔法",
     "dragon":                           "龍",
 }
 
-# Indices qui signalent fortement un contenu japonais
 _JP_SIGNAL_TERMS = {
     "jardin japonais", "temple japonais", "château japonais", "école japonaise",
     "pagode", "kimono", "samouraï", "ninja", "geisha", "katana",
@@ -170,18 +160,16 @@ _JP_SIGNAL_TERMS = {
     "robe de moine",
 }
 
+# Genres trop génériques pour filtrer les candidats acteurs :
+# ils excluent les séries TV et les films de genres voisins.
+_GENERIC_GENRES = {
+    "film-action", "film-drame", "film-thriller", "film-romance",
+    "film-comédie", "action", "drame", "thriller", "romance", "comédie",
+    "série", "série-animation",
+}
+
 
 def _translate_clue(clue: str) -> str | None:
-    """
-    Traduit un indice visuel FR→EN si une correspondance existe.
-
-    Stratégie : on cherche si une clé du mapping est CONTENUE dans
-    l'indice (et non l'inverse), pour couvrir des variantes comme
-    "vêtu d'une robe de moine" → "monk robe".
-
-    Returns:
-        La traduction EN, ou None si aucune correspondance.
-    """
     clue_lower = clue.lower().strip()
     for fr_key in sorted(_FR_TO_EN_VISUAL, key=len, reverse=True):
         if fr_key in clue_lower:
@@ -190,16 +178,6 @@ def _translate_clue(clue: str) -> str | None:
 
 
 def _translate_text(text: str) -> list[str]:
-    """
-    Extrait tous les termes EN présents dans un texte FR.
-
-    Utilisé pour la description_courte : on cherche tous les indices
-    du mapping qui apparaissent dans le texte, et on retourne
-    leurs traductions EN.
-
-    Returns:
-        Liste de termes EN trouvés (sans doublons, ordre de longueur).
-    """
     if not text:
         return []
     text_lower = text.lower()
@@ -215,18 +193,12 @@ def _translate_text(text: str) -> list[str]:
 
 
 def _is_japanese_content(all_clues: list, description: str, indices: list) -> bool:
-    """
-    Détecte si le contenu est probablement japonais à partir des indices visuels.
-    """
     all_text = " ".join(all_clues + indices + [description]).lower()
     matches = sum(1 for term in _JP_SIGNAL_TERMS if term in all_text)
     return matches >= 2
 
 
 def _get_jp_terms(all_clues: list, description: str, indices: list) -> list[str]:
-    """
-    Retourne les termes japonais correspondant aux indices visuels détectés.
-    """
     all_text = " ".join(all_clues + indices + [description]).lower()
     jp_terms = []
     seen: set[str] = set()
@@ -247,12 +219,11 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
     """
     Génère une liste de requêtes par ordre de précision décroissante.
 
-    Stratégie :
-      - Niveau 1  : titres certains (les meilleurs)
+      - Niveau 1  : titres certains
       - Niveau 2  : acteurs connus
       - Niveau 3  : personnages
       - Niveau 4  : combinaisons indices_visuels + objets (FR + EN)
-      - Niveau 5  : mots-clés extraits de description_courte (FR)
+      - Niveau 5  : mots-clés description_courte (FR)
       - Niveau 5b : termes EN extraits de description_courte
       - Niveau 5c : termes JP si contenu japonais détecté
       - Niveau 6  : titres incertains (?)
@@ -278,7 +249,6 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
     indices     = extraction.get("indices_visuels",   []) or []
     objets      = extraction.get("objets_importants", []) or []
 
-    # Normalisation du genre pour les requêtes EN
     genre_en = genre.replace("film-", "").replace("série", "series").strip()
 
     queries = []
@@ -305,7 +275,6 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
     # ── Niveau 4 : combinaisons indices + objets (FR + EN) ───────
     all_clues = [o for o in objets if o] + [i for i in indices if i]
 
-    # Traduire les clues FR → EN
     all_clues_en = []
     seen_en_clues: set[str] = set()
     for c in all_clues:
@@ -314,7 +283,6 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
             seen_en_clues.add(translated)
             all_clues_en.append(translated)
 
-    # Paires FR (comportement original conservé)
     if len(all_clues) >= 2:
         for i in range(min(3, len(all_clues) - 1)):
             pair = f"{all_clues[i]} {all_clues[i+1]}"
@@ -330,7 +298,6 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
         if genre:
             queries.append(f"{triple} {genre}")
 
-    # Paires EN (plus efficaces sur TMDB)
     if len(all_clues_en) >= 2:
         for i in range(min(2, len(all_clues_en) - 1)):
             pair_en = f"{all_clues_en[i]} {all_clues_en[i+1]}"
@@ -338,11 +305,10 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
             if genre_en:
                 queries.append(f"{pair_en} {genre_en}")
 
-    # Clues EN isolées
     for clue_en in all_clues_en[:3]:
         queries.append(clue_en)
 
-    # ── Niveau 5 : mots-clés extraits de description_courte (FR) ─
+    # ── Niveau 5 : mots-clés description_courte (FR) ─────────────
     if description:
         keywords = _extract_keywords(description)
         if len(keywords) >= 3:
@@ -357,7 +323,7 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
             if genre:
                 queries.append(f"{noun} {genre}")
 
-    # ── Niveau 5b : termes EN extraits de la description FR ──────
+    # ── Niveau 5b : termes EN depuis description FR ───────────────
     if description:
         desc_en_terms = _translate_text(description)
         if desc_en_terms:
@@ -367,21 +333,16 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
             if annee:
                 queries.append(f"{' '.join(desc_en_terms[:2])} {annee}")
 
-    # ── Niveau 5c : requêtes japonaises si contenu JP détecté ────
-    # TMDB indexe souvent mieux les films japonais avec des requêtes en JP.
-    # On détecte le contenu JP via les indices visuels et on génère
-    # des requêtes avec les termes kanji correspondants.
+    # ── Niveau 5c : requêtes japonaises si contenu JP détecté ─────
     if _is_japanese_content(all_clues, description, indices):
         jp_terms = _get_jp_terms(all_clues, description, indices)
         if jp_terms:
             print(f"🇯🇵 Contenu japonais détecté → requêtes JP: {jp_terms[:3]}", flush=True)
-            # Paire JP (les 2 premiers termes les plus spécifiques)
             if len(jp_terms) >= 2:
                 queries.append(f"{jp_terms[0]} {jp_terms[1]}")
             queries.append(jp_terms[0])
             if annee:
                 queries.append(f"{jp_terms[0]} {annee}")
-            # Requête EN + "japanese" (souvent efficace sur TMDB)
             if all_clues_en:
                 queries.append(f"{all_clues_en[0]} japanese")
                 if genre_en:
@@ -393,7 +354,7 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
         if acteurs:
             queries.append(f"{titre} {acteurs[0]}")
 
-    # ── Niveau 7 : requêtes spécifiques au type de média ─────────
+    # ── Niveau 7 : spécifiques au type de média ──────────────────
     if genre in ("anime", "serie-animation", "serie-animée"):
         for titre in (titres_certains + titres_incertains)[:2]:
             queries.append(f"{titre} anime")
@@ -417,7 +378,7 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
         if len(clue) > 8:
             queries.append(clue)
 
-    # ── Dédoublonnage en conservant l'ordre ──────────────────────
+    # ── Dédoublonnage ────────────────────────────────────────────
     seen   = set()
     result = []
     for q in queries:
@@ -431,7 +392,7 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
 
 
 # ════════════════════════════════════════════════════════════════
-# RUN CASCADE SEARCH — point d'entrée principal pour la recherche
+# RUN CASCADE SEARCH
 # ════════════════════════════════════════════════════════════════
 
 async def run_cascade_search(
@@ -440,23 +401,6 @@ async def run_cascade_search(
     browser_lang: str | None = None,
     max_candidates: int = 20,
 ) -> list:
-    """
-    Lance la cascade de requêtes TMDB avec stratégie multi-langue.
-
-    Fix v3 :
-    - Requête en caractères japonais → effective_transcript_lang="ja"
-    - Requête ASCII pure → effective_transcript_lang="en"
-    - Requête FR brute → effective_transcript_lang inchangé
-
-    Args:
-        extraction:      Dict issu de l'extraction Gemini/multimodal.
-        transcript_lang: Code ISO 639-1 de la langue de la transcription.
-        browser_lang:    Code ISO 639-1 de la langue du navigateur utilisateur.
-        max_candidates:  Nombre max de candidats à retourner.
-
-    Returns:
-        Liste fusionnée, dédoublonnée, triée par popularité. Max max_candidates items.
-    """
     if not transcript_lang:
         transcript_lang = extraction.get("langue_originale") or None
 
@@ -475,23 +419,18 @@ async def run_cascade_search(
         if len(candidates) >= max_candidates:
             break
 
-        # Détecter la langue effective pour cette requête spécifique
         effective_transcript_lang = transcript_lang
 
         if re.search(r'[぀-ゟ゠-ヿ一-鿿]', query):
-            # Requête contient des caractères japonais → locale JP
             effective_transcript_lang = "ja"
         elif re.search(r'[가-힯ᄀ-ᇿ]', query):
-            # Requête contient des caractères coréens → locale KO
             effective_transcript_lang = "ko"
         elif re.search(r'[一-鿿]', query) and not re.search(r'[぀-ゟ゠-ヿ]', query):
-            # Requête contient des caractères chinois → locale ZH
             effective_transcript_lang = "zh"
         elif (
             transcript_lang not in (None, "en")
             and re.fullmatch(r'[a-zA-Z0-9 \-]+', query)
         ):
-            # Requête ASCII pure (issue de _translate_clue) → locale EN
             effective_transcript_lang = "en"
 
         results = await search_multi_lang(
@@ -536,7 +475,12 @@ async def build_candidates_from_actors(
     lang: str = "fr",
 ) -> list:
     """
-    Construit des candidats TMDB à partir des acteurs reconnus dans l'extraction.
+    Construit des candidats TMDB à partir des acteurs reconnus.
+
+    Fix v4 :
+    - credits[:30] au lieu de [:15] → évite de rater les séries moins populaires
+    - filtre genre/année désactivé pour les genres génériques (_GENERIC_GENRES)
+      → un genre comme "film-action" ne doit pas exclure The Shield (série)
     """
     acteurs = extraction.get("acteurs", []) or []
     if not acteurs:
@@ -583,7 +527,10 @@ async def build_candidates_from_actors(
     seen_ids: set  = set()
     merged:   list = []
     for credits in all_credits:
-        for c in credits[:15]:
+        # Fix v4 : passer les 30 premiers crédits au lieu de 15
+        # Les séries TV ont souvent une popularité plus faible que les films
+        # et tombaient hors du top 15 (ex: The Shield de Michael Jai White)
+        for c in credits[:30]:
             if c["id"] not in seen_ids:
                 seen_ids.add(c["id"])
                 merged.append(c)
@@ -592,10 +539,25 @@ async def build_candidates_from_actors(
 
     genre = (extraction.get("genre_apparent") or "").lower()
     annee = str(extraction.get("annee_estimee") or "")
-    if genre or annee:
+
+    # Fix v4 : ne pas filtrer si le genre est trop générique.
+    # "film-action" exclut les séries ; "film-horreur" ou "anime" sont assez
+    # spécifiques pour filtrer sans risque.
+    genre_is_generic = genre in _GENERIC_GENRES or not genre
+    if (genre or annee) and not genre_is_generic:
         filtered = _filter_by_genre_year(merged, genre, annee)
         if len(filtered) >= 3:
+            print(
+                f"🔍 Filtre genre/année appliqué : {len(merged)} → {len(filtered)} candidats",
+                flush=True
+            )
             merged = filtered
+    elif genre_is_generic and (genre or annee):
+        print(
+            f"ℹ️  Genre '{genre}' trop générique → filtre désactivé "
+            f"(évite d'exclure les séries TV)",
+            flush=True
+        )
 
     for c in merged:
         if "media_type" not in c:
@@ -631,7 +593,6 @@ _STOPWORDS = {
 
 
 def _extract_keywords(text: str) -> list[str]:
-    """Extrait les mots-clés significatifs d'une description, filtre les stopwords."""
     words = re.findall(r"\b\w{4,}\b", text, re.UNICODE)
     result = []
     seen   = set()
@@ -644,9 +605,6 @@ def _extract_keywords(text: str) -> list[str]:
 
 
 def _extract_proper_nouns(text: str) -> list[str]:
-    """
-    Extrait les noms propres probables (mots avec majuscule non en début de phrase).
-    """
     if not text:
         return []
     matches = re.findall(
