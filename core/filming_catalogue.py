@@ -57,12 +57,12 @@ def _read_json_catalogue() -> list[dict]:
     for raw_path in CATALOGUE_PATHS:
         path = os.path.abspath(raw_path)
         if os.path.exists(path):
-            logger.info("Catalogue: lecture de %s", path)
+            print(f"Catalogue v5.1: lecture JSON depuis {path}", flush=True)
             with open(path, encoding="utf-8") as fh:
                 data = json.load(fh)
-            logger.info("Catalogue: %s films lus depuis JSON", len(data))
+            print(f"Catalogue v5.1: {len(data)} films lus depuis JSON", flush=True)
             return data
-    logger.warning("Catalogue: catalogue_filming.json introuvable")
+    print("Catalogue v5.1: ERREUR — catalogue_filming.json introuvable", flush=True)
     return []
 
 
@@ -83,7 +83,7 @@ async def _load_catalogue_bg() -> None:
         films = _read_json_catalogue()
 
         if not films:
-            logger.warning("Catalogue: JSON vide — fallback statique 3 films")
+            print("Catalogue v5.1: JSON vide — fallback statique", flush=True)
             films = _FALLBACK[:]
 
         # ── Étape 2 : mettre en RAM IMMÉDIATEMENT ─────────────────
@@ -93,7 +93,7 @@ async def _load_catalogue_bg() -> None:
             _catalogue_loaded_at = time.time()
             _catalogue_loading   = False
 
-        logger.info("Catalogue v5.1: PRÊT — %s films disponibles", len(_catalogue))
+        print(f"Catalogue v5.1: PRET — {len(_catalogue)} films disponibles", flush=True)
 
         # ── Étape 3 : enrichissement TMDB en arrière-plan (optionnel) ──
         # On modifie les dicts en place — les requêtes en cours voient
@@ -104,7 +104,7 @@ async def _load_catalogue_bg() -> None:
             logger.info("Catalogue: enrichissement TMDB terminé")
 
     except Exception as exc:
-        logger.error("Catalogue: erreur chargement: %s", exc)
+        print(f"Catalogue v5.1: ERREUR chargement: {exc}", flush=True)
         async with lock:
             _catalogue_loading = False
 
