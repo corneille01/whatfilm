@@ -1,18 +1,15 @@
 """
-core/filming_catalogue.py  —  Catalogue lieux de tournage v5
+core/filming_catalogue.py  —  Catalogue lieux de tournage v5.1
 
-Architecture :
-  - Le catalogue est chargé depuis un fichier JSON pré-généré (catalogue_filming.json)
-  - Ce fichier est généré en local avec build_catalogue_local.py et commité dans le repo
-  - PLUS de requêtes Wikidata au runtime → plus de blocages IP cloud
-  - Enrichissement TMDB (poster, note) fait au démarrage sur les films avec tmdb_id
-  - Refresh TMDB toutes les 24h (léger, pas de Wikidata)
+Changement v5.1 :
+  - Le catalogue est disponible en RAM IMMÉDIATEMENT après lecture du JSON
+  - L'enrichissement TMDB (posters, notes) tourne ensuite en arrière-plan
+  - Plus aucune requête Wikidata au runtime
 """
 
 from __future__ import annotations
 
 import asyncio
-import copy
 import json
 import logging
 import os
@@ -26,19 +23,16 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-TMDB_BASE  = "https://api.themoviedb.org/3"
-TMDB_KEY   = os.getenv("TMDB_API_KEY", "")
+TMDB_BASE    = "https://api.themoviedb.org/3"
+TMDB_KEY     = os.getenv("TMDB_API_KEY", "")
+TMDB_REFRESH = 3600 * 24
 
-# Chemin vers le catalogue JSON pré-généré (commité dans le repo)
-CATALOGUE_JSON = os.path.join(
-    os.path.dirname(__file__), "..", "catalogue_filming.json"
-)
-# Fallback : chercher à la racine du projet
-CATALOGUE_JSON_ALT = os.path.join(
-    os.path.dirname(__file__), "catalogue_filming.json"
-)
-
-TMDB_REFRESH = 3600 * 24   # ré-enrichit TMDB toutes les 24h
+# Chemins vers le catalogue JSON pré-généré
+_HERE = os.path.dirname(__file__)
+CATALOGUE_PATHS = [
+    os.path.join(_HERE, "..", "catalogue_filming.json"),  # racine projet
+    os.path.join(_HERE, "catalogue_filming.json"),        # dans core/
+]
 
 # ---------------------------------------------------------------------------
 # État global en RAM
@@ -57,22 +51,24 @@ def _get_lock() -> asyncio.Lock:
 
 
 # ---------------------------------------------------------------------------
-# Chargement depuis JSON
+# Chargement JSON (synchrone, instantané)
 # ---------------------------------------------------------------------------
-def _load_json_catalogue() -> list[dict]:
-    """Charge le catalogue depuis le fichier JSON pré-généré."""
-    for path in [CATALOGUE_JSON, CATALOGUE_JSON_ALT]:
-        path = os.path.abspath(path)
+def _read_json_catalogue() -> list[dict]:
+    for raw_path in CATALOGUE_PATHS:
+        path = os.path.abspath(raw_path)
         if os.path.exists(path):
-            logger.info("Catalogue: chargement depuis %s", path)
+            logger.info("Catalogue: lecture de %s", path)
             with open(path, encoding="utf-8") as fh:
                 data = json.load(fh)
-            logger.info("Catalogue: %s films chargés depuis JSON", len(data))
+            logger.info("Catalogue: %s films lus depuis JSON", len(data))
             return data
-    logger.warning("Catalogue: catalogue_filming.json introuvable — fallback statique")
+    logger.warning("Catalogue: catalogue_filming.json introuvable")
     return []
 
 
+# ---------------------------------------------------------------------------
+# Chargement en arrière-plan
+# ---------------------------------------------------------------------------
 async def _load_catalogue_bg() -> None:
     global _catalogue, _catalogue_loaded_at, _catalogue_loading
 
@@ -83,25 +79,29 @@ async def _load_catalogue_bg() -> None:
         _catalogue_loading = True
 
     try:
-        # 1. Charger le JSON (instantané)
-        films = _load_json_catalogue()
+        # ── Étape 1 : charger le JSON (< 1 seconde) ──────────────
+        films = _read_json_catalogue()
 
         if not films:
-            films = copy.deepcopy(_FALLBACK)
-            logger.warning("Catalogue: utilisation du fallback statique (3 films)")
-        
-        # 2. Enrichissement TMDB en arrière-plan (posters, notes)
-        if TMDB_KEY and films:
-            logger.info("Catalogue: enrichissement TMDB pour %s films...", len(films))
+            logger.warning("Catalogue: JSON vide — fallback statique 3 films")
+            films = _FALLBACK[:]
+
+        # ── Étape 2 : mettre en RAM IMMÉDIATEMENT ─────────────────
+        # Le catalogue est disponible pour les requêtes dès maintenant
+        async with lock:
+            _catalogue           = films
+            _catalogue_loaded_at = time.time()
+            _catalogue_loading   = False
+
+        logger.info("Catalogue v5.1: PRÊT — %s films disponibles", len(_catalogue))
+
+        # ── Étape 3 : enrichissement TMDB en arrière-plan (optionnel) ──
+        # On modifie les dicts en place — les requêtes en cours voient
+        # les données s'améliorer progressivement (posters, notes)
+        if TMDB_KEY and films and films is not _FALLBACK:
+            logger.info("Catalogue: enrichissement TMDB démarré (%s films)...", len(films))
             await _enrich_tmdb_batch(films)
             logger.info("Catalogue: enrichissement TMDB terminé")
-
-        async with lock:
-            _catalogue = films
-            _catalogue_loaded_at = time.time()
-            _catalogue_loading = False
-
-        logger.info("Catalogue v5: PRÊT — %s films en RAM", len(_catalogue))
 
     except Exception as exc:
         logger.error("Catalogue: erreur chargement: %s", exc)
@@ -119,7 +119,7 @@ async def ensure_catalogue_loaded() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Enrichissement TMDB
+# Enrichissement TMDB (modifie les dicts en place)
 # ---------------------------------------------------------------------------
 async def _enrich_tmdb_batch(films: list[dict], lang: str = "fr") -> None:
     if not TMDB_KEY:
@@ -128,6 +128,9 @@ async def _enrich_tmdb_batch(films: list[dict], lang: str = "fr") -> None:
     async def fetch_one(film: dict) -> None:
         tmdb_id = film.get("tmdb_id")
         if not tmdb_id:
+            return
+        # Skip si déjà enrichi (poster présent)
+        if film.get("poster_path"):
             return
         mtype = film.get("media_type", "movie")
         ep = f"/tv/{tmdb_id}" if mtype == "tv" else f"/movie/{tmdb_id}"
@@ -145,11 +148,12 @@ async def _enrich_tmdb_batch(films: list[dict], lang: str = "fr") -> None:
                     film["overview"]     = d.get("overview", "")
                     title = d.get("title") or d.get("name")
                     if title:
-                        film["title"] = title
+                        film["title"]        = title
                         film["_title_lower"] = title.lower()
         except Exception as exc:
             logger.debug("TMDB enrich %s: %s", tmdb_id, exc)
 
+    # Batch de 20 en parallèle, pause 50ms entre batches
     for i in range(0, len(films), 20):
         await asyncio.gather(*[fetch_one(f) for f in films[i:i + 20]])
         await asyncio.sleep(0.05)
@@ -255,7 +259,7 @@ async def get_filming_catalogue(
 
     total      = len(sorted_)
     offset     = (page - 1) * per_page
-    page_items = sorted_[offset : offset + per_page]
+    page_items = sorted_[offset: offset + per_page]
 
     return {
         "status":      "success",
@@ -306,7 +310,7 @@ async def get_filming_countries() -> dict:
 
 
 async def get_film_locations(tmdb_id: int, media_type: str = "movie") -> dict:
-    """Cherche les lieux en RAM (plus de requête Wikidata directe)."""
+    """Cherche les lieux en RAM uniquement."""
     await ensure_catalogue_loaded()
     for f in _catalogue:
         if f.get("tmdb_id") == tmdb_id and f.get("media_type") == media_type:
