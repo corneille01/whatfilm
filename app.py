@@ -19,6 +19,9 @@ from pydantic import BaseModel
 
 from core.web_search import should_trigger_web_fallback, web_search_fallback
 from core.wikidata import wikidata_search_candidates, should_trigger_wikidata, get_wikidata_enrichment, get_filming_locations
+from core import filming_catalogue
+
+
 from vision.scene_detection import extract_keyframes
 from vision.universal_downloader import download_video
 from vision.ocr_engine import extract_text_from_images, start_loading
@@ -47,6 +50,7 @@ _TRACKING_PARAMS = {
     "utm_content", "utm_term", "fbclid", "igshid", "ref",
     "is_from_webapp", "is_copy_url", "sender_device", "q", "is",
 }
+
 
 def normalize_url(url: str) -> str:
     url = url.strip()
@@ -199,6 +203,7 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(cleanup_sessions())
     asyncio.create_task(purge_cache_loop())
+    asyncio.create_task(filming_catalogue.ensure_catalogue_loaded())
     start_loading()
     print("✅ ShadowFrame démarré", flush=True)
     yield
