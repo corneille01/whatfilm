@@ -7,6 +7,7 @@ import base64
 import time
 import asyncio
 import re
+from routes_filming import router as filming_router
 from typing import Optional
 from contextlib import asynccontextmanager
 from collections import defaultdict
@@ -36,6 +37,7 @@ from storage.cache import (
     get_cache, get_cache_by_content, get_cache_by_film,
     get_cache_by_title, set_cache, purge_expired, cache_stats,
 )
+
 
 # ════════════════════════════════════════════════════════════════
 # NORMALISATION D'URL
@@ -202,6 +204,7 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(title="ShadowFrame", lifespan=lifespan)
+app.include_router(filming_router)
 _analysis_semaphore = asyncio.Semaphore(3)
 
 @app.middleware("http")
