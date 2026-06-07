@@ -1,21 +1,22 @@
 """
-core/filming_catalogue.py  —  Catalogue lieux de tournage (Wikidata) v4
+core/filming_catalogue.py  —  Catalogue lieux de tournage v5
 
-Changements v4 :
-  - Requête SPARQL simplifiée : suppression du GROUP BY / SAMPLE qui causaient les timeouts
-  - Deux requêtes séparées : 1) films+lieux bruts  2) coordonnées en batch
-  - Timeout augmenté à 90s, retries plus patients
-  - Page size réduite à 200 pour éviter les timeouts Wikidata
-  - SPARQL_DELAY augmenté à 5s pour respecter le rate-limit
+Architecture :
+  - Le catalogue est chargé depuis un fichier JSON pré-généré (catalogue_filming.json)
+  - Ce fichier est généré en local avec build_catalogue_local.py et commité dans le repo
+  - PLUS de requêtes Wikidata au runtime → plus de blocages IP cloud
+  - Enrichissement TMDB (poster, note) fait au démarrage sur les films avec tmdb_id
+  - Refresh TMDB toutes les 24h (léger, pas de Wikidata)
 """
 
 from __future__ import annotations
 
 import asyncio
+import copy
+import json
 import logging
 import os
 import time
-from dataclasses import dataclass, field, asdict
 from typing import Optional
 
 import httpx
@@ -25,18 +26,22 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-WIKIDATA_SPARQL   = "https://query.wikidata.org/sparql"
-TMDB_BASE         = "https://api.themoviedb.org/3"
-TMDB_KEY          = os.getenv("TMDB_API_KEY", "")
+TMDB_BASE  = "https://api.themoviedb.org/3"
+TMDB_KEY   = os.getenv("TMDB_API_KEY", "")
 
-CATALOGUE_REFRESH = 3600 * 24   # rafraichit toutes les 24h
-SPARQL_PAGE_SIZE  = 200         # réduit à 200 pour éviter les timeouts Wikidata
-SPARQL_DELAY      = 5.0         # 5s entre pages pour respecter le rate-limit
-SPARQL_TIMEOUT    = 90          # timeout par requête (Wikidata peut être lent)
-SPARQL_MAX_PAGES  = 60          # 60 x 200 = 12 000 films max
+# Chemin vers le catalogue JSON pré-généré (commité dans le repo)
+CATALOGUE_JSON = os.path.join(
+    os.path.dirname(__file__), "..", "catalogue_filming.json"
+)
+# Fallback : chercher à la racine du projet
+CATALOGUE_JSON_ALT = os.path.join(
+    os.path.dirname(__file__), "catalogue_filming.json"
+)
+
+TMDB_REFRESH = 3600 * 24   # ré-enrichit TMDB toutes les 24h
 
 # ---------------------------------------------------------------------------
-# Etat global en RAM
+# État global en RAM
 # ---------------------------------------------------------------------------
 _catalogue: list[dict] = []
 _catalogue_loaded_at: float = 0.0
@@ -52,170 +57,22 @@ def _get_lock() -> asyncio.Lock:
 
 
 # ---------------------------------------------------------------------------
-# Dataclasses
+# Chargement depuis JSON
 # ---------------------------------------------------------------------------
-@dataclass
-class FilmingLocation:
-    wikidata_id: str
-    name: str
-    country: str = ""
-    lat: Optional[float] = None
-    lng: Optional[float] = None
-
-
-@dataclass
-class FilmWithLocations:
-    wikidata_id: str
-    title: str
-    tmdb_id: Optional[int]
-    media_type: str
-    year: Optional[int]
-    locations: list[FilmingLocation] = field(default_factory=list)
-    poster_path: Optional[str] = None
-    vote_average: Optional[float] = None
-    vote_count: Optional[int] = None
-    overview: Optional[str] = None
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-def _parse_coord(coord_str: str) -> tuple[Optional[float], Optional[float]]:
-    if not coord_str:
-        return None, None
-    try:
-        inner = coord_str.replace("Point(", "").replace(")", "").strip()
-        parts = inner.split()
-        if len(parts) == 2:
-            lng, lat = float(parts[0]), float(parts[1])
-            if -90 <= lat <= 90 and -180 <= lng <= 180:
-                return lat, lng
-    except Exception:
-        pass
-    return None, None
-
-
-def _wd_id(uri: str) -> str:
-    return uri.split("/")[-1] if uri else ""
-
-
-# ---------------------------------------------------------------------------
-# SPARQL simplifié — sans GROUP BY / SAMPLE (cause principale des timeouts)
-# ---------------------------------------------------------------------------
-_SPARQL_PAGE = """
-SELECT DISTINCT
-  ?film ?filmLabel
-  ?tmdb_id ?tmdb_tv_id
-  ?loc ?locLabel
-  ?countryLabel
-  ?coord
-  ?year
-WHERE {{
-  VALUES ?type {{ wd:Q11424 wd:Q5398426 wd:Q24869 wd:Q506240 }}
-  ?film wdt:P31 ?type ;
-        wdt:P915 ?loc .
-  OPTIONAL {{ ?loc wdt:P625 ?coord . }}
-  OPTIONAL {{ ?loc wdt:P17 ?country . }}
-  OPTIONAL {{ ?film wdt:P4947 ?tmdb_id . }}
-  OPTIONAL {{ ?film wdt:P8306 ?tmdb_tv_id . }}
-  OPTIONAL {{
-    ?film wdt:P577 ?date .
-    BIND(YEAR(?date) AS ?year)
-  }}
-  SERVICE wikibase:label {{ bd:serviceParam wikibase:language "fr,en" . }}
-}}
-ORDER BY DESC(?year) ?film
-LIMIT {limit}
-OFFSET {offset}
-"""
-
-
-async def _sparql_one_page(offset: int, retries: int = 4) -> list[dict]:
-    query = _SPARQL_PAGE.format(limit=SPARQL_PAGE_SIZE, offset=offset)
-    headers = {
-        "Accept": "application/sparql-results+json",
-        "User-Agent": "ShadowFrame/4.0 (https://quelfilm.app) httpx-bg",
-    }
-    for attempt in range(retries):
-        try:
-            async with httpx.AsyncClient(timeout=SPARQL_TIMEOUT) as client:
-                r = await client.get(
-                    WIKIDATA_SPARQL,
-                    params={"query": query, "format": "json"},
-                    headers=headers,
-                )
-                if r.status_code == 429:
-                    wait = int(r.headers.get("Retry-After", 90)) + 20 * attempt
-                    logger.warning("SPARQL bg 429 — attente %ss (offset=%s)", wait, offset)
-                    await asyncio.sleep(wait)
-                    continue
-                if r.status_code == 503:
-                    wait = 30 * (attempt + 1)
-                    logger.warning("SPARQL bg 503 — attente %ss (offset=%s)", wait, offset)
-                    await asyncio.sleep(wait)
-                    continue
-                r.raise_for_status()
-                bindings = r.json().get("results", {}).get("bindings", [])
-                logger.info("SPARQL bg OK offset=%s → %s lignes", offset, len(bindings))
-                return bindings
-        except httpx.TimeoutException:
-            wait = 30 * (attempt + 1)
-            logger.warning("SPARQL bg timeout offset=%s tentative %s — attente %ss", offset, attempt + 1, wait)
-            if attempt < retries - 1:
-                await asyncio.sleep(wait)
-        except Exception as exc:
-            wait = 20 * (attempt + 1)
-            logger.warning("SPARQL bg erreur offset=%s: %s — attente %ss", offset, exc, wait)
-            if attempt < retries - 1:
-                await asyncio.sleep(wait)
-    logger.error("SPARQL bg ABANDON offset=%s après %s tentatives", offset, retries)
+def _load_json_catalogue() -> list[dict]:
+    """Charge le catalogue depuis le fichier JSON pré-généré."""
+    for path in [CATALOGUE_JSON, CATALOGUE_JSON_ALT]:
+        path = os.path.abspath(path)
+        if os.path.exists(path):
+            logger.info("Catalogue: chargement depuis %s", path)
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            logger.info("Catalogue: %s films chargés depuis JSON", len(data))
+            return data
+    logger.warning("Catalogue: catalogue_filming.json introuvable — fallback statique")
     return []
 
 
-def _bindings_to_films(bindings: list[dict]) -> dict[str, FilmWithLocations]:
-    films: dict[str, FilmWithLocations] = {}
-    for row in bindings:
-        fid = _wd_id(row.get("film", {}).get("value", ""))
-        if not fid:
-            continue
-
-        label   = row.get("filmLabel",  {}).get("value", "")
-        tid_raw = row.get("tmdb_id",    {}).get("value", "")
-        tv_raw  = row.get("tmdb_tv_id", {}).get("value", "")
-        yr_raw  = row.get("year",       {}).get("value", "")
-
-        tmdb_id = int(tid_raw) if tid_raw and tid_raw.isdigit() else None
-        mtype   = "movie"
-        if tv_raw and tv_raw.isdigit():
-            tmdb_id = int(tv_raw)
-            mtype   = "tv"
-
-        if fid not in films:
-            films[fid] = FilmWithLocations(
-                wikidata_id=fid,
-                title=label or fid,
-                tmdb_id=tmdb_id,
-                media_type=mtype,
-                year=int(yr_raw) if yr_raw and yr_raw.isdigit() else None,
-            )
-
-        lid   = _wd_id(row.get("loc",          {}).get("value", ""))
-        lname = row.get("locLabel",             {}).get("value", lid)
-        cname = row.get("countryLabel",         {}).get("value", "")
-        coord = row.get("coord",                {}).get("value", "")
-        lat, lng = _parse_coord(coord)
-
-        existing = {loc.wikidata_id for loc in films[fid].locations}
-        if lid and lid not in existing:
-            films[fid].locations.append(
-                FilmingLocation(wikidata_id=lid, name=lname, country=cname, lat=lat, lng=lng)
-            )
-    return films
-
-
-# ---------------------------------------------------------------------------
-# Chargement en arriere-plan
-# ---------------------------------------------------------------------------
 async def _load_catalogue_bg() -> None:
     global _catalogue, _catalogue_loaded_at, _catalogue_loading
 
@@ -225,68 +82,36 @@ async def _load_catalogue_bg() -> None:
             return
         _catalogue_loading = True
 
-    logger.info("Catalogue bg v4: demarrage chargement Wikidata (page_size=%s)...", SPARQL_PAGE_SIZE)
-    all_films: dict[str, FilmWithLocations] = {}
-    offset = 0
-    consecutive_empty = 0
+    try:
+        # 1. Charger le JSON (instantané)
+        films = _load_json_catalogue()
 
-    for page_num in range(SPARQL_MAX_PAGES):
-        bindings = await _sparql_one_page(offset)
+        if not films:
+            films = copy.deepcopy(_FALLBACK)
+            logger.warning("Catalogue: utilisation du fallback statique (3 films)")
+        
+        # 2. Enrichissement TMDB en arrière-plan (posters, notes)
+        if TMDB_KEY and films:
+            logger.info("Catalogue: enrichissement TMDB pour %s films...", len(films))
+            await _enrich_tmdb_batch(films)
+            logger.info("Catalogue: enrichissement TMDB terminé")
 
-        if not bindings:
-            consecutive_empty += 1
-            logger.warning("Catalogue bg: page vide offset=%s (consécutives: %s)", offset, consecutive_empty)
-            if consecutive_empty >= 3:
-                logger.info("Catalogue bg: 3 pages vides consécutives — fin du chargement")
-                break
-            # On saute et on continue (timeout isolé, pas forcément la fin)
-            offset += SPARQL_PAGE_SIZE
-            await asyncio.sleep(SPARQL_DELAY * 2)
-            continue
+        async with lock:
+            _catalogue = films
+            _catalogue_loaded_at = time.time()
+            _catalogue_loading = False
 
-        consecutive_empty = 0
-        page_films = _bindings_to_films(bindings)
-        for fid, film in page_films.items():
-            if fid in all_films:
-                existing_lids = {l.wikidata_id for l in all_films[fid].locations}
-                for loc in film.locations:
-                    if loc.wikidata_id not in existing_lids:
-                        all_films[fid].locations.append(loc)
-            else:
-                all_films[fid] = film
+        logger.info("Catalogue v5: PRÊT — %s films en RAM", len(_catalogue))
 
-        logger.info(
-            "Catalogue bg: page %s (offset=%s) — +%s films, total=%s",
-            page_num + 1, offset, len(page_films), len(all_films),
-        )
-        offset += SPARQL_PAGE_SIZE
-
-        if len(bindings) < SPARQL_PAGE_SIZE:
-            logger.info("Catalogue bg: dernière page atteinte (bindings=%s < %s)", len(bindings), SPARQL_PAGE_SIZE)
-            break
-
-        await asyncio.sleep(SPARQL_DELAY)
-
-    films_list = list(all_films.values())
-    logger.info("Catalogue bg: %s films collectés, enrichissement TMDB...", len(films_list))
-
-    # Enrichissement TMDB (batch silencieux)
-    if TMDB_KEY and films_list:
-        await _enrich_tmdb_batch(films_list, lang="fr")
-
-    new_catalogue = [_film_to_dict(f) for f in films_list]
-
-    async with lock:
-        _catalogue           = new_catalogue
-        _catalogue_loaded_at = time.time()
-        _catalogue_loading   = False
-
-    logger.info("Catalogue bg v4: TERMINE — %s films en RAM", len(_catalogue))
+    except Exception as exc:
+        logger.error("Catalogue: erreur chargement: %s", exc)
+        async with lock:
+            _catalogue_loading = False
 
 
 async def ensure_catalogue_loaded() -> None:
     now = time.time()
-    if _catalogue and (now - _catalogue_loaded_at) < CATALOGUE_REFRESH:
+    if _catalogue and (now - _catalogue_loaded_at) < TMDB_REFRESH:
         return
     if _catalogue_loading:
         return
@@ -296,14 +121,16 @@ async def ensure_catalogue_loaded() -> None:
 # ---------------------------------------------------------------------------
 # Enrichissement TMDB
 # ---------------------------------------------------------------------------
-async def _enrich_tmdb_batch(films: list[FilmWithLocations], lang: str = "fr") -> None:
+async def _enrich_tmdb_batch(films: list[dict], lang: str = "fr") -> None:
     if not TMDB_KEY:
         return
 
-    async def fetch_one(film: FilmWithLocations) -> None:
-        if not film.tmdb_id:
+    async def fetch_one(film: dict) -> None:
+        tmdb_id = film.get("tmdb_id")
+        if not tmdb_id:
             return
-        ep = f"/tv/{film.tmdb_id}" if film.media_type == "tv" else f"/movie/{film.tmdb_id}"
+        mtype = film.get("media_type", "movie")
+        ep = f"/tv/{tmdb_id}" if mtype == "tv" else f"/movie/{tmdb_id}"
         try:
             async with httpx.AsyncClient(timeout=8) as client:
                 r = await client.get(
@@ -312,58 +139,24 @@ async def _enrich_tmdb_batch(films: list[FilmWithLocations], lang: str = "fr") -
                 )
                 if r.status_code == 200:
                     d = r.json()
-                    film.poster_path  = d.get("poster_path")
-                    film.vote_average = d.get("vote_average")
-                    film.vote_count   = d.get("vote_count")
-                    film.overview     = d.get("overview", "")
+                    film["poster_path"]  = d.get("poster_path")
+                    film["vote_average"] = d.get("vote_average")
+                    film["vote_count"]   = d.get("vote_count")
+                    film["overview"]     = d.get("overview", "")
                     title = d.get("title") or d.get("name")
                     if title:
-                        film.title = title
+                        film["title"] = title
+                        film["_title_lower"] = title.lower()
         except Exception as exc:
-            logger.debug("TMDB enrich %s: %s", film.tmdb_id, exc)
+            logger.debug("TMDB enrich %s: %s", tmdb_id, exc)
 
-    for i in range(0, len(films), 10):
-        await asyncio.gather(*[fetch_one(f) for f in films[i : i + 10]])
-        await asyncio.sleep(0.1)
-
-
-# ---------------------------------------------------------------------------
-# Serialisation
-# ---------------------------------------------------------------------------
-def _film_to_dict(f: FilmWithLocations) -> dict:
-    gps  = [loc for loc in f.locations if loc.lat is not None]
-    best = gps[0] if gps else (f.locations[0] if f.locations else None)
-    countries_set = {loc.country for loc in f.locations if loc.country}
-    return {
-        "wikidata_id":      f.wikidata_id,
-        "title":            f.title,
-        "tmdb_id":          f.tmdb_id,
-        "media_type":       f.media_type,
-        "year":             f.year,
-        "poster_path":      f.poster_path,
-        "vote_average":     f.vote_average,
-        "vote_count":       f.vote_count,
-        "location_count":   len(f.locations),
-        "countries":        sorted(countries_set),
-        "_title_lower":     f.title.lower(),
-        "_countries_lower": [c.lower() for c in countries_set],
-        "primary_location": {
-            "name":        best.name,
-            "lat":         best.lat,
-            "lng":         best.lng,
-            "country":     best.country,
-            "wikidata_id": best.wikidata_id,
-        } if best else None,
-        "locations": [asdict(loc) for loc in f.locations],
-    }
-
-
-def _strip_internal(d: dict) -> dict:
-    return {k: v for k, v in d.items() if not k.startswith("_")}
+    for i in range(0, len(films), 20):
+        await asyncio.gather(*[fetch_one(f) for f in films[i:i + 20]])
+        await asyncio.sleep(0.05)
 
 
 # ---------------------------------------------------------------------------
-# Fallback statique (Wikidata indisponible au boot)
+# Fallback statique
 # ---------------------------------------------------------------------------
 _FALLBACK: list[dict] = [
     {
@@ -433,6 +226,10 @@ def _sort_films(source: list[dict], sort: str) -> list[dict]:
     if sort == "title":
         return sorted(source, key=lambda f: f.get("_title_lower", ""))
     return source
+
+
+def _strip_internal(d: dict) -> dict:
+    return {k: v for k, v in d.items() if not k.startswith("_")}
 
 
 # ---------------------------------------------------------------------------
@@ -509,49 +306,9 @@ async def get_filming_countries() -> dict:
 
 
 async def get_film_locations(tmdb_id: int, media_type: str = "movie") -> dict:
+    """Cherche les lieux en RAM (plus de requête Wikidata directe)."""
     await ensure_catalogue_loaded()
-
     for f in _catalogue:
         if f.get("tmdb_id") == tmdb_id and f.get("media_type") == media_type:
             return {"status": "success", "locations": f.get("locations", [])}
-
-    tmdb_prop = "P8306" if media_type == "tv" else "P4947"
-    query = (
-        "SELECT DISTINCT ?loc ?locLabel ?countryLabel ?coord WHERE {"
-        f'  ?film wdt:{tmdb_prop} "{tmdb_id}" ; wdt:P915 ?loc . '
-        "  OPTIONAL { ?loc wdt:P625 ?coord . } "
-        "  OPTIONAL { ?loc wdt:P17 ?country . } "
-        '  SERVICE wikibase:label { bd:serviceParam wikibase:language "fr,en" . } '
-        "} LIMIT 30"
-    )
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.get(
-                WIKIDATA_SPARQL,
-                params={"query": query, "format": "json"},
-                headers={
-                    "Accept": "application/sparql-results+json",
-                    "User-Agent": "ShadowFrame/4.0 (https://quelfilm.app) httpx",
-                },
-            )
-            r.raise_for_status()
-            bindings = r.json().get("results", {}).get("bindings", [])
-
-        locations = []
-        seen: set[str] = set()
-        for b in bindings:
-            lid = _wd_id(b.get("loc", {}).get("value", ""))
-            if lid and lid not in seen:
-                seen.add(lid)
-                lat, lng = _parse_coord(b.get("coord", {}).get("value", ""))
-                locations.append({
-                    "wikidata_id": lid,
-                    "name":    b.get("locLabel",     {}).get("value", lid),
-                    "country": b.get("countryLabel", {}).get("value", ""),
-                    "lat": lat,
-                    "lng": lng,
-                })
-        return {"status": "success", "locations": locations}
-    except Exception as exc:
-        logger.error("get_film_locations KO %s: %s", tmdb_id, exc)
-        return {"status": "error", "locations": [], "message": str(exc)}
+    return {"status": "not_found", "locations": []}

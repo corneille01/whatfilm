@@ -1,0 +1,53 @@
+name: Update Filming Catalogue
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # tous les jours à 3h UTC
+  workflow_dispatch: # bouton manuel dans GitHub Actions
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install httpx
+
+      - name: Run catalogue builder
+        run: python3 build_catalogue_local.py
+        # Le script produit catalogue_filming.json à la racine
+
+      - name: Check result
+        run: |
+          if [ ! -f catalogue_filming.json ]; then
+            echo "❌ catalogue_filming.json manquant — abandon"
+            exit 1
+          fi
+          SIZE=$(wc -c < catalogue_filming.json)
+          COUNT=$(python3 -c "import json; d=json.load(open('catalogue_filming.json')); print(len(d))")
+          echo "✅ $COUNT films — ${SIZE} bytes"
+          # Refuser un catalogue trop petit (Wikidata a planté)
+          if [ "$COUNT" -lt 500 ]; then
+            echo "❌ Trop peu de films ($COUNT) — on garde l'ancien catalogue"
+            exit 1
+          fi
+
+      - name: Commit & push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add catalogue_filming.json
+          git diff --cached --quiet && echo "Aucun changement" && exit 0
+          git commit -m "chore: catalogue filming mis à jour ($(date -u +%Y-%m-%d))"
+          git push
