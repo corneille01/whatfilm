@@ -1,11 +1,5 @@
 """
-routes_filming.py — Routes FastAPI pour le catalogue des lieux de tournage.
-
-Intégration dans app.py :
-    1. En haut avec les imports :
-           from routes_filming import router as filming_router
-    2. Juste après app = FastAPI(...) :
-           app.include_router(filming_router)
+routes_filming.py v3 — Routes FastAPI pour le catalogue des lieux de tournage.
 """
 
 from fastapi import APIRouter, Query
@@ -15,6 +9,7 @@ from core.filming_catalogue import (
     get_filming_catalogue,
     get_filming_stats,
     get_filming_countries,
+    get_filming_cities,
 )
 
 router = APIRouter()
@@ -49,4 +44,18 @@ async def filming_stats():
 @router.get("/films-tournes/pays")
 async def filming_pays():
     result = await get_filming_countries()
+    return JSONResponse(content=result)
+
+
+@router.get("/films-tournes/villes")
+async def filming_villes(
+    country: str = Query("", max_length=100),
+):
+    """
+    Retourne les villes disponibles pour un pays donné,
+    triées par nombre de films décroissant.
+    """
+    if not country.strip():
+        return JSONResponse(content={"cities": []})
+    result = await get_filming_cities(country=country.strip())
     return JSONResponse(content=result)

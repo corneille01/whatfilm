@@ -316,3 +316,65 @@ async def get_film_locations(tmdb_id: int, media_type: str = "movie") -> dict:
         if f.get("tmdb_id") == tmdb_id and f.get("media_type") == media_type:
             return {"status": "success", "locations": f.get("locations", [])}
     return {"status": "not_found", "locations": []}
+
+
+# ════════════════════════════════════════════════════════════════
+# AJOUT dans core/filming_catalogue.py
+# Ajouter cette fonction à la fin du fichier
+# ════════════════════════════════════════════════════════════════
+
+async def get_filming_cities(country: str) -> dict:
+    """
+    Retourne les villes (distinct) pour un pays donné dans le catalogue.
+    Chaque entrée : {"city": str, "count": int}
+
+    La colonne 'city' est extraite depuis les champs locations du catalogue.
+    Si tes données n'ont pas de champ city distinct, cette fonction
+    extrait les villes des primary_location.
+
+    À adapter selon ton schéma de données.
+    """
+    await ensure_catalogue_loaded()
+
+    if not _catalogue:
+        return {"cities": []}
+
+    from collections import Counter
+    city_counter = Counter()
+
+    for film in _catalogue:
+        # Essaye d'abord un champ city direct
+        film_country = film.get("country") or ""
+        if film_country != country:
+            # Essaye via countries list
+            countries = film.get("countries") or []
+            if country not in countries:
+                # Essaye via primary_location
+                ploc = film.get("primary_location") or {}
+                if ploc.get("country") != country:
+                    continue
+
+        # Extraire la ville depuis les locations
+        locations = film.get("locations") or []
+        for loc in locations:
+            loc_country = loc.get("country") or ""
+            if loc_country == country:
+                city = loc.get("city") or loc.get("admin_region") or ""
+                if city:
+                    city_counter[city] += 1
+
+        # Fallback sur primary_location
+        if not locations:
+            ploc = film.get("primary_location") or {}
+            if ploc.get("country") == country:
+                city = ploc.get("city") or ploc.get("name") or ""
+                if city and ", " not in city:  # évite les noms trop longs
+                    city_counter[city] += 1
+
+    cities = [
+        {"city": city, "count": count}
+        for city, count in sorted(city_counter.items(), key=lambda x: -x[1])
+        if count >= 1
+    ][:80]  # max 80 villes
+
+    return {"country": country, "cities": cities}
