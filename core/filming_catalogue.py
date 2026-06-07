@@ -1,4 +1,4 @@
-"""
+﻿"""
 core/filming_catalogue.py  —  Catalogue lieux de tournage v5.1
 
 Changement v5.1 :
