@@ -1,12 +1,12 @@
 """
-core/filming_catalogue.py  —  Catalogue lieux de tournage (Wikidata) v3
+core/filming_catalogue.py  —  Catalogue lieux de tournage (Wikidata) v4
 
-Architecture "load-once, serve-from-RAM" :
-  - Au demarrage, le catalogue complet est charge en arriere-plan par pages SPARQL
-  - Les filtres (pays, titre, media_type) sont appliques en Python sur la RAM
-  - Wikidata n'est JAMAIS interroge pendant une requete utilisateur
-  - Refresh automatique toutes les 24h
-  - Fallback statique si Wikidata inaccessible au demarrage
+Changements v4 :
+  - Requête SPARQL simplifiée : suppression du GROUP BY / SAMPLE qui causaient les timeouts
+  - Deux requêtes séparées : 1) films+lieux bruts  2) coordonnées en batch
+  - Timeout augmenté à 90s, retries plus patients
+  - Page size réduite à 200 pour éviter les timeouts Wikidata
+  - SPARQL_DELAY augmenté à 5s pour respecter le rate-limit
 """
 
 from __future__ import annotations
@@ -30,10 +30,10 @@ TMDB_BASE         = "https://api.themoviedb.org/3"
 TMDB_KEY          = os.getenv("TMDB_API_KEY", "")
 
 CATALOGUE_REFRESH = 3600 * 24   # rafraichit toutes les 24h
-SPARQL_PAGE_SIZE  = 500         # lignes par page SPARQL
-SPARQL_DELAY      = 3.0         # secondes de politesse entre pages
-SPARQL_TIMEOUT    = 60          # timeout par requete SPARQL
-SPARQL_MAX_PAGES  = 20          # 20 x 500 = 10 000 films max
+SPARQL_PAGE_SIZE  = 200         # réduit à 200 pour éviter les timeouts Wikidata
+SPARQL_DELAY      = 5.0         # 5s entre pages pour respecter le rate-limit
+SPARQL_TIMEOUT    = 90          # timeout par requête (Wikidata peut être lent)
+SPARQL_MAX_PAGES  = 60          # 60 x 200 = 12 000 films max
 
 # ---------------------------------------------------------------------------
 # Etat global en RAM
@@ -41,7 +41,7 @@ SPARQL_MAX_PAGES  = 20          # 20 x 500 = 10 000 films max
 _catalogue: list[dict] = []
 _catalogue_loaded_at: float = 0.0
 _catalogue_loading: bool = False
-_catalogue_lock: Optional[asyncio.Lock] = None   # cree a la premiere utilisation
+_catalogue_lock: Optional[asyncio.Lock] = None
 
 
 def _get_lock() -> asyncio.Lock:
@@ -100,7 +100,7 @@ def _wd_id(uri: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# SPARQL — utilise uniquement en tache de fond
+# SPARQL simplifié — sans GROUP BY / SAMPLE (cause principale des timeouts)
 # ---------------------------------------------------------------------------
 _SPARQL_PAGE = """
 SELECT DISTINCT
@@ -108,7 +108,7 @@ SELECT DISTINCT
   ?tmdb_id ?tmdb_tv_id
   ?loc ?locLabel
   ?countryLabel
-  (SAMPLE(?coord) AS ?coord)
+  ?coord
   ?year
 WHERE {{
   VALUES ?type {{ wd:Q11424 wd:Q5398426 wd:Q24869 wd:Q506240 }}
@@ -124,18 +124,17 @@ WHERE {{
   }}
   SERVICE wikibase:label {{ bd:serviceParam wikibase:language "fr,en" . }}
 }}
-GROUP BY ?film ?filmLabel ?tmdb_id ?tmdb_tv_id ?loc ?locLabel ?countryLabel ?year
-ORDER BY DESC(?year)
+ORDER BY DESC(?year) ?film
 LIMIT {limit}
 OFFSET {offset}
 """
 
 
-async def _sparql_one_page(offset: int, retries: int = 3) -> list[dict]:
+async def _sparql_one_page(offset: int, retries: int = 4) -> list[dict]:
     query = _SPARQL_PAGE.format(limit=SPARQL_PAGE_SIZE, offset=offset)
     headers = {
         "Accept": "application/sparql-results+json",
-        "User-Agent": "ShadowFrame/3.0 (https://quelfilm.app) httpx-bg",
+        "User-Agent": "ShadowFrame/4.0 (https://quelfilm.app) httpx-bg",
     }
     for attempt in range(retries):
         try:
@@ -146,23 +145,30 @@ async def _sparql_one_page(offset: int, retries: int = 3) -> list[dict]:
                     headers=headers,
                 )
                 if r.status_code == 429:
-                    wait = int(r.headers.get("Retry-After", 60)) + 10 * attempt
+                    wait = int(r.headers.get("Retry-After", 90)) + 20 * attempt
                     logger.warning("SPARQL bg 429 — attente %ss (offset=%s)", wait, offset)
                     await asyncio.sleep(wait)
                     continue
                 if r.status_code == 503:
-                    await asyncio.sleep(20 * (attempt + 1))
+                    wait = 30 * (attempt + 1)
+                    logger.warning("SPARQL bg 503 — attente %ss (offset=%s)", wait, offset)
+                    await asyncio.sleep(wait)
                     continue
                 r.raise_for_status()
-                return r.json().get("results", {}).get("bindings", [])
+                bindings = r.json().get("results", {}).get("bindings", [])
+                logger.info("SPARQL bg OK offset=%s → %s lignes", offset, len(bindings))
+                return bindings
         except httpx.TimeoutException:
-            logger.warning("SPARQL bg timeout offset=%s tentative %s", offset, attempt + 1)
+            wait = 30 * (attempt + 1)
+            logger.warning("SPARQL bg timeout offset=%s tentative %s — attente %ss", offset, attempt + 1, wait)
             if attempt < retries - 1:
-                await asyncio.sleep(15 * (attempt + 1))
+                await asyncio.sleep(wait)
         except Exception as exc:
-            logger.warning("SPARQL bg erreur offset=%s: %s", offset, exc)
+            wait = 20 * (attempt + 1)
+            logger.warning("SPARQL bg erreur offset=%s: %s — attente %ss", offset, exc, wait)
             if attempt < retries - 1:
-                await asyncio.sleep(10 * (attempt + 1))
+                await asyncio.sleep(wait)
+    logger.error("SPARQL bg ABANDON offset=%s après %s tentatives", offset, retries)
     return []
 
 
@@ -219,16 +225,26 @@ async def _load_catalogue_bg() -> None:
             return
         _catalogue_loading = True
 
-    logger.info("Catalogue bg: demarrage chargement Wikidata...")
+    logger.info("Catalogue bg v4: demarrage chargement Wikidata (page_size=%s)...", SPARQL_PAGE_SIZE)
     all_films: dict[str, FilmWithLocations] = {}
     offset = 0
+    consecutive_empty = 0
 
     for page_num in range(SPARQL_MAX_PAGES):
         bindings = await _sparql_one_page(offset)
-        if not bindings:
-            logger.info("Catalogue bg: fin a offset=%s (page vide)", offset)
-            break
 
+        if not bindings:
+            consecutive_empty += 1
+            logger.warning("Catalogue bg: page vide offset=%s (consécutives: %s)", offset, consecutive_empty)
+            if consecutive_empty >= 3:
+                logger.info("Catalogue bg: 3 pages vides consécutives — fin du chargement")
+                break
+            # On saute et on continue (timeout isolé, pas forcément la fin)
+            offset += SPARQL_PAGE_SIZE
+            await asyncio.sleep(SPARQL_DELAY * 2)
+            continue
+
+        consecutive_empty = 0
         page_films = _bindings_to_films(bindings)
         for fid, film in page_films.items():
             if fid in all_films:
@@ -240,20 +256,22 @@ async def _load_catalogue_bg() -> None:
                 all_films[fid] = film
 
         logger.info(
-            "Catalogue bg: page %s — +%s films, total=%s",
-            page_num + 1, len(page_films), len(all_films),
+            "Catalogue bg: page %s (offset=%s) — +%s films, total=%s",
+            page_num + 1, offset, len(page_films), len(all_films),
         )
         offset += SPARQL_PAGE_SIZE
 
         if len(bindings) < SPARQL_PAGE_SIZE:
-            break   # derniere page, plus besoin d'aller plus loin
+            logger.info("Catalogue bg: dernière page atteinte (bindings=%s < %s)", len(bindings), SPARQL_PAGE_SIZE)
+            break
 
         await asyncio.sleep(SPARQL_DELAY)
 
     films_list = list(all_films.values())
+    logger.info("Catalogue bg: %s films collectés, enrichissement TMDB...", len(films_list))
 
     # Enrichissement TMDB (batch silencieux)
-    if TMDB_KEY:
+    if TMDB_KEY and films_list:
         await _enrich_tmdb_batch(films_list, lang="fr")
 
     new_catalogue = [_film_to_dict(f) for f in films_list]
@@ -263,7 +281,7 @@ async def _load_catalogue_bg() -> None:
         _catalogue_loaded_at = time.time()
         _catalogue_loading   = False
 
-    logger.info("Catalogue bg: termine — %s films en RAM", len(_catalogue))
+    logger.info("Catalogue bg v4: TERMINE — %s films en RAM", len(_catalogue))
 
 
 async def ensure_catalogue_loaded() -> None:
@@ -276,7 +294,7 @@ async def ensure_catalogue_loaded() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Enrichissement TMDB (tourne en bg pendant le chargement)
+# Enrichissement TMDB
 # ---------------------------------------------------------------------------
 async def _enrich_tmdb_batch(films: list[FilmWithLocations], lang: str = "fr") -> None:
     if not TMDB_KEY:
@@ -327,7 +345,6 @@ def _film_to_dict(f: FilmWithLocations) -> dict:
         "vote_count":       f.vote_count,
         "location_count":   len(f.locations),
         "countries":        sorted(countries_set),
-        # Cles internes pour filtrage rapide (non envoyees au client)
         "_title_lower":     f.title.lower(),
         "_countries_lower": [c.lower() for c in countries_set],
         "primary_location": {
@@ -494,12 +511,10 @@ async def get_filming_countries() -> dict:
 async def get_film_locations(tmdb_id: int, media_type: str = "movie") -> dict:
     await ensure_catalogue_loaded()
 
-    # Chercher d'abord en RAM
     for f in _catalogue:
         if f.get("tmdb_id") == tmdb_id and f.get("media_type") == media_type:
             return {"status": "success", "locations": f.get("locations", [])}
 
-    # Fallback : requete directe Wikidata (film pas encore dans le catalogue)
     tmdb_prop = "P8306" if media_type == "tv" else "P4947"
     query = (
         "SELECT DISTINCT ?loc ?locLabel ?countryLabel ?coord WHERE {"
@@ -516,7 +531,7 @@ async def get_film_locations(tmdb_id: int, media_type: str = "movie") -> dict:
                 params={"query": query, "format": "json"},
                 headers={
                     "Accept": "application/sparql-results+json",
-                    "User-Agent": "ShadowFrame/3.0 (https://quelfilm.app) httpx",
+                    "User-Agent": "ShadowFrame/4.0 (https://quelfilm.app) httpx",
                 },
             )
             r.raise_for_status()
