@@ -42,6 +42,90 @@ let _filmingStats = null;
 let _filmingCountries = [];
 let _filmingAllMarkers = [];
 let _filmingLeafletReady = false;
+
+// ════ POI LAYER HELPERS ════
+function addPOIMarker(poi, type) {
+  const layerMap = {
+    hotel: _filmingHotelLayer,
+    restaurant: _filmingRestaurantLayer,
+    transport: _filmingTransportLayer,
+    tourism: _filmingTourismLayer
+  };
+  const iconMap = {
+    hotel: L.icon({iconUrl:'icons/hotel.png',iconSize:[30,30]}),
+    restaurant: L.icon({iconUrl:'icons/restaurant.png',iconSize:[30,30]}),
+    transport: L.icon({iconUrl:'icons/transport.png',iconSize:[30,30]}),
+    tourism: L.icon({iconUrl:'icons/tourism.png',iconSize:[30,30]})
+  };
+  const marker = L.marker([poi.lat, poi.lon], {icon: iconMap[type]});
+  let popupContent = `<b>${poi.name || 'Unnamed'}</b>`;
+  if (poi.phone) popupContent += `<br>📞 ${poi.phone}`;
+  if (poi.website) popupContent += `<br>🌐 <a href="${poi.website}" target="_blank">Site</a>`;
+  marker.bindPopup(popupContent);
+  if (layerMap[type]) layerMap[type].addLayer(marker);
+  _filmingAllMarkers.push(marker);
+}
+
+async function fetchPOIs(lat, lng, radius = 800) {
+  const cacheKey = `ovp_auto_${lat}_${lng}`;
+  const cached = localStorage.getItem(cacheKey);
+  if (cached) {
+    const {timestamp, data} = JSON.parse(cached);
+    if (Date.now() - timestamp < 24 * 60 * 60 * 1000) return data;
+  }
+  const overpassQuery = `
+    [out:json][timeout:25];
+    (
+      node["amenity"~"hotel|restaurant|bus_stop|taxi|parking|fuel|cafe|fast_food"](${lat - 0.01},${lng - 0.01},${lat + 0.01},${lng + 0.01});
+    );
+    out body;
+  `;
+  const overpassUrl = 'https://overpass-api.de/api/interpreter';
+  let overpassData = [];
+  try {
+    const resp = await fetch(overpassUrl, {
+      method: 'POST',
+      body: overpassQuery,
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+    });
+    const json = await resp.json();
+    overpassData = json.elements || [];
+  } catch (e) {
+    console.warn('Overpass request failed', e);
+  }
+
+  // fallback to Nominatim
+  let nominatimData = [];
+  try {
+    const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&limit=50&addressdetails=1&extratags=1&namedetails=1&lat=${lat}&lon=${lng}&radius=${radius}`;
+    const resp2 = await fetch(nomUrl);
+    const json2 = await resp2.json();
+    nominatimData = json2.map(item => ({
+      id: item.osm_id,
+      lat: parseFloat(item.lat),
+      lon: parseFloat(item.lon),
+      name: item.display_name,
+      type: item.type,
+      amenity: item.type,
+      phone: item.extratags?.phone,
+      website: item.extratags?.website
+    }));
+  } catch (e) {
+    console.warn('Nominatim fallback failed', e);
+  }
+
+  // merge and dedupe by id
+  const combined = [...overpassData, ...nominatimData];
+  const uniq = {};
+  combined.forEach(p => {
+    const id = p.id || `${p.lat},${p.lon}`;
+    if (!uniq[id]) uniq[id] = p;
+  });
+  const finalPois = Object.values(uniq);
+  localStorage.setItem(cacheKey, JSON.stringify({timestamp: Date.now(), data: finalPois}));
+  return finalPois;
+}
+
 let _activeFilmMarkers = [];
 let _bounceInterval = null;
 let _isochroneLayer = null;
@@ -690,27 +774,7 @@ function _clearTempLayers() {
   if (_isochroneLayer) { try { _filmingMap.removeLayer(_isochroneLayer); } catch(e){} _isochroneLayer = null; }
 }
 
-async function chargerLieuxDeTournage(page=1){
-  hideHero();cacherErreur();currentGenreName="filming";_filmingCurrentPage=page;
-  document.getElementById("genre-grid").style.display="none";
-  document.getElementById("page-film-detail").style.display="none";
-  document.getElementById("hero").style.display="none";
-  document.getElementById("genre-nav").style.display="flex";
-  document.querySelectorAll(".btn-genre").forEach(b=>b.classList.remove("active"));
-  document.getElementById("btn-genre-filming")?.classList.add("active");
-  const filmingPage=document.getElementById("filming-page");
-  if(filmingPage)filmingPage.style.display="";
-  navStack=[];
-  // Stats + meta filtres en parallèle (une seule fois)
-  await Promise.allSettled([
-    _filmingStats ? Promise.resolve() : safeFetch("/films-tournes/stats").then(d=>{_filmingStats=d;}).catch(()=>{}),
-    _chargerMetaFiltres()
-  ]);
-  const alreadyRendered=filmingPage.querySelector(".filming-filters-wrap");
-  if(!alreadyRendered)_renderFilmingPage(filmingPage);
-  else _updateFilmingFilters();
-  await _loadFilmingCatalogue();
-}
+
 
 function _renderFilmingPage(container){
   const ld=dict[currentLang]||dict.fr;
@@ -1016,7 +1080,21 @@ async function showFilmLocationsOnMap(tmdbId,title,mediaType='movie'){
   if(bounds.isValid())_filmingMap.flyToBounds(bounds,{padding:[60,60],duration:1.2,maxZoom:13});
   _startBounce();
   // Charger automatiquement les POI autour du lieu principal
-  if(locations[0])_autoLoadPOIsAround(locations[0].lat,locations[0].lng);
+  if (locations[0]) {
+    fetchPOIs(locations[0].lat, locations[0].lng).then(pois => {
+      pois.forEach(poi => {
+        // Determine layer type based on amenity or tourism tags
+        let layerType;
+        const amen = (poi.amenity || "").toLowerCase();
+        const tour = (poi.tourism || "").toLowerCase();
+        if (/hotel|hostel|guest_house/.test(amen)) layerType = "hotel";
+        else if (/restaurant|cafe|fast_food/.test(amen)) layerType = "restaurant";
+        else if (/bus_stop|taxi|parking|fuel|station|halt|railway/.test(amen) || /station|halt/.test(tour)) layerType = "transport";
+        else layerType = "tourism";
+        addPOIMarker(poi, layerType);
+      });
+    }).catch(e => console.warn('POI fetch error', e));
+  }
 }
 
 function _createFilmLocationMarker(loc,filmTitle,tmdbId,mediaType){
@@ -1049,39 +1127,14 @@ function _doBounce(){_activeFilmMarkers.forEach(m=>{const el=m.getElement();if(!
 // ════ CHARGEMENT AUTO POI AUTOUR D'UN LIEU ════
 // Charge silencieusement hotel+resto+transport+service en une seule requête Overpass
 async function _autoLoadPOIsAround(lat, lng) {
-  const r = 800; // 800m — léger et rapide
-  const cacheKey = `auto_${lat.toFixed(3)}_${lng.toFixed(3)}`;
-  // Check cache
-  try {
-    const cached = localStorage.getItem("ovp_"+cacheKey);
-    if (cached) {
-      const c = JSON.parse(cached);
-      if (Date.now() - c.time < 86400000) { _applyAutoPOIs(c.data, lat, lng); return; }
-    }
-  } catch(e) {}
-
-  // Une seule requête groupée — node uniquement pour éviter timeouts
-  const query = `[out:json][timeout:10];(
-    node["tourism"~"hotel|hostel|guest_house"](around:${r},${lat},${lng});
-    node["amenity"~"restaurant|cafe"](around:${r},${lat},${lng});
-    node["railway"~"station|halt"](around:${r},${lat},${lng});
-    node["amenity"~"hospital|police"](around:${r},${lat},${lng});
-  );out 10;`;
-
-  try {
-    const res = await fetch("https://overpass-api.de/api/interpreter", {
-      method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"},
-      body:`data=${encodeURIComponent(query)}`,
-      signal: AbortSignal.timeout(12000)
-    });
-    if (!res.ok) return; // silencieux
-    const data = await res.json();
-    const elements = (data?.elements||[]).slice(0,10);
-    try { localStorage.setItem("ovp_"+cacheKey, JSON.stringify({time:Date.now(),data:elements})); } catch(e){}
-    _applyAutoPOIs(elements, lat, lng);
-  } catch(e) {
-    // Overpass indisponible → silencieux, pas de toast
-  }
+  // Utilise le helper fetchPOIs qui gère le cache et le fallback Nominatim
+  const pois = await fetchPOIs(lat, lng);
+  if (!Array.isArray(pois) || pois.length === 0) return;
+  // chaque POI doit contenir un champ `type` indiquant la catégorie (hotel, restaurant, transport, service)
+  pois.forEach(poi => {
+    const type = poi.type || "service";
+    addPOIMarker(poi, type);
+  });
 }
 
 function _applyAutoPOIs(elements, originLat, originLng) {
