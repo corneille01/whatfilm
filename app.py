@@ -190,9 +190,8 @@ async def purge_cache_loop():
     while True:
         await asyncio.sleep(3600)
         purge_expired()
-        
-from poi_proxy import router as poi_router
-app.include_router(poi_router)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
@@ -212,7 +211,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ShadowFrame", lifespan=lifespan)
 app.include_router(filming_router)
+from poi_proxy import router as poi_router
+app.include_router(poi_router)
 _analysis_semaphore = asyncio.Semaphore(3)
+
 
 @app.middleware("http")
 async def render_head_fix(request: Request, call_next):
