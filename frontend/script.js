@@ -432,7 +432,7 @@ function genererNav(){
     <a class="btn-genre" onclick="chargerGenre('drama')"><i class="fas fa-theater-masks"></i> ${g.drama}</a>
     <a class="btn-genre series" onclick="chargerSeries()"><i class="fas fa-tv"></i> ${g.series}</a>
     <a class="btn-genre trending" onclick="chargerTrending()"><i class="fas fa-bolt"></i> ${g.trending}</a>
-    <a class="btn-genre filming" id="btn-genre-filming" onclick="chargerLieuxDeTournage()"><i class="fas fa-map-marker-alt"></i> ${ld.filming_btn||"📍 Lieux de tournage"}</a>`;
+    <a class="btn-genre filming" id="btn-genre-filming" onclick="_loadFilmingCatalogue()"><i class="fas fa-map-marker-alt"></i> ${ld.filming_btn||"📍 Lieux de tournage"}</a>`;
   const platNav=document.getElementById("platform-nav");
   platNav.innerHTML=`
     <button class="btn-platform" onclick="chargerParPlateforme('netflix')" style="border-color:#e50914"><span class="plat-dot" style="background:#e50914"></span> Netflix</button>
@@ -452,7 +452,7 @@ function changerLangueManuellement(){
   if(gridPage.style.display!=="none"){
     if(currentGenreName==="trending")chargerTrending();
     else if(currentGenreName==="series")chargerSeries();
-    else if(currentGenreName==="filming")chargerLieuxDeTournage();
+    else if(currentGenreName==="filming")_loadFilmingCatalogue();
     else if(currentGenreName)chargerGenre(currentGenreName,currentPage);
     return;
   }
@@ -791,7 +791,7 @@ function _renderFilmingPage(container){
         <div class="filming-filters-wrap">
           <div class="filming-search-box">
             <i class="fas fa-search"></i>
-            <input type="text" id="filming-search-input" placeholder="${ld.filming_search||'Rechercher un film…'}" value="${escapeHtml(_filmingCurrentQ)}" oninput="debounceFilmingSearch(this.value)" onkeydown="if(event.key==='Enter')chargerLieuxDeTournage(1)">
+            <input type="text" id="filming-search-input" placeholder="${ld.filming_search||'Rechercher un film…'}" value="${escapeHtml(_filmingCurrentQ)}" oninput="debounceFilmingSearch(this.value)" onkeydown="if(event.key==='Enter'){_filmingCurrentPage=1;_loadFilmingCatalogue();}">
           </div>
           <div class="filming-filters-row-2">
             <div class="filming-filter-group">
@@ -917,7 +917,7 @@ function _updateFilmingFilters(){
 }
 
 let _filmingSearchTimeout=null;
-function debounceFilmingSearch(val){_filmingCurrentQ=val;clearTimeout(_filmingSearchTimeout);_filmingSearchTimeout=setTimeout(()=>chargerLieuxDeTournage(1),500);}
+function debounceFilmingSearch(val){_filmingCurrentQ=val;clearTimeout(_filmingSearchTimeout);_filmingSearchTimeout=setTimeout(() => { _filmingCurrentPage = 1; _loadFilmingCatalogue(); }, 500);}
 function setFilmingType(type){_filmingCurrentType=type;_updateFilmingFilters();_loadFilmingCatalogue();}
 async function setFilmingCountry(country){_filmingCurrentCountry=country;_updateFilmingFilters();_loadFilmingCatalogue();}
 function setFilmingYear(year){_filmingCurrentYear=year;_filmingCurrentPage=1;_loadFilmingCatalogue();}
