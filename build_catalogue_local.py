@@ -1,54 +1,35 @@
 #!/usr/bin/env python3
-"""
-build_catalogue_local.py — À lancer EN LOCAL (pas sur Render)
-
-Lance depuis ton PC :  python3 build_catalogue_local.py
-Produit :             catalogue_filming.json
-
-Ensuite tu commites ce fichier dans ton repo et filming_catalogue.py
-le charge depuis le disque au lieu de requêter Wikidata.
-"""
-
-import asyncio
 import json
-import time
 import logging
 import httpx
+import asyncio
+import time
+import sys
 
+# Configuration du log
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger(__name__)
 
 WIKIDATA_SPARQL = "https://query.wikidata.org/sparql"
 PAGE_SIZE = 500
-DELAY = 3.0
-TIMEOUT = 60
-MAX_PAGES = 30
+MAX_PAGES = 10  # Commençons par 10 pages pour tester
 
-QUERY = """
-SELECT DISTINCT
-  ?film ?filmLabel
-  ?tmdb_id ?tmdb_tv_id
-  ?loc ?locLabel
-  ?countryLabel
-  ?coord
-  ?year
-WHERE {{
-  VALUES ?type {{ wd:Q11424 wd:Q5398426 wd:Q24869 wd:Q506240 }}
-  ?film wdt:P31 ?type ;
-        wdt:P915 ?loc .
-  OPTIONAL {{ ?loc wdt:P625 ?coord . }}
-  OPTIONAL {{ ?loc wdt:P17 ?country . }}
-  OPTIONAL {{ ?film wdt:P4947 ?tmdb_id . }}
-  OPTIONAL {{ ?film wdt:P8306 ?tmdb_tv_id . }}
-  OPTIONAL {{
-    ?film wdt:P577 ?date .
-    BIND(YEAR(?date) AS ?year)
-  }}
-  SERVICE wikibase:label {{ bd:serviceParam wikibase:language "fr,en" . }}
-}}
-ORDER BY DESC(?year) ?film
-LIMIT {limit}
-OFFSET {offset}
+# La requête SPARQL est définie en texte brut sans accolades de formatage Python
+QUERY_TEMPLATE = """
+SELECT DISTINCT ?film ?filmLabel ?tmdb_id ?tmdb_tv_id ?loc ?locLabel ?countryLabel ?cityLabel ?coord ?year WHERE {
+  VALUES ?type { wd:Q11424 wd:Q5398426 wd:Q24869 wd:Q506240 }
+  ?film wdt:P31 ?type ; wdt:P915 ?loc .
+  OPTIONAL { ?loc wdt:P625 ?coord . }
+  OPTIONAL { ?loc wdt:P17 ?country . ?country rdfs:label ?countryLabel . FILTER(LANG(?countryLabel) = "fr") }
+  OPTIONAL { ?loc wdt:P131 ?city . ?city rdfs:label ?cityLabel . FILTER(LANG(?cityLabel) = "fr") }
+  OPTIONAL { ?film wdt:P4947 ?tmdb_id . }
+  OPTIONAL { ?film wdt:P8306 ?tmdb_tv_id . }
+  OPTIONAL { ?film wdt:P577 ?date . BIND(YEAR(?date) AS ?year) }
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "fr,en" . }
+}
+ORDER BY ?film
+LIMIT %LIMIT%
+OFFSET %OFFSET%
 """
 
 def parse_coord(s):
@@ -56,143 +37,80 @@ def parse_coord(s):
     try:
         inner = s.replace("Point(", "").replace(")", "").strip()
         parts = inner.split()
-        if len(parts) == 2:
-            lng, lat = float(parts[0]), float(parts[1])
-            if -90 <= lat <= 90 and -180 <= lng <= 180:
-                return lat, lng
+        if len(parts) == 2: return float(parts[1]), float(parts[0]) # lat, lng
     except: pass
     return None, None
 
-def wd_id(uri):
-    return uri.split("/")[-1] if uri else ""
-
-async def fetch_page(client, offset, retries=3):
-    query = QUERY.format(limit=PAGE_SIZE, offset=offset)
-    for attempt in range(retries):
-        try:
-            r = await client.get(
-                WIKIDATA_SPARQL,
-                params={"query": query, "format": "json"},
-                headers={
-                    "Accept": "application/sparql-results+json",
-                    "User-Agent": "ShadowFrame/4.0 (https://quelfilm.app) build-local",
-                },
-            )
-            if r.status_code == 429:
-                wait = int(r.headers.get("Retry-After", 60))
-                logger.warning(f"429 — attente {wait}s")
-                await asyncio.sleep(wait)
-                continue
-            r.raise_for_status()
-            bindings = r.json().get("results", {}).get("bindings", [])
-            logger.info(f"  offset={offset} → {len(bindings)} lignes")
-            return bindings
-        except httpx.TimeoutException:
-            logger.warning(f"  timeout offset={offset} tentative {attempt+1}")
-            await asyncio.sleep(15 * (attempt + 1))
-        except Exception as e:
-            logger.warning(f"  erreur offset={offset}: {e}")
-            await asyncio.sleep(10 * (attempt + 1))
-    return []
+async def fetch_page(client, offset):
+    # On remplace manuellement sans utiliser .format()
+    q = QUERY_TEMPLATE.replace("%LIMIT%", str(PAGE_SIZE)).replace("%OFFSET%", str(offset))
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/sparql-results+json"
+    }
+    try:
+        r = await client.get(WIKIDATA_SPARQL, params={"query": q, "format": "json"}, headers=headers)
+        if r.status_code == 403:
+            logger.error("🚫 ACCÈS REFUSÉ (403). Wikidata bloque votre IP.")
+            return None
+        r.raise_for_status()
+        return r.json().get("results", {}).get("bindings", [])
+    except Exception as e:
+        logger.error(f"Erreur offset {offset}: {e}")
+        return []
 
 async def main():
     all_films = {}
-    
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+    async with httpx.AsyncClient(timeout=60.0) as client:
         for page_num in range(MAX_PAGES):
             offset = page_num * PAGE_SIZE
-            logger.info(f"Page {page_num+1} (offset={offset})...")
-            bindings = await fetch_page(client, offset)
+            logger.info(f"--- Récupération page {page_num + 1} (Offset {offset}) ---")
             
-            if not bindings:
-                logger.info("Page vide — fin.")
-                break
+            bindings = await fetch_page(client, offset)
+            if bindings is None: break # Erreur fatale
+            if not bindings: break # Fin des résultats
             
             for row in bindings:
-                fid = wd_id(row.get("film", {}).get("value", ""))
+                fid = row.get("film", {}).get("value", "").split("/")[-1]
                 if not fid: continue
                 
-                label   = row.get("filmLabel",  {}).get("value", "")
-                tid_raw = row.get("tmdb_id",    {}).get("value", "")
-                tv_raw  = row.get("tmdb_tv_id", {}).get("value", "")
-                yr_raw  = row.get("year",       {}).get("value", "")
-                
-                tmdb_id = int(tid_raw) if tid_raw and tid_raw.isdigit() else None
-                mtype = "movie"
-                if tv_raw and tv_raw.isdigit():
-                    tmdb_id = int(tv_raw)
-                    mtype = "tv"
-                
                 if fid not in all_films:
+                    tid = row.get("tmdb_id", {}).get("value", "")
+                    tv = row.get("tmdb_tv_id", {}).get("value", "")
                     all_films[fid] = {
                         "wikidata_id": fid,
-                        "title": label or fid,
-                        "tmdb_id": tmdb_id,
-                        "media_type": mtype,
-                        "year": int(yr_raw) if yr_raw and yr_raw.isdigit() else None,
+                        "title": row.get("filmLabel", {}).get("value", fid),
+                        "tmdb_id": int(tid or tv) if (tid or tv) else None,
+                        "media_type": "series" if tv else "movie",
+                        "year": int(row.get("year", {}).get("value", 0)) or None,
                         "locations": [],
                     }
                 
-                lid   = wd_id(row.get("loc", {}).get("value", ""))
-                lname = row.get("locLabel", {}).get("value", lid)
-                cname = row.get("countryLabel", {}).get("value", "")
-                coord = row.get("coord", {}).get("value", "")
-                lat, lng = parse_coord(coord)
-                
-                existing = {l["wikidata_id"] for l in all_films[fid]["locations"]}
-                if lid and lid not in existing:
+                lid = row.get("loc", {}).get("value", "").split("/")[-1]
+                if lid:
+                    lat, lng = parse_coord(row.get("coord", {}).get("value", ""))
                     all_films[fid]["locations"].append({
                         "wikidata_id": lid,
-                        "name": lname,
-                        "country": cname,
+                        "name": row.get("locLabel", {}).get("value", "Inconnu"),
+                        "city": row.get("cityLabel", {}).get("value", "Non spécifié"),
+                        "country": row.get("countryLabel", {}).get("value", "Inconnu"),
                         "lat": lat,
                         "lng": lng,
                     })
             
-            logger.info(f"  Total films: {len(all_films)}")
-            
-            if len(bindings) < PAGE_SIZE:
-                logger.info("Dernière page atteinte.")
-                break
-            
-            await asyncio.sleep(DELAY)
-    
-    # Construire le catalogue final
+            time.sleep(5) # Pause très importante pour ne pas être banni
+
+    # Construction finale
     catalogue = []
     for f in all_films.values():
         locs = f["locations"]
-        gps = [l for l in locs if l.get("lat") is not None]
-        best = gps[0] if gps else (locs[0] if locs else None)
-        countries = sorted({l["country"] for l in locs if l.get("country")})
-        
-        catalogue.append({
-            "wikidata_id": f["wikidata_id"],
-            "title": f["title"],
-            "tmdb_id": f["tmdb_id"],
-            "media_type": f["media_type"],
-            "year": f["year"],
-            "poster_path": None,
-            "vote_average": None,
-            "vote_count": None,
-            "location_count": len(locs),
-            "countries": countries,
-            "_title_lower": f["title"].lower(),
-            "_countries_lower": [c.lower() for c in countries],
-            "primary_location": {
-                "name": best["name"],
-                "lat": best["lat"],
-                "lng": best["lng"],
-                "country": best["country"],
-                "wikidata_id": best["wikidata_id"],
-            } if best else None,
-            "locations": locs,
-        })
+        best = locs[0] if locs else None
+        catalogue.append({**f, "location_count": len(locs), "primary_location": best})
     
-    output = "catalogue_filming.json"
-    with open(output, "w", encoding="utf-8") as fh:
+    with open("catalogue_filming.json", "w", encoding="utf-8") as fh:
         json.dump(catalogue, fh, ensure_ascii=False, indent=2)
     
-    logger.info(f"\n✅ TERMINÉ — {len(catalogue)} films → {output}")
-    logger.info(f"Taille fichier : {len(json.dumps(catalogue)) / 1024 / 1024:.1f} MB")
+    logger.info(f"✅ Terminé ! {len(catalogue)} films enregistrés.")
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

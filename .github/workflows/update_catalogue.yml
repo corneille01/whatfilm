@@ -2,7 +2,7 @@ name: Update Filming Catalogue
 
 on:
   schedule:
-    - cron: "0 3 * * *" # tous les jours à 3h UTC
+    - cron: "0 0 * * 1" # Lundi à minuit UTC
   workflow_dispatch: # bouton manuel dans GitHub Actions
 
 jobs:
