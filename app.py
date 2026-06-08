@@ -190,7 +190,9 @@ async def purge_cache_loop():
     while True:
         await asyncio.sleep(3600)
         purge_expired()
-
+        
+from poi_proxy import router as poi_router
+app.include_router(poi_router)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:

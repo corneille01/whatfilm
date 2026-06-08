@@ -1095,63 +1095,27 @@ function _startBounce(){_stopBounce();_doBounce();_bounceInterval=setInterval(_d
 function _stopBounce(){if(_bounceInterval){clearInterval(_bounceInterval);_bounceInterval=null;}_activeFilmMarkers.forEach(m=>{const el=m.getElement();if(el)el.classList.remove("fmap-bounce");});}
 function _doBounce(){_activeFilmMarkers.forEach(m=>{const el=m.getElement();if(!el)return;el.classList.remove("fmap-bounce");void el.offsetWidth;el.classList.add("fmap-bounce");});}
 
-// ════ POI VIA NOMINATIM (alternative fiable à Overpass) ════
-// Nominatim = moteur de géocodage OSM officiel, gratuit, sans clé API
-// On utilise /search avec viewbox pour chercher dans un rayon
+// ════ POI VIA PROXY BACKEND (évite les blocages Nominatim côté client) ════
+// Le backend /api/poi/auto appelle Nominatim côté serveur avec cache 24h.
 
 async function _autoLoadPOIsAround(lat, lng) {
-  const cacheKey = `nom_${lat.toFixed(3)}_${lng.toFixed(3)}`;
-  // Cache 24h
+  const cacheKey = `poi_auto_${lat.toFixed(3)}_${lng.toFixed(3)}`;
+  // Cache localStorage 24h
   try {
-    const cached = localStorage.getItem("poi_"+cacheKey);
+    const cached = localStorage.getItem(cacheKey);
     if (cached) {
       const c = JSON.parse(cached);
       if (Date.now() - c.time < 86400000) { _applyAutoPOIs(c.data, lat, lng); return; }
     }
   } catch(e) {}
 
-  // 4 requêtes Nominatim en parallèle (une par type)
-  // delta ≈ 0.008° ≈ 800m
-  const d = 0.008;
-  const viewbox = `${lng-d},${lat+d},${lng+d},${lat-d}`;
-  const base = `https://nominatim.openstreetmap.org/search?format=json&limit=3&viewbox=${viewbox}&bounded=1`;
-
-  const queries = [
-    { type: "hotel",      q: `${base}&q=hotel` },
-    { type: "restaurant", q: `${base}&q=restaurant` },
-    { type: "transport",  q: `${base}&q=gare+station` },
-    { type: "service",    q: `${base}&q=hospital+police` },
-  ];
-
   try {
-    const results = await Promise.allSettled(
-      queries.map(({type, q}) =>
-        fetch(q, {headers:{"Accept-Language":"fr","User-Agent":"ShadowFrame/1.0"}})
-          .then(r => r.json())
-          .then(items => ({ type, items: items.slice(0,3) }))
-          .catch(() => ({ type, items: [] }))
-      )
-    );
-
-    const allElements = [];
-    results.forEach(r => {
-      if (r.status !== "fulfilled") return;
-      const { type, items } = r.value;
-      items.forEach(item => {
-        if (!item.lat || !item.lon) return;
-        allElements.push({
-          lat: parseFloat(item.lat),
-          lon: parseFloat(item.lon),
-          tags: { name: item.display_name?.split(",")[0] || type },
-          _poiType: type  // on stocke le type explicitement
-        });
-      });
-    });
-
-    try { localStorage.setItem("poi_"+cacheKey, JSON.stringify({time:Date.now(), data:allElements})); } catch(e){}
-    _applyAutoPOIs(allElements, lat, lng);
+    const data = await safeFetch(`/api/poi/auto?lat=${lat}&lng=${lng}`);
+    const elements = (data.results || []).slice(0, 12);
+    try { localStorage.setItem(cacheKey, JSON.stringify({time: Date.now(), data: elements})); } catch(e) {}
+    _applyAutoPOIs(elements, lat, lng);
   } catch(e) {
-    // Silencieux — pas de toast pour ne pas gêner l'UX
+    // Silencieux
   }
 }
 
@@ -1226,24 +1190,13 @@ async function handleOSMAction(type,lat,lng){
   if(!_filmingMap)return;
   if(type==="isochrone"){drawIsochrone(lat,lng,"foot",15);return;}
 
-  const d=0.008; // ≈800m
-  const viewbox=`${lng-d},${lat+d},${lng+d},${lat-d}`;
-  const base=`https://nominatim.openstreetmap.org/search?format=json&limit=5&viewbox=${viewbox}&bounded=1`;
-
-  const qMap={
-    hotel:`${base}&q=hotel`,
-    restaurant:`${base}&q=restaurant`,
-    transport:`${base}&q=gare+transport`,
-    service:`${base}&q=hospital+police`,
-  };
-
   const layerMap={hotel:_filmingHotelLayer,restaurant:_filmingRestaurantLayer,transport:_filmingTransportLayer,service:_filmingTourismLayer};
   const labelMap={hotel:"hébergements",restaurant:"restaurants",transport:"transports",service:"services"};
   const colorMap={hotel:"#ffd700",restaurant:"#f06595",transport:"#74c0fc",service:"#4dabf7"};
   const iconMap={hotel:"fa-bed",restaurant:"fa-utensils",transport:"fa-train",service:"fa-info-circle"};
 
-  const q=qMap[type];const layer=layerMap[type];
-  if(!q||!layer)return;
+  const layer=layerMap[type];
+  if(!layer)return;
 
   if(!_filmingMap.hasLayer(layer)){
     _filmingMap.addLayer(layer);
@@ -1251,20 +1204,20 @@ async function handleOSMAction(type,lat,lng){
   }
 
   toast(`🔍 ${labelMap[type]||type} à proximité…`);
-  const cacheKey=`nom_manual_${type}_${lat.toFixed(3)}_${lng.toFixed(3)}`;
+  const cacheKey=`poi_manual_${type}_${lat.toFixed(3)}_${lng.toFixed(3)}`;
+
+  // Cache localStorage 24h
   try{
-    const cached=localStorage.getItem("poi_"+cacheKey);
+    const cached=localStorage.getItem(cacheKey);
     if(cached){const c=JSON.parse(cached);if(Date.now()-c.time<86400000){_applyManualPOIs(c.data,type,lat,lng,layer,colorMap[type],iconMap[type]);return;}}
   }catch(e){}
 
   try{
-    const items=await fetch(q,{headers:{"Accept-Language":"fr","User-Agent":"ShadowFrame/1.0"}}).then(r=>r.json());
-    if(!items||!items.length){toast("Rien trouvé à proximité.");return;}
-    const elements=items.slice(0,5).map(item=>({
-      lat:parseFloat(item.lat),lon:parseFloat(item.lon),
-      tags:{name:item.display_name?.split(",")[0]||type},_poiType:type
-    }));
-    try{localStorage.setItem("poi_"+cacheKey,JSON.stringify({time:Date.now(),data:elements}));}catch(e){}
+    const data=await safeFetch(`/api/poi?lat=${lat}&lng=${lng}&type=${type}`);
+    if(!data.results||!data.results.length){toast("Rien trouvé à proximité.");return;}
+    // Convertir format backend → format interne
+    const elements=data.results.map(r=>({lat:r.lat,lon:r.lon,tags:{name:r.name},_poiType:r.type}));
+    try{localStorage.setItem(cacheKey,JSON.stringify({time:Date.now(),data:elements}));}catch(e){}
     _applyManualPOIs(elements,type,lat,lng,layer,colorMap[type],iconMap[type]);
     const nearest=_findNearestFromNominatim(lat,lng,elements);
     if(nearest)toast(`📍 Plus proche : ${nearest.tags?.name||type} (~${nearest._dist}m)`,4000);
