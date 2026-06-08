@@ -924,6 +924,7 @@ function setFilmingYear(year){_filmingCurrentYear=year;_filmingCurrentPage=1;_lo
 function resetFilmingFilters(){_filmingCurrentCountry="";_filmingCurrentYear="";_filmingCurrentType="";_filmingCurrentQ="";_filmingCurrentPage=1;_updateFilmingFilters();_loadFilmingCatalogue();}
 
 async function _loadFilmingCatalogue(){
+  console.log('🔧 _loadFilmingCatalogue triggered');
   const cardsEl=document.getElementById("filming-cards");
   if(!cardsEl)return;
   cardsEl.innerHTML=`<div class="filming-loading"><i class="fas fa-circle-notch fa-spin"></i> Chargement…</div>`;
