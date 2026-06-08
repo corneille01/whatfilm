@@ -11,6 +11,31 @@ function setCache(key, data) {
     apiCache[key] = { data, time: Date.now() };
 }
 
+
+// ════ ÉTAT GLOBAL FILMING ════
+let _filmingMap = null;
+let _filmingMarkerClusterGroup = null;
+let _filmingHotelLayer = null;
+let _filmingTourismLayer = null;
+let _filmingFilmLayer = null;
+let _filmingHeatmapLayer = null;
+let _filmingRestaurantLayer = null;
+let _filmingTransportLayer = null;
+let _filmingCurrentPage = 1;
+let _filmingCurrentCountry = "";
+let _filmingCurrentYear = "";
+let _filmingCurrentType = "";
+let _filmingCurrentQ = "";
+let _filmingStats = null;
+let _filmingCountries = [];
+let _filmingAllMarkers = [];
+let _filmingLeafletReady = false;
+let _activeFilmMarkers = [];      // Marqueurs du film sélectionné
+let _bounceInterval = null;       // setInterval pour le bounce
+let _isochroneLayer = null;
+let _routeLayer = null;
+let _filmingMoveTimeout = null;
+
 // ════ SAFE FETCH ════
 async function safeFetch(url, options = {}) {
     const res = await fetch(url, options);
@@ -21,134 +46,128 @@ async function safeFetch(url, options = {}) {
     const data = await res.json();
     return data;
 }
+
+
+
+// ════ ADD MARKER TO LAYER ════
 function _addMarkerToLayer(el, type, layer) {
-    if (!el.lat || !el.lon) return;
+    const lat = el.lat || el.center?.lat;
+    const lon = el.lon || el.center?.lon;
+    if (!lat || !lon) return;
+ 
     const tags = el.tags || {};
-    const name = tags.name || (type === 'hotel' ? 'Hébergement' : type === 'restaurant' ? 'Restaurant' : 'Service/Transport');
-    
-    // Déterminer l'icône et la couleur selon le type
-    let iconClass = 'fa-info-circle';
-    let color = '#4dabf7'; // Bleu par défaut
-
-    if (type === 'hotel') { 
-        iconClass = 'fa-bed'; color = '#ffd700'; 
-    } else if (type === 'restaurant') { 
-        iconClass = 'fa-utensils'; color = '#f06595'; 
-    } else if (type === 'transport') { 
-        if (tags.aeroway) iconClass = 'fa-plane';
-        else if (tags.railway) iconClass = 'fa-train';
-        else iconClass = 'fa-bus';
-        color = '#74c0fc';
-    } else if (tags.amenity === 'hospital') { 
-        iconClass = 'fa-notes-medical'; color = '#ff4444'; 
-    } else if (tags.amenity === 'police') { 
-        iconClass = 'fa-shield-halved'; color = '#4dabf7'; 
+    const name = tags.name || (type === "hotel" ? "Hébergement" : type === "restaurant" ? "Restaurant" : type === "transport" ? "Transport" : "Service");
+ 
+    const colorMap = { hotel: "#ffd700", restaurant: "#f06595", transport: "#74c0fc", service: "#4dabf7" };
+    const iconMap  = { hotel: "fa-bed",  restaurant: "fa-utensils", transport: "fa-train", service: "fa-info-circle" };
+    const color    = colorMap[type] || "#4dabf7";
+    const icon     = iconMap[type]  || "fa-circle";
+ 
+    if (type === "transport") {
+        if (tags.aeroway)                         { /* fa-plane */ }
+        else if (tags.railway)                    { /* fa-train */ }
     }
-
-    // Création de l'icône personnalisée
+ 
     const customIcon = L.divIcon({
-        html: `<div style="background:#1a1a24; border:2px solid ${color}; color:${color}; width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">
-                 <i class="fas ${iconClass}" style="font-size:12px"></i>
+        html: `<div style="background:#fff;border:2px solid ${color};color:${color};width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.2);">
+                 <i class="fas ${icon}" style="font-size:10px"></i>
                </div>`,
-        className: "",
-        iconSize: [28, 28],
-        iconAnchor: [14, 14]
+        className: "", iconSize: [26, 26], iconAnchor: [13, 13]
     });
-
-    const marker = L.marker([el.lat, el.lon], { icon: customIcon });
-
-    // Contenu du Popup
-    let phone = tags.phone ? `<div style="margin-top:5px; font-size:0.8rem"><i class="fas fa-phone"></i> <a href="tel:${tags.phone}" style="color:${color}">${tags.phone}</a></div>` : '';
-    let website = tags.website ? `<div style="margin-top:5px; font-size:0.8rem"><i class="fas fa-globe"></i> <a href="${tags.website}" target="_blank" style="color:${color}">Site web</a></div>` : '';
-    let bookLink = "";
-
-    if (type === 'hotel') {
+ 
+    const marker = L.marker([lat, lon], { icon: customIcon });
+ 
+    const phone   = tags.phone   ? `<div style="margin-top:4px;font-size:.75rem"><i class="fas fa-phone"></i> <a href="tel:${tags.phone}" style="color:${color}">${tags.phone}</a></div>` : "";
+    const website = tags.website ? `<div style="margin-top:4px;font-size:.75rem"><i class="fas fa-globe"></i> <a href="${tags.website}" target="_blank" style="color:${color}">Site web</a></div>` : "";
+    let bookLink  = "";
+    if (type === "hotel") {
         const bookUrl = `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(name)}&aid=SHADOWFRAME`;
-        bookLink = `<div style="margin-top:8px;"><button onclick="window.open('${bookUrl}', '_blank')" class="fmap-popup-btn">Vérifier dispos</button></div>`;
+        bookLink = `<div style="margin-top:8px"><a href="${bookUrl}" target="_blank" rel="sponsored noopener" class="fmap-popup-btn fmap-popup-booking"><i class="fas fa-bed"></i> Réserver</a></div>`;
     }
-
+ 
     marker.bindPopup(`
-        <div class="fmap-popup-small">
-            <strong style="font-size:0.9rem">${escapeHtml(name)}</strong>
-            ${phone}
-            ${website}
-            ${bookLink}
-        </div>
+      <div class="fmap-popup-small">
+        <span style="font-size:.65rem;color:${color};text-transform:uppercase;font-weight:700">${type}</span>
+        <strong style="display:block;margin-top:2px;font-size:.85rem">${escapeHtml(name)}</strong>
+        ${phone}${website}${bookLink}
+      </div>
     `);
-
-    // Ajout à la couche (layer) passée en paramètre
+ 
     layer.addLayer(marker);
 }
 
-// ════ OVERPASS CACHE (Anti-429) ════
+// ════ OVERPASS — MAX 30 RÉSULTATS DANS 5KM ════
 async function fetchOverpassCached(query, cacheKey) {
-    const cacheStr = localStorage.getItem("ovp_" + cacheKey);
-    if (cacheStr) {
-        const c = JSON.parse(cacheStr);
-        if (Date.now() - c.time < 86400000) return c.data;
-    }
-
     try {
-        const response = await fetch(`https://overpass-api.de/api/interpreter`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'User-Agent': 'FilmingMapApp/1.0 (blogoos2@gmail.com)' // IMPORTANT: Remplace par ton email
-            },
+        const cacheStr = localStorage.getItem("ovp_" + cacheKey);
+        if (cacheStr) {
+            const c = JSON.parse(cacheStr);
+            if (Date.now() - c.time < 86400000) return c.data;
+        }
+    } catch(e) {}
+ 
+    try {
+        const response = await fetch("https://overpass-api.de/api/interpreter", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: `data=${encodeURIComponent(query)}`
         });
-
-        if (response.status === 429) throw new Error("429");
+ 
+        if (response.status === 429) { toast("Overpass surchargé. Attendez 1 min."); return []; }
         if (!response.ok) throw new Error("Overpass HTTP " + response.status);
-        
+ 
         const data = await response.json();
-        if (data && data.elements) {
-            localStorage.setItem("ovp_" + cacheKey, JSON.stringify({time: Date.now(), data: data.elements}));
-            return data.elements;
+        if (data?.elements) {
+            // Limiter à 30 résultats
+            const limited = data.elements.slice(0, 30);
+            try { localStorage.setItem("ovp_" + cacheKey, JSON.stringify({ time: Date.now(), data: limited })); } catch(e) {}
+            return limited;
         }
-    } catch (e) {
-        if (e.message === "429") toast("Overpass est surchargé (429). Attendez 1 min.");
-        else console.error("Erreur Overpass:", e);
+    } catch(e) {
+        console.error("Erreur Overpass:", e);
     }
     return [];
 }
+ 
+// ════ HANDLE OSM ACTIONS (depuis les popups) ════
+document.addEventListener("click", function(e) {
+    const btn = e.target.closest(".btn-osm-action");
+    if (!btn) return;
+    const type = btn.getAttribute("data-type");
+    const lat  = parseFloat(btn.getAttribute("data-lat"));
+    const lng  = parseFloat(btn.getAttribute("data-lng"));
+    if (isNaN(lat) || isNaN(lng)) return;
+    handleOSMAction(type, lat, lng);
+});
 
 
 
+// ════ LOAD LAYER DATA (à la demande sur moveend) ════
 async function loadLayerData(type) {
-    if (!_filmingMap || _filmingMap.getZoom() < 13) return; // Sécurité
-
-    const b = _filmingMap.getBounds();
+    if (!_filmingMap || _filmingMap.getZoom() < 12) return;
+    const b    = _filmingMap.getBounds();
     const bbox = `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
-    const center = _filmingMap.getCenter();
-    const cacheKey = `${type}_${center.lat.toFixed(2)}_${center.lng.toFixed(2)}`;
-
-    let query = "";
-    let layer = null;
-
-    if (type === 'hotel') {
-        query = `[out:json][timeout:15];(nwr["tourism"~"hotel|hostel|guest_house|motel|apartment|chalet|camp_site|bed_and_breakfast|farm|cabin"](${bbox});nwr["amenity"="hotel"](${bbox}););out center;`;
+    const center    = _filmingMap.getCenter();
+    const cacheKey  = `${type}_${center.lat.toFixed(2)}_${center.lng.toFixed(2)}`;
+    const radius    = 5000;
+ 
+    let query = "", layer = null;
+    if (type === "hotel") {
+        query = `[out:json][timeout:15];(nwr["tourism"~"hotel|hostel|guest_house|motel|apartment|bed_and_breakfast"](around:${radius},${center.lat},${center.lng}););out center 30;`;
         layer = _filmingHotelLayer;
-    } else if (type === 'restaurant') {
-        query = `[out:json][timeout:15];(nwr["amenity"~"restaurant|cafe|bar|fast_food"](${bbox}););out center;`;
+    } else if (type === "restaurant") {
+        query = `[out:json][timeout:15];nwr["amenity"~"restaurant|cafe|bar|fast_food"](around:${radius},${center.lat},${center.lng});out center 30;`;
         layer = _filmingRestaurantLayer;
-    } else if (type === 'transport') {
-        // Version stratégique : Aéroports, Gares, Ferries, Hubs de bus
-        query = `[out:json][timeout:20];(
-            nwr["aeroway"~"aerodrome|airport"](${bbox});
-            nwr["railway"~"station|halt"](${bbox});
-            nwr["amenity"~"bus_station|ferry_terminal"](${bbox});
-        );out center;`;
+    } else if (type === "transport") {
+        query = `[out:json][timeout:15];(nwr["railway"~"station|halt"](around:${radius},${center.lat},${center.lng});nwr["amenity"~"bus_station|ferry_terminal"](around:${radius},${center.lat},${center.lng}););out center 30;`;
         layer = _filmingTransportLayer;
-    } else if (type === 'service') {
-        query = `[out:json][timeout:15];(nwr["amenity"~"hospital|police|fire_station"](${bbox});nwr["tourism"="information"](${bbox}););out center;`;
+    } else if (type === "service") {
+        query = `[out:json][timeout:15];nwr["amenity"~"hospital|police"](around:${radius},${center.lat},${center.lng});out center 30;`;
         layer = _filmingTourismLayer;
     }
-
     if (!layer) return;
-    
     const elements = await fetchOverpassCached(query, cacheKey);
-    layer.clearLayers(); // Nettoie uniquement la couche concernée
+    layer.clearLayers();
     elements.forEach(el => _addMarkerToLayer(el, type, layer));
 }
 
@@ -1175,37 +1194,38 @@ function afficherResultatsRecherche(data,query){
 // FILMING PAGE v3.0 — LIEUX DE TOURNAGE & CARTES
 // ════════════════════════════════════════════════════════════════════════════
 
+// ════ CHARGEMENT PAGE ════
 async function chargerLieuxDeTournage(page = 1) {
     hideHero(); cacherErreur();
     currentGenreName = "filming";
     _filmingCurrentPage = page;
-
+ 
     document.getElementById("genre-grid").style.display = "none";
     document.getElementById("page-film-detail").style.display = "none";
     document.getElementById("hero").style.display = "none";
     document.getElementById("genre-nav").style.display = "flex";
-
+ 
     document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
     document.getElementById("btn-genre-filming")?.classList.add("active");
-
+ 
     let filmingPage = document.getElementById("filming-page");
     if (filmingPage) filmingPage.style.display = "";
     navStack = [];
-
+ 
     const promises = [];
     if (!_filmingStats)
         promises.push(safeFetch("/films-tournes/stats").then(d => { _filmingStats = d; }).catch(() => {}));
     if (!_filmingCountries.length)
         promises.push(safeFetch("/films-tournes/pays").then(d => { _filmingCountries = d.countries || []; }).catch(() => {}));
     if (promises.length) await Promise.allSettled(promises);
-
+ 
     const alreadyRendered = filmingPage.querySelector(".filming-filters-wrap");
     if (!alreadyRendered) {
         _renderFilmingPage(filmingPage);
     } else {
         _updateFilmingFilters();
     }
-
+ 
     await _loadFilmingCatalogue();
 }
 
@@ -1214,20 +1234,19 @@ function _renderFilmingPage(container) {
     const stats = _filmingStats;
     const statsHtml = stats
         ? `<div class="filming-stats-bar">
-            <span><strong>${stats.total_films?.toLocaleString() || "—"}</strong> ${ld.filming_movies_only || 'Films'}</span>
+            <span><strong>${stats.total_films?.toLocaleString() || "—"}</strong> Films</span>
             <span class="filming-stats-sep">·</span>
             <span><strong>${stats.total_locations?.toLocaleString() || "—"}</strong> lieux</span>
             <span class="filming-stats-sep">·</span>
             <span><strong>${stats.total_countries?.toLocaleString() || "—"}</strong> pays</span>
            </div>` : "";
-
+ 
     const countriesOptions = _buildCountryOptions();
-
-    // On injecte le HTML structuré en 2 grandes parties : Sidebar et Carte
+ 
     container.innerHTML = `
-      <div class="filming-sidebar">
+      <div class="filming-sidebar" id="filming-sidebar">
         
-        <div class="filming-header">
+        <div class="filming-sidebar-header">
           <button class="btn-back" onclick="retourAccueil()">
             <i class="fas fa-arrow-left"></i> <span>${ld.back_home || "Accueil"}</span>
           </button>
@@ -1236,83 +1255,90 @@ function _renderFilmingPage(container) {
             <p class="filming-subtitle">${ld.filming_subtitle || "Explorez les vrais décors du cinéma mondial"}</p>
             ${statsHtml}
           </div>
-        </div>
-
-        <div class="filming-filters-wrap">
-          <div class="filming-search-row">
+ 
+          <div class="filming-filters-wrap">
+            <!-- Ligne 1: Recherche (pleine largeur) -->
             <div class="filming-search-box">
               <i class="fas fa-search"></i>
               <input type="text" id="filming-search-input"
-                placeholder="${ld.filming_search || 'Rechercher un film ou une ville…'}"
+                placeholder="${ld.filming_search || 'Rechercher un film…'}"
                 value="${escapeHtml(_filmingCurrentQ)}"
                 oninput="debounceFilmingSearch(this.value)"
                 onkeydown="if(event.key==='Enter')chargerLieuxDeTournage(1)">
             </div>
-            <div class="filming-media-toggle">
-              <button class="fmedia-btn ${!_filmingCurrentType ? 'active' : ''}" onclick="setFilmingType('')">
-                ${ld.filming_all_media || 'Tout'}
-              </button>
-              <button class="fmedia-btn ${_filmingCurrentType === 'movie' ? 'active' : ''}" onclick="setFilmingType('movie')">
-                <i class="fas fa-film"></i> ${ld.filming_movies_only || 'Films'}
-              </button>
-              <button class="fmedia-btn ${_filmingCurrentType === 'tv' ? 'active' : ''}" onclick="setFilmingType('tv')">
-                <i class="fas fa-tv"></i> ${ld.filming_tv_only || 'Séries'}
+ 
+            <!-- Ligne 2: Films / Pays -->
+            <div class="filming-filters-row-2">
+              <div class="filming-filter-group">
+                <label><i class="fas fa-film"></i> Type</label>
+                <div class="filming-media-toggle">
+                  <button class="fmedia-btn ${!_filmingCurrentType ? 'active' : ''}" onclick="setFilmingType('')">Tous</button>
+                  <button class="fmedia-btn ${_filmingCurrentType === 'movie' ? 'active' : ''}" onclick="setFilmingType('movie')">Films</button>
+                </div>
+              </div>
+              <div class="filming-filter-group">
+                <label><i class="fas fa-globe"></i> Pays</label>
+                <select id="filming-filter-country" onchange="setFilmingCountry(this.value)">
+                  <option value="">Tous</option>
+                  ${countriesOptions}
+                </select>
+              </div>
+            </div>
+ 
+            <!-- Ligne 3: Années / (vide) -->
+            <div class="filming-filters-row-2">
+              <div class="filming-filter-group">
+                <label><i class="fas fa-calendar"></i> Année</label>
+                <select id="filming-filter-year" onchange="setFilmingYear(this.value)">
+                  <option value="">Toutes</option>
+                </select>
+              </div>
+              <div class="filming-filter-group filming-filter-empty"></div>
+            </div>
+ 
+            <!-- Ligne 4: Reset centré -->
+            <div class="filming-reset-row">
+              <button class="fmap-btn filming-reset-btn" onclick="resetFilmingFilters()">
+                <i class="fas fa-times"></i> Réinitialiser les filtres
               </button>
             </div>
           </div>
-          <div class="filming-filters-row">
-            <select id="filming-filter-country" onchange="setFilmingCountry(this.value)">
-              <option value="">${ld.filming_filter_country || 'Tous les pays'}</option>
-              ${countriesOptions}
-            </select>
-            <select id="filming-filter-sort" onchange="setFilmingSort(this.value)">
-              <option value="count_locations" ${_filmingCurrentSort === 'count_locations' ? 'selected' : ''}>${ld.filming_sort_count || 'Plus de lieux'}</option>
-              <option value="rating"          ${_filmingCurrentSort === 'rating'          ? 'selected' : ''}>${ld.filming_sort_rating || 'Mieux notés'}</option>
-              <option value="year"            ${_filmingCurrentSort === 'year'            ? 'selected' : ''}>${ld.filming_sort_year || 'Plus récents'}</option>
-              <option value="title"           ${_filmingCurrentSort === 'title'           ? 'selected' : ''}>${ld.filming_sort_title || 'A–Z'}</option>
-            </select>
-            <select id="filming-filter-year" onchange="setFilmingYear(this.value)">
-  <option value="">📅 Toutes les années</option>
-</select>
-            <button class="fmap-btn filming-reset-btn" onclick="resetFilmingFilters()">
-              <i class="fas fa-times"></i> Reset
-            </button>
-          </div>
-        </div>
-
-        <div class="filming-grid-wrap">
-          <div id="filming-result-count" class="filming-result-count"></div>
+        </div><!-- fin filming-sidebar-header -->
+ 
+        <div class="filming-grid-wrap" id="filming-grid-wrap">
           <div id="filming-cards" class="filming-cards"></div>
           <div id="filming-pagination" class="filming-pagination"></div>
         </div>
-
-      </div> <div class="filming-map-wrap" id="filming-map-wrap">
+ 
+      </div>
+ 
+      <div class="filming-map-wrap" id="filming-map-wrap">
         <div class="filming-map-toolbar">
           <div class="filming-map-toolbar-left">
-            <button class="fmap-btn active" id="fmap-layer-film" onclick="toggleFilmingLayer('film')" title="${ld.filming_layer_film || 'Tournages'}">
-              <i class="fas fa-film"></i> <span>${ld.filming_layer_film || 'Tournages'}</span>
+            <button class="fmap-btn active" id="fmap-layer-film" onclick="toggleFilmingLayer('film')" title="Tournages">
+              <i class="fas fa-film"></i> <span>Tournages</span>
             </button>
-            <button class="fmap-btn" id="fmap-layer-hotel" onclick="toggleFilmingLayer('hotel')" title="${ld.filming_layer_hotel || 'Hébergements'}">
-              <i class="fas fa-bed"></i> <span>${ld.filming_layer_hotel || 'Hébergements'}</span>
+            <button class="fmap-btn" id="fmap-layer-hotel" onclick="toggleFilmingLayer('hotel')" title="Hébergements">
+              <i class="fas fa-bed"></i> <span>Hôtels</span>
             </button>
             <button class="fmap-btn" id="fmap-layer-restaurant" onclick="toggleFilmingLayer('restaurant')" title="Restaurants">
-              <i class="fas fa-utensils"></i> <span>Restaurants</span>
+              <i class="fas fa-utensils"></i> <span>Restos</span>
             </button>
             <button class="fmap-btn" id="fmap-layer-transport" onclick="toggleFilmingLayer('transport')" title="Transports">
               <i class="fas fa-train"></i> <span>Transports</span>
             </button>
-            <button class="fmap-btn" id="fmap-layer-tourism" onclick="toggleFilmingLayer('tourism')" title="${ld.filming_layer_tourism || 'Services'}">
+            <button class="fmap-btn" id="fmap-layer-tourism" onclick="toggleFilmingLayer('tourism')" title="Services">
               <i class="fas fa-info-circle"></i> <span>Services</span>
             </button>
           </div>
           <div class="filming-map-toolbar-right">
-            <button class="fmap-btn" id="fmap-heatmap" onclick="toggleFilmingHeatmap()" title="${ld.filming_heatmap_toggle || 'Heatmap'}">
+            <button class="fmap-btn" id="fmap-heatmap" onclick="toggleFilmingHeatmap()" title="Heatmap">
               <i class="fas fa-fire"></i>
             </button>
-            <button class="fmap-btn" id="fmap-near-me" onclick="filmingNearMe()" title="${ld.filming_near_me || 'Près de moi'}">
+            <button class="fmap-btn" id="fmap-near-me" onclick="filmingNearMe()" title="Près de moi">
               <i class="fas fa-crosshairs"></i>
             </button>
-            <button class="fmap-btn" id="fmap-fullscreen" onclick="toggleFilmingMapFullscreen()" title="${ld.filming_fullscreen || 'Plein écran'}">
+            <button class="fmap-btn" id="fmap-fullscreen" onclick="toggleFilmingMapFullscreen()" title="Plein écran">
               <i class="fas fa-expand"></i>
             </button>
           </div>
@@ -1320,28 +1346,17 @@ function _renderFilmingPage(container) {
         <div id="filming-leaflet-map"></div>
         <div class="filming-map-legend">
           <span class="fmap-legend-item"><span class="fmap-dot fmap-dot-film"></span> Tournages</span>
-          <span class="fmap-legend-item"><span class="fmap-dot fmap-dot-hotel"></span> Hébergements</span>
-          <span class="fmap-legend-item"><span class="fmap-dot fmap-dot-tourism"></span> Services</span>
-          <span class="fmap-legend-item"><span class="fmap-dot" style="background:#f06595"></span> Restaurants</span>
+          <span class="fmap-legend-item"><span class="fmap-dot" style="background:#ffd700"></span> Hôtels</span>
+          <span class="fmap-legend-item"><span class="fmap-dot" style="background:#f06595"></span> Restos</span>
           <span class="fmap-legend-item"><span class="fmap-dot" style="background:#74c0fc"></span> Transports</span>
-        </div>
-      </div>
-
-
-      <div id="film-map-modal" class="film-map-modal" style="display:none" onclick="if(event.target===this)closeFilmMapModal()">
-        <div class="film-map-modal-inner">
-          <div class="film-map-modal-header">
-            <h3 id="film-map-modal-title">Lieux de tournage</h3>
-            <button class="film-map-modal-close" onclick="closeFilmMapModal()"><i class="fas fa-times"></i></button>
-          </div>
-          <div id="film-map-modal-map" style="height:420px;width:100%"></div>
-          <div class="film-map-modal-locations" id="film-map-modal-locations"></div>
+          <span class="fmap-legend-item"><span class="fmap-dot" style="background:#4dabf7"></span> Services</span>
         </div>
       </div>
     `;
-
+ 
     _initFilmingLeafletMap();
 }
+ 
 let _filmingCurrentYear = "";
 function setFilmingYear(year) {
     _filmingCurrentYear = year;
@@ -1350,27 +1365,35 @@ function setFilmingYear(year) {
 }
 
 function _buildCountryOptions() {
-    return _filmingCountries.slice(0, 100).map(c =>
+    return _filmingCountries.slice(0, 120).map(c =>
         `<option value="${escapeHtml(c.country)}" ${_filmingCurrentCountry === c.country ? 'selected' : ''}>${escapeHtml(c.country)} (${c.count})</option>`
     ).join("");
 }
 
+// ════ FILTRES ════
 function _updateFilmingFilters() {
-    document.querySelectorAll(".fmedia-btn").forEach((btn, i) => {
-        const types = ['', 'movie', 'tv'];
-        btn.classList.toggle("active", _filmingCurrentType === types[i]);
+    document.querySelectorAll(".fmedia-btn").forEach(btn => {
+        const types = ['', 'movie'];
+        const idx = [...document.querySelectorAll(".fmedia-btn")].indexOf(btn);
+        btn.classList.toggle("active", _filmingCurrentType === (types[idx] ?? ''));
     });
     const fy = document.getElementById("filming-filter-year");
-if (fy) fy.value = _filmingCurrentYear;
+    if (fy) fy.value = _filmingCurrentYear;
     const cs = document.getElementById("filming-filter-country");
     if (cs) cs.value = _filmingCurrentCountry;
-    const ss = document.getElementById("filming-filter-sort");
-    if (ss) ss.value = _filmingCurrentSort;
     const si = document.getElementById("filming-search-input");
     if (si) si.value = _filmingCurrentQ;
 }
-
+ 
 let _filmingSearchTimeout = null;
+function debounceFilmingSearch(val) {
+    _filmingCurrentQ = val;
+    clearTimeout(_filmingSearchTimeout);
+    _filmingSearchTimeout = setTimeout(() => chargerLieuxDeTournage(1), 500);
+}
+
+
+
 function debounceFilmingSearch(val) {
     _filmingCurrentQ = val;
     clearTimeout(_filmingSearchTimeout);
@@ -1391,47 +1414,47 @@ function setFilmingSort(sort) {
     _loadFilmingCatalogue();
 }
 function resetFilmingFilters() {
-  _filmingCurrentYear = "";
     _filmingCurrentCountry = "";
+    _filmingCurrentYear    = "";
     _filmingCurrentType    = "";
     _filmingCurrentQ       = "";
-    _filmingCurrentSort    = "count_locations";
+    _filmingCurrentPage    = 1;
     _updateFilmingFilters();
     _loadFilmingCatalogue();
 }
 
 async function _loadFilmingCatalogue() {
     const cardsEl = document.getElementById("filming-cards");
-    const countEl = document.getElementById("filming-result-count");
     if (!cardsEl) return;
-    if (_filmingCurrentYear) params.set("year", _filmingCurrentYear);
-
+ 
     cardsEl.innerHTML = `<div class="filming-loading"><i class="fas fa-circle-notch fa-spin"></i> Chargement…</div>`;
-
+ 
     const params = new URLSearchParams({
         page:     _filmingCurrentPage,
         per_page: 24,
-        sort:     _filmingCurrentSort,
+        sort:     "count_locations",
     });
     if (_filmingCurrentCountry) params.set("country", _filmingCurrentCountry);
     if (_filmingCurrentType)    params.set("media_type", _filmingCurrentType);
     if (_filmingCurrentQ)       params.set("q", _filmingCurrentQ);
-
+    if (_filmingCurrentYear)    params.set("year", _filmingCurrentYear);
+ 
     try {
         const data = await safeFetch(`/films-tournes?${params}`);
         if (data.status !== "success") {
             cardsEl.innerHTML = `<p style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">Aucun résultat.</p>`;
             return;
-            // Peupler filtre années
-const yearSel = document.getElementById("filming-filter-year");
-if (yearSel && data.results) {
-    const years = [...new Set(data.results.map(f => f.year).filter(Boolean))].sort((a,b) => b-a);
-    const currentVal = yearSel.value;
-    yearSel.innerHTML = `<option value="">📅 Toutes les années</option>` +
-        years.map(y => `<option value="${y}" ${currentVal == y ? 'selected' : ''}>${y}</option>`).join("");
-}
         }
-        if (countEl) countEl.textContent = `${(data.total || 0).toLocaleString()} films (sur cette page)`;
+ 
+        // Peupler filtre années depuis les résultats
+        const yearSel = document.getElementById("filming-filter-year");
+        if (yearSel && data.results) {
+            const years = [...new Set(data.results.map(f => f.year).filter(Boolean))].sort((a,b) => b-a);
+            const currentVal = yearSel.value;
+            yearSel.innerHTML = `<option value="">Toutes</option>` +
+                years.map(y => `<option value="${y}" ${currentVal == y ? 'selected' : ''}>${y}</option>`).join("");
+        }
+ 
         _renderFilmingCards(cardsEl, data.results);
         _renderFilmingPagination(data.page, data.total_pages);
         _updateFilmingMapMarkers(data.results);
@@ -1440,62 +1463,198 @@ if (yearSel && data.results) {
     }
 }
 
+// ════ CARDS ════
 function _renderFilmingCards(container, results) {
     if (!results || results.length === 0) {
-        container.innerHTML = `<p style="color:var(--muted);text-align:center;padding:60px;grid-column:1/-1">Aucun film trouvé avec ces filtres.</p>`;
+        container.innerHTML = `<p style="color:var(--muted);text-align:center;padding:60px;grid-column:1/-1">Aucun film trouvé.</p>`;
         return;
     }
-    
+ 
     container.innerHTML = results.map(f => {
         const poster = f.poster_path
             ? `https://image.tmdb.org/t/p/w300${f.poster_path}`
             : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='450' fill='%231a1a24'%3E%3Crect width='300' height='450'/%3E%3Ctext x='50%25' y='50%25' fill='%23444' font-size='40' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E";
-        
-        const rating    = f.vote_average ? f.vote_average.toFixed(1) : "—";
-        const year      = f.year || "—";
-        const isTv      = f.media_type === "tv" || f.media_type === "series"; // Ajout de "series" au cas où
-        const locCount  = f.location_count || 0;
-       const countries = (f.countries || (f.locations || []).map(l => l.country).filter(c => c && c !== "Inconnu")).slice(0, 3).join(", ");
+ 
+        const rating   = f.vote_average ? f.vote_average.toFixed(1) : "—";
+        const year     = f.year || "—";
+        const locCount = f.location_count || (f.locations || []).length || 0;
+ 
+        // Extraire pays depuis locations[].name si country==="Inconnu"
+        const countryNames = [...new Set(
+            (f.locations || []).map(l => l.country && l.country !== "Inconnu" ? l.country : l.name).filter(Boolean)
+        )].slice(0, 2).join(", ");
+ 
         const primaryLoc = f.primary_location || (f.locations && f.locations[0]) || null;
-        const hotelQuery = primaryLoc
-            ? encodeURIComponent(primaryLoc.name + (primaryLoc.country ? ", " + primaryLoc.country : ""))
-            : "";
-        const bookingUrl = hotelQuery ? `https://www.booking.com/searchresults.html?ss=${hotelQuery}&aid=SHADOWFRAME` : null;
-
-        // Préparation du titre pour l'attribut onclick (échappement des apostrophes)
-        const safeTitle = (f.title || "Inconnu").replace(/'/g, "\\'");
-
+        const safeTitle  = (f.title || "Inconnu").replace(/'/g, "\\'").replace(/"/g, "&quot;");
+        const btnLabel   = locCount === 1 ? "Voir le lieu de tournage" : `Voir les ${locCount} lieux`;
+ 
         return `
-          <div class="filming-card" onclick="afficherDetails(${f.tmdb_id}, '${isTv ? 'tv' : 'movie'}')" role="button" tabindex="0">
-            <div class="filming-card-img-wrap">
-              ${isTv ? `<span class="card-type-badge">TV</span>` : ""}
+          <div class="filming-card" role="button" tabindex="0">
+            <div class="filming-card-img-wrap" onclick="afficherDetails(${f.tmdb_id}, 'movie')">
               <img src="${poster}" alt="${escapeHtml(f.title)}" loading="lazy">
-              <div class="filming-card-loc-badge">
-                <i class="fas fa-map-marker-alt"></i> ${locCount}
-              </div>
-              
-              ${locCount > 0 ? `
-              <button class="filming-card-map-btn" title="Voir sur la carte" 
-                      onclick="event.stopPropagation(); openFilmMapModal(${f.tmdb_id}, '${safeTitle}', '${f.media_type || 'movie'}')">
-                <i class="fas fa-map"></i>
-              </button>` : ''}
-              
+              <div class="filming-card-loc-badge"><i class="fas fa-map-marker-alt"></i> ${locCount}</div>
             </div>
             <div class="filming-card-body">
-              <h4>${escapeHtml(f.title)}</h4>
+              <h4 onclick="afficherDetails(${f.tmdb_id}, 'movie')">${escapeHtml(f.title)}</h4>
               <div class="filming-card-meta">
                 <span class="filming-card-year">${year}</span>
                 <span class="filming-card-rating"><i class="fas fa-star"></i> ${rating}</span>
               </div>
-              ${countries  ? `<div class="filming-card-countries"><i class="fas fa-globe-europe"></i> ${escapeHtml(countries)}</div>` : ""}
-              ${primaryLoc ? `<div class="filming-card-primary-loc"><i class="fas fa-map-pin"></i> ${escapeHtml(primaryLoc.name)}</div>` : ""}
-              <div class="filming-card-actions" onclick="event.stopPropagation()">
-                ${bookingUrl ? `<a href="${bookingUrl}" target="_blank" rel="sponsored noopener" class="filming-action-btn filming-booking-btn" title="Booking.com"><i class="fas fa-bed"></i> Hébergements</a>` : ""}
-              </div>
+              ${countryNames ? `<div class="filming-card-countries"><i class="fas fa-globe-europe"></i> ${escapeHtml(countryNames)}</div>` : ""}
+              ${primaryLoc  ? `<div class="filming-card-primary-loc"><i class="fas fa-map-pin"></i> ${escapeHtml(primaryLoc.name)}</div>` : ""}
+              ${locCount > 0 ? `
+              <button class="filming-show-locations-btn" onclick="showFilmLocationsOnMap(${f.tmdb_id}, '${safeTitle}', 'movie')">
+                <i class="fas fa-map-marked-alt"></i> ${btnLabel}
+              </button>` : ""}
             </div>
           </div>`;
     }).join("");
 }
+
+
+function _createFilmLocationMarker(loc, filmTitle, tmdbId, mediaType, isPrimary) {
+    const icon = L.divIcon({
+        html: `<div class="fmap-marker-film-loc ${isPrimary ? 'fmap-marker-active' : ''}">
+                 <i class="fas fa-map-marker-alt"></i>
+               </div>`,
+        className: "",
+        iconSize: [32, 40],
+        iconAnchor: [16, 40],
+        popupAnchor: [0, -42],
+    });
+ 
+    const marker = L.marker([loc.lat, loc.lng], { icon });
+ 
+    marker.on('contextmenu', e => {
+        navigator.clipboard.writeText(`${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`)
+            .then(() => toast("📍 Coordonnées copiées"));
+    });
+ 
+    const bookQ = encodeURIComponent(loc.name);
+    marker.bindPopup(`
+      <div class="fmap-popup-loc">
+        <div class="fmap-popup-loc-title"><i class="fas fa-film"></i> ${escapeHtml(filmTitle)}</div>
+        <div class="fmap-popup-loc-name"><i class="fas fa-map-pin" style="color:var(--primary)"></i> ${escapeHtml(loc.name)}</div>
+        <div class="fmap-popup-actions" style="margin-top:8px;flex-wrap:wrap;gap:4px;display:flex;">
+          <button class="fmap-popup-btn" onclick="showAllFilmLocations(${tmdbId},'${filmTitle.replace(/'/g,"\\'")}','${mediaType}')">
+            <i class="fas fa-layer-group"></i> Tous les lieux
+          </button>
+          <button class="fmap-popup-btn btn-osm-action" data-type="isochrone" data-lat="${loc.lat}" data-lng="${loc.lng}">
+            <i class="fas fa-shoe-prints"></i> 15 min
+          </button>
+          <button class="fmap-popup-btn btn-osm-action" data-type="hotel" data-lat="${loc.lat}" data-lng="${loc.lng}">
+            <i class="fas fa-bed"></i> Hôtels
+          </button>
+          <button class="fmap-popup-btn btn-osm-action" data-type="restaurant" data-lat="${loc.lat}" data-lng="${loc.lng}">
+            <i class="fas fa-utensils"></i> Restos
+          </button>
+          <button class="fmap-popup-btn btn-osm-action" data-type="transport" data-lat="${loc.lat}" data-lng="${loc.lng}">
+            <i class="fas fa-train"></i> Transports
+          </button>
+          <button class="fmap-popup-btn btn-osm-action" data-type="service" data-lat="${loc.lat}" data-lng="${loc.lng}">
+            <i class="fas fa-info-circle"></i> Services
+          </button>
+        </div>
+        <a href="https://www.booking.com/searchresults.html?ss=${bookQ}&aid=SHADOWFRAME"
+           target="_blank" rel="sponsored noopener"
+           class="fmap-popup-btn fmap-popup-booking" style="margin-top:6px;display:inline-flex;">
+          <i class="fas fa-bed"></i> Booking.com
+        </a>
+      </div>
+    `, { maxWidth: 300 });
+ 
+    return marker;
+}
+
+// ════ TOUS LES LIEUX (sur la même carte) ════
+async function showAllFilmLocations(tmdbId, title, mediaType = "movie") {
+    if (!_filmingMap || !_filmingLeafletReady) return;
+    _stopBounce();
+ 
+    // Récupérer tous les films et afficher leurs lieux
+    _filmingAllMarkers.forEach(m => {
+        if (_filmingMarkerClusterGroup) _filmingMarkerClusterGroup.addLayer(m.marker);
+    });
+ 
+    toast(`🗺️ Affichage de tous les lieux…`);
+    if (_filmingMarkerClusterGroup) _filmingMap.addLayer(_filmingMarkerClusterGroup);
+}
+
+// ════ BOUNCE ANIMATION ════
+function _startBounce() {
+    _stopBounce();
+    _doBounce();
+    _bounceInterval = setInterval(_doBounce, 10000);
+}
+ 
+function _stopBounce() {
+    if (_bounceInterval) { clearInterval(_bounceInterval); _bounceInterval = null; }
+    _activeFilmMarkers.forEach(m => {
+        const el = m.getElement();
+        if (el) el.classList.remove("fmap-bounce");
+    });
+}
+ 
+function _doBounce() {
+    _activeFilmMarkers.forEach(m => {
+        const el = m.getElement();
+        if (!el) return;
+        el.classList.remove("fmap-bounce");
+        // Force reflow
+        void el.offsetWidth;
+        el.classList.add("fmap-bounce");
+    });
+}
+
+
+// ════ AFFICHER LIEUX D'UN FILM SUR LA CARTE ════
+async function showFilmLocationsOnMap(tmdbId, title, mediaType = "movie") {
+    if (!_filmingMap || !_filmingLeafletReady) return;
+ 
+    // Stopper le bounce précédent
+    _stopBounce();
+ 
+    // Vider les marqueurs du film actif
+    _activeFilmMarkers.forEach(m => {
+        if (_filmingFilmLayer) _filmingFilmLayer.removeLayer(m);
+    });
+    _activeFilmMarkers = [];
+ 
+    toast(`📍 Chargement des lieux de "${title}"…`);
+ 
+    let locations = [];
+    try {
+        const data = await safeFetch(`/movie/${tmdbId}/locations?type=${mediaType}`);
+        locations = (data.locations || []).filter(l => l.lat != null);
+    } catch(e) {
+        toast("Erreur lors du chargement des lieux.");
+        return;
+    }
+ 
+    if (locations.length === 0) {
+        toast("Aucun lieu géolocalisé pour ce film.");
+        return;
+    }
+ 
+    const bounds = L.latLngBounds();
+ 
+    locations.forEach((loc, i) => {
+        const bookQ = encodeURIComponent(loc.name);
+        const marker = _createFilmLocationMarker(loc, title, tmdbId, mediaType, true);
+        if (_filmingFilmLayer) _filmingFilmLayer.addLayer(marker);
+        _activeFilmMarkers.push(marker);
+        bounds.extend([loc.lat, loc.lng]);
+    });
+ 
+    _filmingMap.flyToBounds(bounds, { padding: [60, 60], duration: 1.2, maxZoom: 13 });
+ 
+    // Scroll la carte en vue
+    document.getElementById("filming-map-wrap")?.scrollIntoView({ behavior: "smooth", block: "start" });
+ 
+    // Démarrer le bounce toutes les 10s
+    _startBounce();
+}
+
 async function searchServicesAround(lat, lng, type) {
     const sidebar = document.getElementById('poi-sidebar');
     const list = document.getElementById('poi-results');
@@ -1528,6 +1687,7 @@ async function searchServicesAround(lat, lng, type) {
     }
 }
 
+// ════ PAGINATION ════
 function _renderFilmingPagination(page, totalPages) {
     const pag = document.getElementById("filming-pagination");
     if (!pag || totalPages <= 1) { if (pag) pag.innerHTML = ""; return; }
@@ -1541,53 +1701,81 @@ function _renderFilmingPagination(page, totalPages) {
     pag.innerHTML = html;
 }
 
-// ════ CARTE LEAFLET PRINCIPALE ════
+// ════ INIT CARTE LEAFLET ════
 function _initFilmingLeafletMap() {
     _ensureLeafletFull(() => {
         const mapEl = document.getElementById("filming-leaflet-map");
         if (!mapEl || !window.L) return;
-
+ 
         if (_filmingMap) { _filmingMap.remove(); _filmingMap = null; }
         _filmingAllMarkers = [];
-
-        _filmingMap = L.map(mapEl, { center: [20, 0], zoom: 2, zoomControl: false });
+ 
+        _filmingMap = L.map(mapEl, {
+            center: [20, 0],
+            zoom: 2,
+            zoomControl: false,
+            scrollWheelZoom: true,
+        });
+ 
         L.control.zoom({ position: "topright" }).addTo(_filmingMap);
-        L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 19 }).addTo(_filmingMap);
-
+ 
+        // Fond clair, sobre et lisible
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            attribution: '© OpenStreetMap © CARTO',
+            subdomains: 'abcd',
+            maxZoom: 19
+        }).addTo(_filmingMap);
+ 
+        // Couches POI
+        _filmingFilmLayer        = L.layerGroup().addTo(_filmingMap);
+        _filmingHotelLayer       = L.layerGroup();
+        _filmingTourismLayer     = L.layerGroup();
+        _filmingRestaurantLayer  = L.layerGroup();
+        _filmingTransportLayer   = L.layerGroup();
+ 
         if (window.L.markerClusterGroup) {
             _filmingMarkerClusterGroup = L.markerClusterGroup({
-                maxClusterRadius: 60, showCoverageOnHover: false,
-                iconCreateFunction: (cluster) => {
-                    const n = cluster.getChildCount(), s = n > 100 ? 50 : n > 30 ? 40 : 32;
-                    return L.divIcon({ html: `<div class="fmap-cluster" style="width:${s}px;height:${s}px">${n > 999 ? "999+" : n}</div>`, className: "", iconSize: [s,s], iconAnchor: [s/2,s/2] });
-                },
+                maxClusterRadius: 60,
+                showCoverageOnHover: false,
+                iconCreateFunction: cluster => {
+                    const n = cluster.getChildCount();
+                    const s = n > 100 ? 50 : n > 30 ? 40 : 32;
+                    return L.divIcon({
+                        html: `<div class="fmap-cluster" style="width:${s}px;height:${s}px">${n > 999 ? "999+" : n}</div>`,
+                        className: "", iconSize: [s, s], iconAnchor: [s/2, s/2]
+                    });
+                }
             });
             _filmingMap.addLayer(_filmingMarkerClusterGroup);
         }
-
-        _filmingFilmLayer              = L.layerGroup().addTo(_filmingMap);
-        _filmingHotelLayer             = L.layerGroup();
-        _filmingTourismLayer           = L.layerGroup();
-        _filmingRestaurantLayer        = L.layerGroup();
-        _filmingTransportLayer         = L.layerGroup();
-        _filmingLeafletReady           = true;
-
+ 
+        _filmingLeafletReady = true;
+ 
         setTimeout(() => _filmingMap?.invalidateSize(), 400);
+ 
+        // Gestion moveend pour POI dynamiques
+        _filmingMap.on("moveend", handleMapMove);
     });
 }
+
 
 function _ensureLeafletFull(callback) {
     if (window.L && window.L.markerClusterGroup) { callback(); return; }
     if (!document.querySelector('link[href*="leaflet.css"]')) {
-        const lk = document.createElement("link"); lk.rel = "stylesheet"; lk.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"; document.head.appendChild(lk);
+        const lk = document.createElement("link"); lk.rel = "stylesheet";
+        lk.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"; document.head.appendChild(lk);
     }
     if (!document.querySelector('link[href*="MarkerCluster.css"]')) {
-        const lk2 = document.createElement("link"); lk2.rel = "stylesheet"; lk2.href = "https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"; document.head.appendChild(lk2);
+        const lk2 = document.createElement("link"); lk2.rel = "stylesheet";
+        lk2.href = "https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"; document.head.appendChild(lk2);
+        const lk3 = document.createElement("link"); lk3.rel = "stylesheet";
+        lk3.href = "https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"; document.head.appendChild(lk3);
     }
     const scripts = [
-        { src: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js", check: () => !!window.L },
-        { src: "https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js", check: () => !!window.L?.markerClusterGroup },
-        { src: "https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js", check: () => !!window.L?.heatLayer },
+        { src: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",                                    check: () => !!window.L },
+        { src: "https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js",        check: () => !!window.L?.markerClusterGroup },
+        { src: "https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js",                          check: () => !!window.L?.heatLayer },
+        { src: "https://unpkg.com/leaflet-ant-path@1.3.0/dist/leaflet-ant-path.js",                  check: () => !!window.L?.polyline?.antPath },
     ];
     function loadNext(idx) {
         if (idx >= scripts.length) { callback(); return; }
@@ -1600,87 +1788,84 @@ function _ensureLeafletFull(callback) {
     loadNext(0);
 }
 
-// ════ MARQUEURS FILMS ════
 function _updateFilmingMapMarkers(films) {
     if (!_filmingLeafletReady || !_filmingMap) return;
     if (_filmingMarkerClusterGroup) _filmingMarkerClusterGroup.clearLayers();
-    if (_filmingFilmLayer) _filmingFilmLayer.clearLayers();
     _filmingAllMarkers = [];
-
+ 
     const bounds = L.latLngBounds();
-
+ 
     films.forEach(f => {
-        // ✅ CORRECTION : primary_location ou locations[0]
         const loc = f.primary_location || (f.locations && f.locations[0]) || null;
         if (!loc || loc.lat == null) return;
-
+ 
         const posterUrl = f.poster_path ? `https://image.tmdb.org/t/p/w92${f.poster_path}` : null;
         const iconHtml = posterUrl
             ? `<div class="fmap-marker-film" style="background-image:url('${posterUrl}')"></div>`
             : `<div class="fmap-marker-film fmap-marker-no-poster"><i class="fas fa-film"></i></div>`;
-
+ 
         const icon = L.divIcon({ html: iconHtml, className: "", iconSize: [36,36], iconAnchor: [18,36], popupAnchor: [0,-40] });
         const marker = L.marker([loc.lat, loc.lng], { icon });
-
-        marker.on('contextmenu', (e) => {
-            const coords = `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
-            navigator.clipboard.writeText(coords).then(() => toast(`📍 Coordonnées copiées : ${coords}`));
+ 
+        marker.on('contextmenu', e => {
+            navigator.clipboard.writeText(`${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`)
+                .then(() => toast("📍 Coordonnées copiées"));
         });
-
-        const locationQuery = encodeURIComponent(loc.name + (loc.country && loc.country !== "Inconnu" ? ", " + loc.country : ""));
-        const bookingUrl = `https://www.booking.com/searchresults.html?ss=${locationQuery}&aid=SHADOWFRAME`;
-        const safeTitle = escapeHtml(f.title).replace(/'/g, "\\'");
-
+ 
+        const bookQ   = encodeURIComponent(loc.name);
+        const safeT   = escapeHtml(f.title).replace(/'/g, "\\'");
+ 
         marker.bindPopup(`
           <div class="fmap-popup">
             ${posterUrl ? `<img src="${posterUrl}" class="fmap-popup-poster" alt="">` : ""}
             <div class="fmap-popup-body">
               <div class="fmap-popup-title">${escapeHtml(f.title)}</div>
-              <div class="fmap-popup-meta">${f.year||""}${f.vote_average ? ` · ⭐ ${f.vote_average.toFixed(1)}` : ""}</div>
+              <div class="fmap-popup-meta">${f.year || ""}${f.vote_average ? ` · ⭐ ${f.vote_average.toFixed(1)}` : ""}</div>
               <div class="fmap-popup-loc"><i class="fas fa-map-pin"></i> ${escapeHtml(loc.name)}</div>
-              <div class="fmap-popup-actions">
-                <button class="fmap-popup-btn fmap-popup-detail" onclick="afficherDetails(${f.tmdb_id},'${f.media_type||'movie'}')">
-                    <i class="fas fa-info-circle"></i> Détails
+              <div class="fmap-popup-actions" style="margin-top:8px;flex-wrap:wrap;gap:4px;display:flex;">
+                <button class="fmap-popup-btn" onclick="afficherDetails(${f.tmdb_id},'movie')">
+                  <i class="fas fa-info-circle"></i> Détails
                 </button>
-                <button class="fmap-popup-btn" onclick="openFilmMapModal(${f.tmdb_id},'${safeTitle}','${f.media_type||'movie'}')">
-                    <i class="fas fa-map-marked-alt"></i> Tous les lieux
+                <button class="fmap-popup-btn" onclick="showFilmLocationsOnMap(${f.tmdb_id},'${safeT}','movie')">
+                  <i class="fas fa-map-marked-alt"></i> Voir lieux
                 </button>
               </div>
-              <div style="border-top:1px solid rgba(255,255,255,0.1);margin:8px 0 6px"></div>
-              <div class="fmap-popup-actions" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
+              <div class="fmap-popup-actions" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:4px;">
                 <button class="fmap-popup-btn btn-osm-action" data-type="isochrone" data-lat="${loc.lat}" data-lng="${loc.lng}">
-                    <i class="fas fa-shoe-prints"></i> 15 min
+                  <i class="fas fa-shoe-prints"></i> 15 min
                 </button>
                 <button class="fmap-popup-btn btn-osm-action" data-type="hotel" data-lat="${loc.lat}" data-lng="${loc.lng}">
-                    <i class="fas fa-bed"></i> Logements
+                  <i class="fas fa-bed"></i> Hôtels
                 </button>
                 <button class="fmap-popup-btn btn-osm-action" data-type="restaurant" data-lat="${loc.lat}" data-lng="${loc.lng}">
-                    <i class="fas fa-utensils"></i> Restos
+                  <i class="fas fa-utensils"></i> Restos
+                </button>
+                <button class="fmap-popup-btn btn-osm-action" data-type="transport" data-lat="${loc.lat}" data-lng="${loc.lng}">
+                  <i class="fas fa-train"></i> Transports
                 </button>
                 <button class="fmap-popup-btn btn-osm-action" data-type="service" data-lat="${loc.lat}" data-lng="${loc.lng}">
-                    <i class="fas fa-info-circle"></i> Services
+                  <i class="fas fa-info-circle"></i> Services
                 </button>
               </div>
-              <div class="fmap-popup-book-row" style="margin-top:8px;">
-                <a href="${bookingUrl}" target="_blank" rel="sponsored noopener" class="fmap-popup-btn fmap-popup-booking">
-                    <i class="fas fa-bed"></i> Booking
-                </a>
-              </div>
+              <a href="https://www.booking.com/searchresults.html?ss=${bookQ}&aid=SHADOWFRAME"
+                 target="_blank" rel="sponsored noopener"
+                 class="fmap-popup-btn fmap-popup-booking" style="margin-top:6px;display:inline-flex;">
+                <i class="fas fa-bed"></i> Booking.com
+              </a>
             </div>
           </div>
-        `, { maxWidth: 320 });
-
+        `, { maxWidth: 300 });
+ 
         if (_filmingMarkerClusterGroup) _filmingMarkerClusterGroup.addLayer(marker);
-        else marker.addTo(_filmingFilmLayer);
-
         _filmingAllMarkers.push({ lat: loc.lat, lng: loc.lng, marker, film: f });
         bounds.extend([loc.lat, loc.lng]);
     });
-
+ 
     if (bounds.isValid()) {
         _filmingMap.flyToBounds(bounds, { padding: [50, 50], duration: 1.5 });
     }
 }
+
 
 
 
@@ -1758,34 +1943,38 @@ const filmingMoveHandler = async () => {
 // Variable globale pour le debounce
 let _filmingMoveTimeout = null;
 
+// ════ TOGGLE LAYERS ════
 function toggleFilmingLayer(layerName) {
     if (!_filmingMap) return;
-    const btn = document.getElementById(`fmap-layer-${layerName}`);
-    const layerMap = { hotel: _filmingHotelLayer, tourism: _filmingTourismLayer, restaurant: _filmingRestaurantLayer, transport: _filmingTransportLayer };
+    const btn      = document.getElementById(`fmap-layer-${layerName}`);
+    const layerMap = {
+        hotel:      _filmingHotelLayer,
+        tourism:    _filmingTourismLayer,
+        restaurant: _filmingRestaurantLayer,
+        transport:  _filmingTransportLayer,
+    };
     const target = layerMap[layerName];
-
+    if (!target) return;
+ 
     if (_filmingMap.hasLayer(target)) {
         _filmingMap.removeLayer(target);
         btn?.classList.remove("active");
     } else {
         _filmingMap.addLayer(target);
         btn?.classList.add("active");
-        loadLayerData(layerName); // Chargement immédiat
+        loadLayerData(layerName === "tourism" ? "service" : layerName);
     }
-
-    // Gestion propre du listener moveend
-    _filmingMap.off("moveend", handleMapMove); // Retire l'ancien
-    _filmingMap.on("moveend", handleMapMove);  // Remet le nouveau
 }
 
 async function handleMapMove() {
     clearTimeout(_filmingMoveTimeout);
     _filmingMoveTimeout = setTimeout(async () => {
-        if (_filmingMap.hasLayer(_filmingHotelLayer)) await loadLayerData('hotel');
-        if (_filmingMap.hasLayer(_filmingRestaurantLayer)) await loadLayerData('restaurant');
-        if (_filmingMap.hasLayer(_filmingTransportLayer)) await loadLayerData('transport');
-        if (_filmingMap.hasLayer(_filmingTourismLayer)) await loadLayerData('service');
-    }, 1000);
+        if (!_filmingMap || _filmingMap.getZoom() < 12) return;
+        if (_filmingMap.hasLayer(_filmingHotelLayer))      await loadLayerData("hotel");
+        if (_filmingMap.hasLayer(_filmingRestaurantLayer)) await loadLayerData("restaurant");
+        if (_filmingMap.hasLayer(_filmingTransportLayer))  await loadLayerData("transport");
+        if (_filmingMap.hasLayer(_filmingTourismLayer))    await loadLayerData("service");
+    }, 1200);
 }
 
 function toggleFilmingHeatmap() {
@@ -1796,7 +1985,10 @@ function toggleFilmingHeatmap() {
         btn?.classList.remove("active");
     } else {
         const points = _filmingAllMarkers.map(m => [m.lat, m.lng, 0.5]);
-        _filmingHeatmapLayer = L.heatLayer(points, { radius: 35, blur: 25, maxZoom: 10, gradient: { 0.2: "#00ffcc33", 0.5: "#00ffcc88", 0.8: "#00ffcccc", 1.0: "#00ffcc" } }).addTo(_filmingMap);
+        _filmingHeatmapLayer = L.heatLayer(points, {
+            radius: 35, blur: 25, maxZoom: 10,
+            gradient: { 0.2: "#ffe3b3", 0.5: "#ff8c42", 0.8: "#ff4444", 1.0: "#cc0000" }
+        }).addTo(_filmingMap);
         btn?.classList.add("active");
     }
 }
@@ -1804,16 +1996,20 @@ function toggleFilmingHeatmap() {
 function filmingNearMe() {
     if (!_filmingMap || !navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(pos => {
-        _filmingMap.flyTo([pos.coords.latitude, pos.coords.longitude], 10, { duration: 2 });
-        const pulseIcon = L.divIcon({ html: `<div class="fmap-near-me-pulse"></div>`, className: "", iconSize: [24,24], iconAnchor: [12,12] });
-        L.marker([pos.coords.latitude, pos.coords.longitude], { icon: pulseIcon }).addTo(_filmingMap).bindPopup("📍 Vous êtes ici").openPopup();
+        _filmingMap.flyTo([pos.coords.latitude, pos.coords.longitude], 11, { duration: 2 });
+        const pulseIcon = L.divIcon({
+            html: `<div class="fmap-near-me-pulse"></div>`,
+            className: "", iconSize: [24, 24], iconAnchor: [12, 12]
+        });
+        L.marker([pos.coords.latitude, pos.coords.longitude], { icon: pulseIcon })
+            .addTo(_filmingMap).bindPopup("📍 Vous êtes ici").openPopup();
     }, () => toast("Géolocalisation refusée"), { timeout: 5000 });
 }
 
 function toggleFilmingMapFullscreen() {
     const wrap = document.getElementById("filming-map-wrap");
+    const btn  = document.getElementById("fmap-fullscreen");
     if (!wrap) return;
-    const btn = document.getElementById("fmap-fullscreen");
     if (wrap.classList.contains("fmap-fullscreen-mode")) {
         wrap.classList.remove("fmap-fullscreen-mode");
         btn?.querySelector("i")?.setAttribute("class", "fas fa-expand");
@@ -2255,82 +2451,202 @@ window.onload = () => {
 let _isochroneLayer = null;
 
 
+
+
+// ════ ISOCHRONE + TRACÉ DYNAMIQUE ════
 async function drawIsochrone(lat, lng, mode = "foot", minutes = 15) {
-    if (!_filmingMap || !window.turf) return;
-
-    // A. Affichage immédiat du cercle (Turf.js)
-    let speedKmh = (mode === "foot") ? 5 : (mode === "bike" ? 15 : 30);
-    let distanceKm = (speedKmh * (minutes / 60)) * 0.8;
-    const circle = turf.circle([lng, lat], distanceKm, { steps: 32, units: 'kilometers' });
-    
-    if (_isochroneLayer) _filmingMap.removeLayer(_isochroneLayer);
-    _isochroneLayer = L.geoJSON(circle, { style: { color: "#00ffcc", dashArray: "5,5", fillOpacity: 0.1 } }).addTo(_filmingMap);
-
-    // B. Appel Backend pour la précision (Geoapify/ORS)
+    if (!_filmingMap) return;
+ 
+    // Nettoyer l'ancien
+    if (_isochroneLayer) { _filmingMap.removeLayer(_isochroneLayer); _isochroneLayer = null; }
+    if (_routeLayer)     { _filmingMap.removeLayer(_routeLayer);     _routeLayer = null; }
+ 
+    // 1. Cercle Turf immédiat
+    if (window.turf) {
+        const speedKmh  = mode === "foot" ? 5 : 15;
+        const distKm    = speedKmh * (minutes / 60) * 0.85;
+        const circle    = turf.circle([lng, lat], distKm, { steps: 64, units: "kilometers" });
+ 
+        _isochroneLayer = L.geoJSON(circle, {
+            style: {
+                color: "#ff6b35",
+                weight: 2.5,
+                dashArray: "6,4",
+                fillColor: "#ff6b35",
+                fillOpacity: 0.08,
+            }
+        }).addTo(_filmingMap);
+ 
+        // Label au centre
+        L.marker([lat, lng], {
+            icon: L.divIcon({
+                html: `<div class="fmap-isochrone-label">🚶 ~${minutes} min</div>`,
+                className: "", iconSize: [80, 24], iconAnchor: [40, -8]
+            }),
+            interactive: false
+        }).addTo(_filmingMap);
+ 
+        toast("⏱️ Zone ~15 min à pied tracée");
+    }
+ 
+    // 2. Chercher le POI le plus proche de chaque type dans la zone
+    await _findClosestPOIsInIsochrone(lat, lng, minutes);
+ 
+    // 3. Appel backend pour tracé précis (optionnel)
     try {
         const res = await safeFetch(`/isochrone?lat=${lat}&lng=${lng}&profile=${mode}&minutes=${minutes}`);
-        
-        if (!res.error) {
-            // Remplacer le cercle par la géométrie réelle
-            _filmingMap.removeLayer(_isochroneLayer);
+        if (res && !res.error) {
+            if (_isochroneLayer) _filmingMap.removeLayer(_isochroneLayer);
             _isochroneLayer = L.geoJSON(res, {
-                style: { color: "#00ffcc", weight: 3, fillOpacity: 0.3 }
+                style: { color: "#ff6b35", weight: 3, fillColor: "#ff6b35", fillOpacity: 0.12 }
             }).addTo(_filmingMap);
-            toast("✅ Tracé précis chargé !");
+            toast("✅ Tracé précis chargé");
         }
     } catch(e) {
-        console.log("Tracé précis indisponible, on garde le cercle.");
+        // Cercle approximatif suffisant
     }
 }
 
+async function _findClosestPOIsInIsochrone(lat, lng, minutes) {
+    const radius = Math.round((5 / 60) * minutes * 1000); // ~1250m pour 15min
+    const types  = [
+        { type: "hotel",      q: `nwr["tourism"~"hotel|hostel|guest_house"](around:${radius},${lat},${lng});` },
+        { type: "restaurant", q: `nwr["amenity"~"restaurant|cafe"](around:${radius},${lat},${lng});` },
+        { type: "transport",  q: `nwr["railway"~"station|halt"](around:${radius},${lat},${lng});nwr["amenity"="bus_station"](around:${radius},${lat},${lng});` },
+        { type: "service",    q: `nwr["amenity"~"hospital|police"](around:${radius},${lat},${lng});` },
+    ];
+ 
+    const results = await Promise.allSettled(types.map(async ({ type, q }) => {
+        const query = `[out:json][timeout:10];(${q});out center 5;`;
+        const elements = await fetchOverpassCached(query, `iso_${type}_${lat.toFixed(3)}_${lng.toFixed(3)}`);
+        return { type, elements };
+    }));
+ 
+    // Pour chaque type, tracer une ligne vers le plus proche
+    const colorMap = { hotel: "#ffd700", restaurant: "#f06595", transport: "#74c0fc", service: "#4dabf7" };
+    const iconMap  = { hotel: "fa-bed",  restaurant: "fa-utensils", transport: "fa-train", service: "fa-info-circle" };
+ 
+    results.forEach(r => {
+        if (r.status !== "fulfilled") return;
+        const { type, elements } = r.value;
+        if (!elements.length) return;
+ 
+        const nearest = _findNearest(lat, lng, elements);
+        if (!nearest) return;
+ 
+        const nLat = nearest.lat || nearest.center?.lat;
+        const nLon = nearest.lon || nearest.center?.lon;
+        if (!nLat || !nLon) return;
+ 
+        const color = colorMap[type] || "#00ffcc";
+        const name  = nearest.tags?.name || type;
+ 
+        // Tracé animé avec antPath si disponible
+        let line;
+        if (window.L?.polyline?.antPath) {
+            line = L.polyline.antPath([[lat, lng], [nLat, nLon]], {
+                color, weight: 3, opacity: 0.85,
+                dashArray: [10, 20], delay: 400, pulseColor: "#fff"
+            }).addTo(_filmingMap);
+        } else {
+            line = L.polyline([[lat, lng], [nLat, nLon]], {
+                color, weight: 3, opacity: 0.85, dashArray: "8,8"
+            }).addTo(_filmingMap);
+        }
+ 
+        // Marqueur destination
+        const destIcon = L.divIcon({
+            html: `<div class="fmap-nearest-pin" style="border-color:${color}"><i class="fas ${iconMap[type]}" style="color:${color}"></i></div>`,
+            className: "", iconSize: [30, 30], iconAnchor: [15, 30]
+        });
+        const m = L.marker([nLat, nLon], { icon: destIcon })
+            .bindPopup(`<div style="padding:8px;min-width:140px"><strong>${escapeHtml(name)}</strong><br><span style="color:var(--muted);font-size:.75rem">~${nearest._dist}m · ${type}</span></div>`)
+            .addTo(_filmingMap);
+    });
+}
+
+
+
+
+
+
+function _findNearest(lat, lng, elements) {
+    let best = null, bestDist = Infinity;
+    elements.forEach(el => {
+        const elLat = el.lat || el.center?.lat;
+        const elLon = el.lon || el.center?.lon;
+        if (!elLat || !elLon) return;
+        const d = _haversineM(lat, lng, elLat, elLon);
+        if (d < bestDist) { bestDist = d; best = { ...el, _dist: Math.round(d) }; }
+    });
+    return best;
+}
+
+function _haversineM(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
 async function handleOSMAction(type, lat, lng) {
-    // 1. Cas spécial : L'isochrone (calcul zone 15min)
-    if (type === 'isochrone') {
-        drawIsochrone(lat, lng, 'foot', 15);
+    if (!_filmingMap) return;
+ 
+    if (type === "isochrone") {
+        await drawIsochrone(lat, lng, "foot", 15);
         return;
     }
-
-    // 2. Préparation pour POI (Hôtels/Restos/Services)
-    toast(`Recherche de ${type} autour...`);
-    
+ 
+    // Rayon 5km, max 30 résultats
+    const radius = 5000;
     let query = "";
     let layer = null;
-
-    // Définir la requête et la couche cible (layer)
-    // Remplace ton bloc 'hotel' par celui-ci :
-if (type === 'hotel') {
-    // Ajout de "farm", "cabin", "chalet" pour capturer les gîtes et refuges
-    query = `[out:json][timeout:20];(
-        nwr["tourism"~"hotel|hostel|guest_house|motel|apartment|chalet|camp_site|bed_and_breakfast|farm|cabin"](around:1000,${lat},${lng});
-        nwr["amenity"="hotel"](around:1000,${lat},${lng});
-    );out center;`;
-    layer = _filmingHotelLayer; 
-} else if (type === 'restaurant') {
-        query = `[out:json];node["amenity"~"restaurant|cafe"](around:1000,${lat},${lng});out;`;
-        layer = _filmingRestaurantLayer;
-    } else if (type === 'service') {
-        query = `[out:json];node["amenity"~"hospital|police"](around:1000,${lat},${lng});out;`;
-        layer = _filmingTourismLayer;
+    let typeLabel = type;
+ 
+    if (type === "hotel") {
+        query = `[out:json][timeout:15];(nwr["tourism"~"hotel|hostel|guest_house|motel|apartment|bed_and_breakfast|chalet|camp_site"](around:${radius},${lat},${lng});nwr["amenity"="hotel"](around:${radius},${lat},${lng}););out center 30;`;
+        layer = _filmingHotelLayer; typeLabel = "hébergements";
+        if (!_filmingMap.hasLayer(layer)) { _filmingMap.addLayer(layer); document.getElementById("fmap-layer-hotel")?.classList.add("active"); }
+    } else if (type === "restaurant") {
+        query = `[out:json][timeout:15];nwr["amenity"~"restaurant|cafe|bar|fast_food"](around:${radius},${lat},${lng});out center 30;`;
+        layer = _filmingRestaurantLayer; typeLabel = "restaurants";
+        if (!_filmingMap.hasLayer(layer)) { _filmingMap.addLayer(layer); document.getElementById("fmap-layer-restaurant")?.classList.add("active"); }
+    } else if (type === "transport") {
+        query = `[out:json][timeout:15];(nwr["aeroway"~"aerodrome|airport"](around:${radius},${lat},${lng});nwr["railway"~"station|halt"](around:${radius},${lat},${lng});nwr["amenity"~"bus_station|ferry_terminal"](around:${radius},${lat},${lng}););out center 30;`;
+        layer = _filmingTransportLayer; typeLabel = "transports";
+        if (!_filmingMap.hasLayer(layer)) { _filmingMap.addLayer(layer); document.getElementById("fmap-layer-transport")?.classList.add("active"); }
+    } else if (type === "service") {
+        query = `[out:json][timeout:15];nwr["amenity"~"hospital|police|fire_station|information"](around:${radius},${lat},${lng});out center 30;`;
+        layer = _filmingTourismLayer; typeLabel = "services";
+        if (!_filmingMap.hasLayer(layer)) { _filmingMap.addLayer(layer); document.getElementById("fmap-layer-tourism")?.classList.add("active"); }
     }
-
-    if (layer) layer.clearLayers(); // Nettoyer les anciens points de ce type
-
-    try {
-        // Utilisation de ta fonction de cache existante pour éviter les erreurs 429
-        const elements = await fetchOverpassCached(query, `${type}_${lat}_${lng}`);
-        
-        if (elements.length === 0) {
-            toast(`Aucun ${type} trouvé à proximité.`);
-            return;
-        }
-
-        // Affichage des points sur la couche dédiée
-        displayOSMPoints(elements, type, layer);
-        
-    } catch (e) {
-        toast("Erreur de chargement (Overpass est surchargé).");
-        console.error(e);
+ 
+    if (!layer) return;
+ 
+    toast(`🔍 Recherche des ${typeLabel} à 5km…`);
+    const cacheKey = `${type}_${lat.toFixed(3)}_${lng.toFixed(3)}`;
+    const elements = await fetchOverpassCached(query, cacheKey);
+ 
+    if (elements.length === 0) {
+        toast(`Aucun ${typeLabel} trouvé dans un rayon de 5km.`);
+        return;
     }
+ 
+    layer.clearLayers();
+    elements.forEach(el => _addMarkerToLayer(el, type, layer));
+ 
+    // Zoom sur le secteur
+    _filmingMap.flyTo([lat, lng], 14, { duration: 1 });
+ 
+    // Trouver le POI le plus proche et afficher une info
+    const nearest = _findNearest(lat, lng, elements);
+    if (nearest) {
+        const name = nearest.tags?.name || typeLabel;
+        toast(`📍 Plus proche : ${name} (~${nearest._dist}m)`, 5000);
+    }
+ 
+    toast(`✅ ${elements.length} ${typeLabel} trouvés`, 3000);
 }
 
 function displayOSMPoints(elements, type, layer) {
