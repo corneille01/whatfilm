@@ -1271,6 +1271,9 @@ function _renderFilmingPage(container) {
               <option value="year"            ${_filmingCurrentSort === 'year'            ? 'selected' : ''}>${ld.filming_sort_year || 'Plus récents'}</option>
               <option value="title"           ${_filmingCurrentSort === 'title'           ? 'selected' : ''}>${ld.filming_sort_title || 'A–Z'}</option>
             </select>
+            <select id="filming-filter-year" onchange="setFilmingYear(this.value)">
+  <option value="">📅 Toutes les années</option>
+</select>
             <button class="fmap-btn filming-reset-btn" onclick="resetFilmingFilters()">
               <i class="fas fa-times"></i> Reset
             </button>
@@ -1339,6 +1342,12 @@ function _renderFilmingPage(container) {
 
     _initFilmingLeafletMap();
 }
+let _filmingCurrentYear = "";
+function setFilmingYear(year) {
+    _filmingCurrentYear = year;
+    _filmingCurrentPage = 1;
+    _loadFilmingCatalogue();
+}
 
 function _buildCountryOptions() {
     return _filmingCountries.slice(0, 100).map(c =>
@@ -1351,6 +1360,8 @@ function _updateFilmingFilters() {
         const types = ['', 'movie', 'tv'];
         btn.classList.toggle("active", _filmingCurrentType === types[i]);
     });
+    const fy = document.getElementById("filming-filter-year");
+if (fy) fy.value = _filmingCurrentYear;
     const cs = document.getElementById("filming-filter-country");
     if (cs) cs.value = _filmingCurrentCountry;
     const ss = document.getElementById("filming-filter-sort");
@@ -1380,6 +1391,7 @@ function setFilmingSort(sort) {
     _loadFilmingCatalogue();
 }
 function resetFilmingFilters() {
+  _filmingCurrentYear = "";
     _filmingCurrentCountry = "";
     _filmingCurrentType    = "";
     _filmingCurrentQ       = "";
@@ -1392,6 +1404,7 @@ async function _loadFilmingCatalogue() {
     const cardsEl = document.getElementById("filming-cards");
     const countEl = document.getElementById("filming-result-count");
     if (!cardsEl) return;
+    if (_filmingCurrentYear) params.set("year", _filmingCurrentYear);
 
     cardsEl.innerHTML = `<div class="filming-loading"><i class="fas fa-circle-notch fa-spin"></i> Chargement…</div>`;
 
@@ -1409,6 +1422,14 @@ async function _loadFilmingCatalogue() {
         if (data.status !== "success") {
             cardsEl.innerHTML = `<p style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">Aucun résultat.</p>`;
             return;
+            // Peupler filtre années
+const yearSel = document.getElementById("filming-filter-year");
+if (yearSel && data.results) {
+    const years = [...new Set(data.results.map(f => f.year).filter(Boolean))].sort((a,b) => b-a);
+    const currentVal = yearSel.value;
+    yearSel.innerHTML = `<option value="">📅 Toutes les années</option>` +
+        years.map(y => `<option value="${y}" ${currentVal == y ? 'selected' : ''}>${y}</option>`).join("");
+}
         }
         if (countEl) countEl.textContent = `${(data.total || 0).toLocaleString()} films (sur cette page)`;
         _renderFilmingCards(cardsEl, data.results);
@@ -1434,8 +1455,8 @@ function _renderFilmingCards(container, results) {
         const year      = f.year || "—";
         const isTv      = f.media_type === "tv" || f.media_type === "series"; // Ajout de "series" au cas où
         const locCount  = f.location_count || 0;
-        const countries = (f.countries || []).slice(0, 3).join(", ");
-        const primaryLoc = f.primary_location;
+       const countries = (f.countries || (f.locations || []).map(l => l.country).filter(c => c && c !== "Inconnu")).slice(0, 3).join(", ");
+        const primaryLoc = f.primary_location || (f.locations && f.locations[0]) || null;
         const hotelQuery = primaryLoc
             ? encodeURIComponent(primaryLoc.name + (primaryLoc.country ? ", " + primaryLoc.country : ""))
             : "";
@@ -1589,52 +1610,49 @@ function _updateFilmingMapMarkers(films) {
     const bounds = L.latLngBounds();
 
     films.forEach(f => {
-        const loc = f.primary_location;
+        // ✅ CORRECTION : primary_location ou locations[0]
+        const loc = f.primary_location || (f.locations && f.locations[0]) || null;
         if (!loc || loc.lat == null) return;
 
         const posterUrl = f.poster_path ? `https://image.tmdb.org/t/p/w92${f.poster_path}` : null;
-        const iconHtml  = posterUrl
+        const iconHtml = posterUrl
             ? `<div class="fmap-marker-film" style="background-image:url('${posterUrl}')"></div>`
             : `<div class="fmap-marker-film fmap-marker-no-poster"><i class="fas fa-film"></i></div>`;
 
         const icon = L.divIcon({ html: iconHtml, className: "", iconSize: [36,36], iconAnchor: [18,36], popupAnchor: [0,-40] });
         const marker = L.marker([loc.lat, loc.lng], { icon });
 
-        // Clic droit : Copier les coordonnées
         marker.on('contextmenu', (e) => {
             const coords = `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
             navigator.clipboard.writeText(coords).then(() => toast(`📍 Coordonnées copiées : ${coords}`));
         });
 
-        const locationQuery = encodeURIComponent(loc.name + (loc.country ? ", " + loc.country : ""));
-        const bookingUrl    = `https://www.booking.com/searchresults.html?ss=${locationQuery}&aid=SHADOWFRAME`;
-        const safeLocName   = escapeHtml(loc.name).replace(/'/g, "\\'");
-        
-       marker.bindPopup(`
+        const locationQuery = encodeURIComponent(loc.name + (loc.country && loc.country !== "Inconnu" ? ", " + loc.country : ""));
+        const bookingUrl = `https://www.booking.com/searchresults.html?ss=${locationQuery}&aid=SHADOWFRAME`;
+        const safeTitle = escapeHtml(f.title).replace(/'/g, "\\'");
+
+        marker.bindPopup(`
           <div class="fmap-popup">
             ${posterUrl ? `<img src="${posterUrl}" class="fmap-popup-poster" alt="">` : ""}
             <div class="fmap-popup-body">
               <div class="fmap-popup-title">${escapeHtml(f.title)}</div>
               <div class="fmap-popup-meta">${f.year||""}${f.vote_average ? ` · ⭐ ${f.vote_average.toFixed(1)}` : ""}</div>
               <div class="fmap-popup-loc"><i class="fas fa-map-pin"></i> ${escapeHtml(loc.name)}</div>
-              
               <div class="fmap-popup-actions">
-                <button class="fmap-popup-btn fmap-popup-detail" onclick="afficherDetails(${f.tmdb_id},'${f.media_type||'movie'}');document.querySelector('.leaflet-popup-close-button')?.click()">
+                <button class="fmap-popup-btn fmap-popup-detail" onclick="afficherDetails(${f.tmdb_id},'${f.media_type||'movie'}')">
                     <i class="fas fa-info-circle"></i> Détails
                 </button>
-                <button class="fmap-popup-btn" onclick="openFilmMapModal(${f.tmdb_id},'${escapeHtml(f.title).replace(/'/g,"\\'")}','${f.media_type||'movie'}');document.querySelector('.leaflet-popup-close-button')?.click()">
+                <button class="fmap-popup-btn" onclick="openFilmMapModal(${f.tmdb_id},'${safeTitle}','${f.media_type||'movie'}')">
                     <i class="fas fa-map-marked-alt"></i> Tous les lieux
                 </button>
               </div>
-
-              <div style="border-top: 1px solid rgba(255,255,255,0.1); margin: 10px 0; padding-top: 6px;"></div>
-              
-              <div class="fmap-popup-actions" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+              <div style="border-top:1px solid rgba(255,255,255,0.1);margin:8px 0 6px"></div>
+              <div class="fmap-popup-actions" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
                 <button class="fmap-popup-btn btn-osm-action" data-type="isochrone" data-lat="${loc.lat}" data-lng="${loc.lng}">
                     <i class="fas fa-shoe-prints"></i> 15 min
                 </button>
                 <button class="fmap-popup-btn btn-osm-action" data-type="hotel" data-lat="${loc.lat}" data-lng="${loc.lng}">
-                    <i class="fas fa-bed"></i> Tous les types de Logements 
+                    <i class="fas fa-bed"></i> Logements
                 </button>
                 <button class="fmap-popup-btn btn-osm-action" data-type="restaurant" data-lat="${loc.lat}" data-lng="${loc.lng}">
                     <i class="fas fa-utensils"></i> Restos
@@ -1643,10 +1661,9 @@ function _updateFilmingMapMarkers(films) {
                     <i class="fas fa-info-circle"></i> Services
                 </button>
               </div>
-
-              <div class="fmap-popup-book-row" style="margin-top:10px;">
+              <div class="fmap-popup-book-row" style="margin-top:8px;">
                 <a href="${bookingUrl}" target="_blank" rel="sponsored noopener" class="fmap-popup-btn fmap-popup-booking">
-                    <i class="fas fa-bed"></i> Chercher sur Booking
+                    <i class="fas fa-bed"></i> Booking
                 </a>
               </div>
             </div>
@@ -1655,7 +1672,7 @@ function _updateFilmingMapMarkers(films) {
 
         if (_filmingMarkerClusterGroup) _filmingMarkerClusterGroup.addLayer(marker);
         else marker.addTo(_filmingFilmLayer);
-        
+
         _filmingAllMarkers.push({ lat: loc.lat, lng: loc.lng, marker, film: f });
         bounds.extend([loc.lat, loc.lng]);
     });
