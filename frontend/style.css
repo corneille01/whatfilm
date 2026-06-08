@@ -1257,32 +1257,22 @@ body {
 .progress-bar-track { height: 10px; border-radius: 5px; }
 #prog-percent { font-size: 1.1rem; font-weight: 700; margin-top: 8px; }
 
-
-
-/* ════════════════════════════════════════════════════════════════════════════
-   FILMING PAGE v4.0 — PATCH CSS COMPLET
-   Remplace / complète les règles filming dans style.css
-   ════════════════════════════════════════════════════════════════════════════ */
 /* ════════════════════════════════════════════════════════════════════════════
    FILMING PAGE v4.0 — PATCH CSS COMPLET
    Remplace / complète les règles filming dans style.css
    ════════════════════════════════════════════════════════════════════════════ */
 
-/* ── Layout split-screen ─────────────────────────────────────────────────── */
+/* ── Layout — base mobile first ─────────────────────────────────────────── */
 #filming-page {
   display: none;
 }
 #filming-page:not([style*="display: none"]) {
   display: grid;
-  grid-template-columns: 380px 1fr;
-  gap: 0;
-  align-items: start;
+  grid-template-columns: 1fr;  /* mobile: 1 colonne */
   width: 100%;
   max-width: 1600px;
   margin: 0 auto;
   padding: 0;
-  height: calc(100vh - 64px); /* occupe tout l'espace disponible */
-  overflow: hidden;
   animation: fadeInUp 0.3s ease both;
 }
 
@@ -1296,20 +1286,21 @@ body {
   background: var(--bg);
 }
 
-/* Header fixe de la sidebar */
+/* Header fixe de la sidebar — compact et centré */
 .filming-sidebar-header {
   flex-shrink: 0;
-  padding: 16px 16px 0;
+  padding: 10px 14px 0;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   z-index: 10;
+  text-align: center;
 }
 
 .filming-hero {
-  padding: 8px 0 12px;
+  padding: 6px 0 8px;
 }
 .filming-title {
-  font-size: 1.35rem;
+  font-size: 1.1rem;
   font-weight: 900;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -1317,33 +1308,35 @@ body {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  margin: 0 0 4px;
+  margin: 0 0 2px;
 }
 .filming-subtitle {
   color: var(--muted);
-  font-size: .78rem;
-  margin: 0 0 8px;
+  font-size: .72rem;
+  margin: 0 0 6px;
 }
 .filming-stats-bar {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 40px;
-  padding: 4px 12px;
-  font-size: .72rem;
+  padding: 3px 10px;
+  font-size: .68rem;
   color: var(--muted);
+  margin-bottom: 2px;
 }
 .filming-stats-bar strong { color: var(--primary); }
 .filming-stats-sep { opacity: .3; }
 
 /* Filtres */
 .filming-filters-wrap {
-  padding: 12px 0 14px;
+  padding: 8px 0 10px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+  text-align: left;
 }
 
 /* Barre recherche */
@@ -1396,16 +1389,19 @@ body {
   border: 1.5px solid var(--border);
   color: var(--text);
   border-radius: 8px;
-  padding: 7px 10px;
-  font-size: .78rem;
+  padding: 8px 10px;
+  font-size: .82rem;
   font-family: "DM Sans", sans-serif;
   cursor: pointer;
   outline: none;
   transition: border-color .2s;
   width: 100%;
   appearance: none;
+  /* Scroll natif — le navigateur gère le scroll dans le dropdown */
+  max-height: 280px;
 }
 .filming-filter-group select:focus { border-color: var(--primary); }
+/* Sur iOS, les selects natifs scrollent automatiquement — rien à ajouter */
 
 .filming-media-toggle {
   display: flex;
@@ -1589,7 +1585,7 @@ body {
   top: 64px;
   height: calc(100vh - 64px);
   overflow: hidden;
-  background: #f0ebe3;
+  background: #0d0d14;
 }
 #filming-leaflet-map {
   width: 100%;
@@ -1608,7 +1604,7 @@ body {
 }
 .fmap-fullscreen-mode #filming-leaflet-map { height: 100vh; }
 
-/* Toolbar */
+/* Toolbar — dark */
 .filming-map-toolbar {
   position: absolute;
   top: 10px; left: 10px; right: 10px;
@@ -1628,9 +1624,9 @@ body {
   pointer-events: all;
 }
 .fmap-btn {
-  background: rgba(255,255,255,.92);
-  border: 1px solid #ddd;
-  color: #555;
+  background: rgba(13,13,20,.88);
+  border: 1px solid rgba(255,255,255,.15);
+  color: var(--muted);
   border-radius: 8px;
   padding: 6px 10px;
   font-size: .73rem;
@@ -1640,31 +1636,31 @@ body {
   align-items: center;
   gap: 5px;
   transition: all .2s;
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(8px);
   white-space: nowrap;
-  box-shadow: 0 1px 4px rgba(0,0,0,.12);
+  box-shadow: 0 2px 8px rgba(0,0,0,.4);
 }
-.fmap-btn:hover  { border-color: var(--primary); color: var(--primary); background: #fff; }
+.fmap-btn:hover  { border-color: var(--primary); color: var(--primary); }
 .fmap-btn.active { border-color: var(--primary); background: rgba(0,255,204,.1); color: var(--primary); font-weight: 600; }
 .fmap-btn span   { display: none; }
 @media (min-width: 1200px) { .fmap-btn span { display: inline; } }
 
-/* Légende */
+/* Légende — dark */
 .filming-map-legend {
   position: absolute;
   bottom: 28px; left: 10px;
   z-index: 1000;
   display: flex;
   gap: 8px;
-  background: rgba(255,255,255,.92);
-  border: 1px solid #ddd;
+  background: rgba(13,13,20,.88);
+  border: 1px solid rgba(255,255,255,.1);
   border-radius: 8px;
   padding: 5px 10px;
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(8px);
   font-size: .67rem;
-  color: #555;
+  color: var(--muted);
   flex-wrap: wrap;
-  box-shadow: 0 1px 4px rgba(0,0,0,.12);
+  box-shadow: 0 2px 8px rgba(0,0,0,.4);
 }
 .fmap-legend-item { display: flex; align-items: center; gap: 4px; }
 .fmap-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
@@ -1713,14 +1709,14 @@ body {
 
 /* Cluster */
 .fmap-cluster {
-  background: rgba(0,255,204,.15);
+  background: rgba(0,255,204,.18);
   border: 2px solid var(--primary);
   border-radius: 50%;
-  color: #006655;
+  color: var(--primary);
   font-weight: 700;
   font-size: 12px;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 0 10px rgba(0,255,204,.2);
+  box-shadow: 0 0 12px rgba(0,255,204,.25);
 }
 
 /* Marqueur POI le plus proche */
@@ -1759,16 +1755,17 @@ body {
   50%      { transform: scale(1.6); opacity: .4; }
 }
 
-/* ── Popups Leaflet (fond clair) ─────────────────────────────────────────── */
+/* ── Popups Leaflet (dark mode) ──────────────────────────────────────────── */
 .leaflet-popup-content-wrapper {
-  background: #fff !important;
-  border: 1px solid #e0e0e0 !important;
+  background: #1a1a2e !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
   border-radius: 12px !important;
-  box-shadow: 0 8px 24px rgba(0,0,0,.15) !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,.5) !important;
   padding: 0 !important;
 }
-.leaflet-popup-content { margin: 0 !important; color: #222; }
-.leaflet-popup-tip     { background: #fff !important; }
+.leaflet-popup-content { margin: 0 !important; color: var(--text); }
+.leaflet-popup-tip     { background: #1a1a2e !important; }
+.leaflet-popup-close-button { color: var(--muted) !important; }
 
 .fmap-popup {
   display: flex; gap: 10px; padding: 12px;
@@ -1777,44 +1774,47 @@ body {
 .fmap-popup-poster {
   width: 52px; height: 78px;
   object-fit: cover; border-radius: 6px;
-  flex-shrink: 0; border: 1px solid #eee;
+  flex-shrink: 0; border: 1px solid rgba(255,255,255,.1);
 }
 .fmap-popup-body { flex: 1; min-width: 0; }
 .fmap-popup-title {
-  font-weight: 700; font-size: .85rem; color: #111;
+  font-weight: 700; font-size: .85rem; color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;
 }
-.fmap-popup-meta    { font-size: .7rem; color: #666; margin-bottom: 2px; }
+.fmap-popup-meta    { font-size: .7rem; color: var(--muted); margin-bottom: 2px; }
 .fmap-popup-loc     { font-size: .72rem; color: var(--primary); margin-bottom: 6px; }
 .fmap-popup-actions { display: flex; gap: 4px; flex-wrap: wrap; }
 
 .fmap-popup-btn {
   font-size: .66rem; padding: 3px 7px;
-  border-radius: 6px; border: 1px solid #ddd;
-  background: #f5f5f5; color: #333;
+  border-radius: 6px; border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06); color: var(--text);
   cursor: pointer; text-decoration: none;
   display: inline-flex; align-items: center; gap: 3px;
   transition: all .2s; font-family: "DM Sans", sans-serif;
 }
-.fmap-popup-btn:hover    { border-color: var(--primary); color: var(--primary); background: #f0fff8; }
-.fmap-popup-booking      { border-color: #003580 !important; color: #003580 !important; background: #f0f4ff !important; }
-.fmap-popup-booking:hover { background: #e0eaff !important; }
+.fmap-popup-btn:hover    { border-color: var(--primary); color: var(--primary); background: rgba(0,255,204,.08); }
+.fmap-popup-booking      { border-color: #4dabf7 !important; color: #4dabf7 !important; background: rgba(0,53,128,.2) !important; }
+.fmap-popup-booking:hover { background: rgba(0,53,128,.35) !important; }
 
 /* Popup lieux film */
 .fmap-popup-loc { padding: 12px; min-width: 220px; }
 .fmap-popup-loc-title { font-size: .72rem; color: var(--muted); margin-bottom: 4px; }
-.fmap-popup-loc-name  { font-size: .88rem; font-weight: 700; color: #111; margin-bottom: 8px; }
+.fmap-popup-loc-name  { font-size: .88rem; font-weight: 700; color: var(--text); margin-bottom: 8px; }
 
 /* Popup petit */
 .fmap-popup-small { padding: 10px 12px; min-width: 150px; }
-.fmap-popup-small strong { color: #111; font-size: .85rem; }
+.fmap-popup-small strong { color: var(--text); font-size: .85rem; }
 
-/* ── Responsive ──────────────────────────────────────────────────────────── */
-@media (max-width: 960px) {
+/* ── Responsive — Mobile First ───────────────────────────────────────────── */
+
+/* Mobile : stack vertical, carte en bas */
+@media (max-width: 768px) {
   #filming-page:not([style*="display: none"]) {
     grid-template-columns: 1fr;
     height: auto;
     overflow: visible;
+    min-height: 100vh;
   }
   .filming-sidebar {
     height: auto;
@@ -1824,26 +1824,89 @@ body {
   }
   .filming-sidebar-header {
     position: sticky;
-    top: 64px;
+    top: 56px; /* hauteur header mobile */
     z-index: 20;
+    background: var(--bg);
+    padding: 8px 12px 0;
   }
+  .filming-title { font-size: .95rem; }
+  .filming-subtitle { display: none; } /* trop verbeux sur mobile */
+  .filming-stats-bar { font-size: .62rem; padding: 2px 8px; }
+
+  .filming-filters-wrap { gap: 6px; padding: 6px 0 8px; }
+  .filming-search-box input { font-size: .82rem; padding: 8px 10px 8px 30px; }
+
+  .filming-filters-row-2 {
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .filming-filter-group label { font-size: .62rem; }
+  .filming-filter-group select { font-size: .78rem; padding: 7px 8px; }
+  .filming-media-toggle { padding: 2px; }
+  .fmedia-btn { font-size: .72rem; padding: 4px 4px; }
+
+  .filming-reset-row button { font-size: .72rem; padding: 6px 14px; }
+
   .filming-grid-wrap {
     overflow: visible;
-    max-height: 70vh;
-    overflow-y: auto;
+    padding: 10px 12px 20px;
   }
+  .filming-cards {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  /* Carte en bas, hauteur fixe raisonnable */
   .filming-map-wrap {
     position: relative;
     top: 0;
-    height: 450px;
+    height: 50vh;
+    min-height: 280px;
+    border-top: 1px solid var(--border);
   }
-  .filming-cards {
-    grid-template-columns: repeat(3, 1fr);
+  #filming-leaflet-map { height: 100%; }
+
+  /* Toolbar — icônes seulement sur mobile */
+  .fmap-btn { padding: 6px 8px; font-size: .7rem; }
+  .fmap-btn span { display: none !important; }
+
+  /* Légende compacte */
+  .filming-map-legend { font-size: .6rem; gap: 5px; padding: 4px 8px; }
+}
+
+/* Petits phones (375px et moins) */
+@media (max-width: 390px) {
+  .filming-cards { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  .filming-card-body h4 { font-size: .7rem; }
+  .filming-filters-row-2 { grid-template-columns: 1fr 1fr; }
+  .filming-show-locations-btn { font-size: .62rem; padding: 5px 6px; }
+}
+
+/* Tablette portrait */
+@media (min-width: 769px) and (max-width: 960px) {
+  #filming-page:not([style*="display: none"]) {
+    grid-template-columns: 320px 1fr;
+    height: calc(100vh - 64px);
+    overflow: hidden;
+  }
+  .filming-cards { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Desktop standard */
+@media (min-width: 961px) {
+  #filming-page:not([style*="display: none"]) {
+    grid-template-columns: 360px 1fr;
+    height: calc(100vh - 64px);
+    overflow: hidden;
   }
 }
-@media (max-width: 560px) {
-  .filming-cards { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-  .filming-filters-row-2 { grid-template-columns: 1fr; }
+
+/* Grand écran */
+@media (min-width: 1400px) {
+  #filming-page:not([style*="display: none"]) {
+    grid-template-columns: 420px 1fr;
+  }
+  .filming-cards { grid-template-columns: repeat(2, 1fr); }
 }
 
 @keyframes fadeInUp {

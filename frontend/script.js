@@ -678,8 +678,17 @@ function afficherResultatsRecherche(data,query){
 }
 
 // ════════════════════════════════════════════════════════════════
-// FILMING PAGE v4.0
+// FILMING PAGE v5.0 — CORRIGÉ
 // ════════════════════════════════════════════════════════════════
+
+// Éléments temporaires carte (isochrone, tracés, labels)
+let _tempMapLayers = [];
+
+function _clearTempLayers() {
+  _tempMapLayers.forEach(l => { try { _filmingMap.removeLayer(l); } catch(e){} });
+  _tempMapLayers = [];
+  if (_isochroneLayer) { try { _filmingMap.removeLayer(_isochroneLayer); } catch(e){} _isochroneLayer = null; }
+}
 
 async function chargerLieuxDeTournage(page=1){
   hideHero();cacherErreur();currentGenreName="filming";_filmingCurrentPage=page;
@@ -692,10 +701,11 @@ async function chargerLieuxDeTournage(page=1){
   const filmingPage=document.getElementById("filming-page");
   if(filmingPage)filmingPage.style.display="";
   navStack=[];
-  const promises=[];
-  if(!_filmingStats)promises.push(safeFetch("/films-tournes/stats").then(d=>{_filmingStats=d;}).catch(()=>{}));
-  if(!_filmingCountries.length)promises.push(safeFetch("/films-tournes/pays").then(d=>{_filmingCountries=d.countries||[];}).catch(()=>{}));
-  if(promises.length)await Promise.allSettled(promises);
+  // Stats + meta filtres en parallèle (une seule fois)
+  await Promise.allSettled([
+    _filmingStats ? Promise.resolve() : safeFetch("/films-tournes/stats").then(d=>{_filmingStats=d;}).catch(()=>{}),
+    _chargerMetaFiltres()
+  ]);
   const alreadyRendered=filmingPage.querySelector(".filming-filters-wrap");
   if(!alreadyRendered)_renderFilmingPage(filmingPage);
   else _updateFilmingFilters();
@@ -705,12 +715,10 @@ async function chargerLieuxDeTournage(page=1){
 function _renderFilmingPage(container){
   const ld=dict[currentLang]||dict.fr;
   const stats=_filmingStats;
-  const statsHtml=stats?`<div class="filming-stats-bar"><span><strong>${stats.total_films?.toLocaleString()||"—"}</strong> Films</span><span class="filming-stats-sep">·</span><span><strong>${stats.total_locations?.toLocaleString()||"—"}</strong> lieux</span><span class="filming-stats-sep">·</span><span><strong>${stats.total_countries?.toLocaleString()||"—"}</strong> pays</span></div>`:"";
-  const countriesOptions=_buildCountryOptions();
+  const statsHtml=stats?`<div class="filming-stats-bar"><span><strong>${stats.total_films?.toLocaleString()||"—"}</strong> Films</span><span class="filming-stats-sep">·</span><span><strong>${stats.total_locations?.toLocaleString()||"—"}</strong> lieux</span></div>`:"";
   container.innerHTML=`
     <div class="filming-sidebar" id="filming-sidebar">
       <div class="filming-sidebar-header">
-        <button class="btn-back" onclick="retourAccueil()"><i class="fas fa-arrow-left"></i> <span>${ld.back_home||"Accueil"}</span></button>
         <div class="filming-hero">
           <h1 class="filming-title"><i class="fas fa-map-marked-alt"></i> ${ld.filming_title||"LIEUX DE TOURNAGE"}</h1>
           <p class="filming-subtitle">${ld.filming_subtitle||"Explorez les vrais décors du cinéma mondial"}</p>
@@ -732,7 +740,7 @@ function _renderFilmingPage(container){
             <div class="filming-filter-group">
               <label><i class="fas fa-globe"></i> Pays</label>
               <select id="filming-filter-country" onchange="setFilmingCountry(this.value)">
-                <option value="">Tous</option>${countriesOptions}
+                <option value="">Tous</option>
               </select>
             </div>
           </div>
@@ -780,15 +788,65 @@ function _renderFilmingPage(container){
       </div>
     </div>`;
   _initFilmingLeafletMap();
+  // Peupler filtres depuis cache global
+  _peuplerFiltresPays();
+  _peuplerFiltresAnnees();
 }
 
-function _buildCountryOptions(){
-  return _filmingCountries.slice(0,120).map(c=>`<option value="${escapeHtml(c.country)}" ${_filmingCurrentCountry===c.country?'selected':''}>${escapeHtml(c.country)} (${c.count})</option>`).join("");
+// ════ CACHE GLOBAL ANNÉES & PAYS (chargé une seule fois) ════
+let _filmingAllYears = [];    // toutes les années du catalogue
+let _filmingAllCountries = []; // tous les pays du catalogue
+
+async function _chargerMetaFiltres() {
+  if (_filmingAllYears.length && _filmingAllCountries.length) return; // déjà chargé
+  try {
+    // On charge TOUS les films (sans pagination) pour extraire years & countries
+    const data = await safeFetch(`/films-tournes?per_page=99999&sort=count_locations`);
+    if (data.status !== "success") return;
+    const all = data.results || [];
+    // Années
+    const yearsSet = new Set();
+    all.forEach(f => { if (f.year) yearsSet.add(f.year); });
+    _filmingAllYears = [...yearsSet].sort((a, b) => b - a);
+    // Pays (depuis locations[].name si country==="Inconnu")
+    const countriesSet = new Set();
+    all.forEach(f => {
+      (f.locations || []).forEach(l => {
+        const pays = l.country && l.country !== "Inconnu" ? l.country : l.name;
+        if (pays) countriesSet.add(pays);
+      });
+    });
+    _filmingAllCountries = [...countriesSet].sort();
+  } catch(e) {
+    console.warn("Meta filtres KO:", e);
+  }
+}
+
+// ════ PAYS — extraits depuis le cache global ════
+function _peuplerFiltresPays(){
+  const sel = document.getElementById("filming-filter-country");
+  if (!sel) return;
+  const cv = sel.value;
+  sel.innerHTML = `<option value="">Tous</option>` +
+    _filmingAllCountries.map(c => `<option value="${escapeHtml(c)}" ${cv===c?'selected':''}>${escapeHtml(c)}</option>`).join("");
+}
+
+// ════ ANNÉES — depuis le cache global ════
+function _peuplerFiltresAnnees(){
+  const sel = document.getElementById("filming-filter-year");
+  if (!sel) return;
+  const cv = sel.value;
+  sel.innerHTML = `<option value="">Toutes</option>` +
+    _filmingAllYears.map(y => `<option value="${y}" ${cv==y?'selected':''}>${y}</option>`).join("");
 }
 function _updateFilmingFilters(){
   const btns=document.querySelectorAll(".fmedia-btn");
   const types=['','movie'];
   btns.forEach((btn,idx)=>btn.classList.toggle("active",_filmingCurrentType===(types[idx]??'')));
+  // Re-peupler depuis le cache si déjà chargé
+  _peuplerFiltresPays();
+  _peuplerFiltresAnnees();
+  // Restaurer la valeur sélectionnée
   const fy=document.getElementById("filming-filter-year");if(fy)fy.value=_filmingCurrentYear;
   const cs=document.getElementById("filming-filter-country");if(cs)cs.value=_filmingCurrentCountry;
   const si=document.getElementById("filming-search-input");if(si)si.value=_filmingCurrentQ;
@@ -806,22 +864,23 @@ async function _loadFilmingCatalogue(){
   if(!cardsEl)return;
   cardsEl.innerHTML=`<div class="filming-loading"><i class="fas fa-circle-notch fa-spin"></i> Chargement…</div>`;
   const params=new URLSearchParams({page:_filmingCurrentPage,per_page:24,sort:"count_locations"});
-  if(_filmingCurrentCountry)params.set("country",_filmingCurrentCountry);
   if(_filmingCurrentType)params.set("media_type",_filmingCurrentType);
   if(_filmingCurrentQ)params.set("q",_filmingCurrentQ);
   if(_filmingCurrentYear)params.set("year",_filmingCurrentYear);
   try{
     const data=await safeFetch(`/films-tournes?${params}`);
     if(data.status!=="success"){cardsEl.innerHTML=`<p style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">Aucun résultat.</p>`;return;}
-    const yearSel=document.getElementById("filming-filter-year");
-    if(yearSel&&data.results){
-      const years=[...new Set(data.results.map(f=>f.year).filter(Boolean))].sort((a,b)=>b-a);
-      const cv=yearSel.value;
-      yearSel.innerHTML=`<option value="">Toutes</option>`+years.map(y=>`<option value="${y}" ${cv==y?'selected':''}>${y}</option>`).join("");
+    let results=data.results||[];
+    // Filtrage pays côté client (car country="Inconnu" dans le JSON, vrai nom dans name)
+    if(_filmingCurrentCountry){
+      results=results.filter(f=>(f.locations||[]).some(l=>{
+        const pays=l.country&&l.country!=="Inconnu"?l.country:l.name;
+        return pays===_filmingCurrentCountry;
+      }));
     }
-    _renderFilmingCards(cardsEl,data.results);
+    _renderFilmingCards(cardsEl,results);
     _renderFilmingPagination(data.page,data.total_pages);
-    _updateFilmingMapMarkers(data.results);
+    _updateFilmingMapMarkers(results);
   }catch(e){if(cardsEl)cardsEl.innerHTML=`<p style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">Erreur de chargement.</p>`;}
 }
 
@@ -872,7 +931,7 @@ function _initFilmingLeafletMap(){
     _filmingAllMarkers=[];
     _filmingMap=L.map(mapEl,{center:[20,0],zoom:2,zoomControl:false,scrollWheelZoom:true});
     L.control.zoom({position:"topright"}).addTo(_filmingMap);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CARTO',subdomains:'abcd',maxZoom:19}).addTo(_filmingMap);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CARTO',subdomains:'abcd',maxZoom:19}).addTo(_filmingMap);
     _filmingFilmLayer=L.layerGroup().addTo(_filmingMap);
     _filmingHotelLayer=L.layerGroup();
     _filmingTourismLayer=L.layerGroup();
@@ -930,23 +989,34 @@ function _updateFilmingMapMarkers(films){
 async function showFilmLocationsOnMap(tmdbId,title,mediaType='movie'){
   if(!_filmingMap||!_filmingLeafletReady)return;
   _stopBounce();
-  _activeFilmMarkers.forEach(m=>{if(_filmingFilmLayer)_filmingFilmLayer.removeLayer(m);});
+  _clearTempLayers();
+  // Cacher le cluster général pour ne montrer que ce film
+  if(_filmingMarkerClusterGroup&&_filmingMap.hasLayer(_filmingMarkerClusterGroup)){
+    _filmingMap.removeLayer(_filmingMarkerClusterGroup);
+  }
+  // Vider les marqueurs actifs précédents
+  if(_filmingFilmLayer)_filmingFilmLayer.clearLayers();
   _activeFilmMarkers=[];
   toast(`📍 Chargement des lieux de "${title}"…`);
   let locations=[];
   try{const data=await safeFetch(`/movie/${tmdbId}/locations?type=${mediaType}`);locations=(data.locations||[]).filter(l=>l.lat!=null);}
   catch(e){toast("Erreur lors du chargement des lieux.");return;}
-  if(locations.length===0){toast("Aucun lieu géolocalisé pour ce film.");return;}
+  if(locations.length===0){
+    // Ré-afficher le cluster
+    if(_filmingMarkerClusterGroup)_filmingMap.addLayer(_filmingMarkerClusterGroup);
+    toast("Aucun lieu géolocalisé pour ce film.");return;
+  }
   const bounds=L.latLngBounds();
   locations.forEach(loc=>{
     const marker=_createFilmLocationMarker(loc,title,tmdbId,mediaType);
-    if(_filmingFilmLayer)_filmingFilmLayer.addLayer(marker);
+    _filmingFilmLayer.addLayer(marker);
     _activeFilmMarkers.push(marker);
     bounds.extend([loc.lat,loc.lng]);
   });
-  _filmingMap.flyToBounds(bounds,{padding:[60,60],duration:1.2,maxZoom:13});
-  document.getElementById("filming-map-wrap")?.scrollIntoView({behavior:"smooth",block:"start"});
+  if(bounds.isValid())_filmingMap.flyToBounds(bounds,{padding:[60,60],duration:1.2,maxZoom:13});
   _startBounce();
+  // Charger automatiquement les POI autour du lieu principal
+  if(locations[0])_autoLoadPOIsAround(locations[0].lat,locations[0].lng);
 }
 
 function _createFilmLocationMarker(loc,filmTitle,tmdbId,mediaType){
@@ -962,8 +1032,13 @@ function _createFilmLocationMarker(loc,filmTitle,tmdbId,mediaType){
 function showAllFilmLocations(){
   if(!_filmingMap||!_filmingLeafletReady)return;
   _stopBounce();
-  if(_filmingMarkerClusterGroup)_filmingMap.addLayer(_filmingMarkerClusterGroup);
-  toast("🗺️ Affichage de tous les lieux…");
+  _clearTempLayers();
+  if(_filmingFilmLayer)_filmingFilmLayer.clearLayers();
+  _activeFilmMarkers=[];
+  if(_filmingMarkerClusterGroup&&!_filmingMap.hasLayer(_filmingMarkerClusterGroup)){
+    _filmingMap.addLayer(_filmingMarkerClusterGroup);
+  }
+  toast("🗺️ Tous les lieux affichés");
 }
 
 // ════ BOUNCE ════
@@ -971,7 +1046,94 @@ function _startBounce(){_stopBounce();_doBounce();_bounceInterval=setInterval(_d
 function _stopBounce(){if(_bounceInterval){clearInterval(_bounceInterval);_bounceInterval=null;}_activeFilmMarkers.forEach(m=>{const el=m.getElement();if(el)el.classList.remove("fmap-bounce");});}
 function _doBounce(){_activeFilmMarkers.forEach(m=>{const el=m.getElement();if(!el)return;el.classList.remove("fmap-bounce");void el.offsetWidth;el.classList.add("fmap-bounce");});}
 
-// ════ OSM ACTIONS (délégation globale) ════
+// ════ CHARGEMENT AUTO POI AUTOUR D'UN LIEU ════
+// Charge silencieusement hotel+resto+transport+service en une seule requête Overpass
+async function _autoLoadPOIsAround(lat, lng) {
+  const r = 800; // 800m — léger et rapide
+  const cacheKey = `auto_${lat.toFixed(3)}_${lng.toFixed(3)}`;
+  // Check cache
+  try {
+    const cached = localStorage.getItem("ovp_"+cacheKey);
+    if (cached) {
+      const c = JSON.parse(cached);
+      if (Date.now() - c.time < 86400000) { _applyAutoPOIs(c.data, lat, lng); return; }
+    }
+  } catch(e) {}
+
+  // Une seule requête groupée — node uniquement pour éviter timeouts
+  const query = `[out:json][timeout:10];(
+    node["tourism"~"hotel|hostel|guest_house"](around:${r},${lat},${lng});
+    node["amenity"~"restaurant|cafe"](around:${r},${lat},${lng});
+    node["railway"~"station|halt"](around:${r},${lat},${lng});
+    node["amenity"~"hospital|police"](around:${r},${lat},${lng});
+  );out 10;`;
+
+  try {
+    const res = await fetch("https://overpass-api.de/api/interpreter", {
+      method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"},
+      body:`data=${encodeURIComponent(query)}`,
+      signal: AbortSignal.timeout(12000)
+    });
+    if (!res.ok) return; // silencieux
+    const data = await res.json();
+    const elements = (data?.elements||[]).slice(0,10);
+    try { localStorage.setItem("ovp_"+cacheKey, JSON.stringify({time:Date.now(),data:elements})); } catch(e){}
+    _applyAutoPOIs(elements, lat, lng);
+  } catch(e) {
+    // Overpass indisponible → silencieux, pas de toast
+  }
+}
+
+function _applyAutoPOIs(elements, originLat, originLng) {
+  if (!_filmingMap || !elements.length) return;
+  // Trier par type pour affecter les bonnes layers
+  const typeMap = {hotel:_filmingHotelLayer, restaurant:_filmingRestaurantLayer, transport:_filmingTransportLayer, service:_filmingTourismLayer};
+  const colorMap = {hotel:"#ffd700", restaurant:"#f06595", transport:"#74c0fc", service:"#4dabf7"};
+  const iconMap  = {hotel:"fa-bed",  restaurant:"fa-utensils", transport:"fa-train", service:"fa-info-circle"};
+
+  elements.forEach(el => {
+    if (!el.lat || !el.lon) return;
+    const tags = el.tags || {};
+    let type = "service";
+    if (tags.tourism) type = "hotel";
+    else if (tags.amenity==="restaurant"||tags.amenity==="cafe") type = "restaurant";
+    else if (tags.railway) type = "transport";
+
+    const layer = typeMap[type];
+    if (!layer) return;
+    const color = colorMap[type], icn = iconMap[type];
+    const name = tags.name || type;
+
+    const icon = L.divIcon({html:`<div style="background:#1a1a24;border:2px solid ${color};color:${color};width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4)"><i class="fas ${icn}" style="font-size:9px"></i></div>`,className:"",iconSize:[24,24],iconAnchor:[12,12]});
+    const marker = L.marker([el.lat, el.lon], {icon});
+
+    // Tracé animé vers le point de tournage
+    const dist = Math.round(_haversineM(originLat, originLng, el.lat, el.lon));
+    let line;
+    if (window.L?.polyline?.antPath) {
+      line = L.polyline.antPath([[originLat,originLng],[el.lat,el.lon]], {color, weight:2, opacity:0.7, dashArray:[6,12], delay:600, pulseColor:"rgba(255,255,255,0.5)"});
+    } else {
+      line = L.polyline([[originLat,originLng],[el.lat,el.lon]], {color, weight:2, opacity:0.6, dashArray:"5,8"});
+    }
+    line.addTo(_filmingMap);
+    _tempMapLayers.push(line);
+
+    let bookLink = "";
+    if (type==="hotel") {
+      bookLink = `<a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(name)}&aid=SHADOWFRAME" target="_blank" rel="sponsored noopener" class="fmap-popup-btn fmap-popup-booking" style="margin-top:6px;display:inline-flex;"><i class="fas fa-bed"></i> Booking</a>`;
+    }
+    marker.bindPopup(`<div class="fmap-popup-small"><span style="font-size:.6rem;color:${color};text-transform:uppercase;font-weight:700">${type}</span><strong style="display:block;font-size:.82rem;margin:2px 0">${escapeHtml(name)}</strong><span style="font-size:.7rem;color:#666">~${dist}m du lieu</span>${bookLink}</div>`);
+
+    layer.addLayer(marker);
+    _tempMapLayers.push(marker);
+
+    // Ajouter la couche à la carte si pas encore visible
+    if (!_filmingMap.hasLayer(layer)) {
+      _filmingMap.addLayer(layer);
+      document.getElementById(`fmap-layer-${type==="service"?"tourism":type}`)?.classList.add("active");
+    }
+  });
+}
 document.addEventListener("click",function(e){
   const btn=e.target.closest(".btn-osm-action");
   if(!btn)return;
@@ -986,22 +1148,36 @@ document.addEventListener("click",function(e){
 async function handleOSMAction(type,lat,lng){
   if(!_filmingMap)return;
   if(type==="isochrone"){await drawIsochrone(lat,lng,"foot",15);return;}
-  const radius=5000;
+  // Boutons manuels : rayon 800m, node uniquement, 10 résultats max
+  const r=800;
   let query="",layer=null,typeLabel=type;
-  if(type==="hotel"){query=`[out:json][timeout:15];(nwr["tourism"~"hotel|hostel|guest_house|motel|apartment|bed_and_breakfast|chalet|camp_site"](around:${radius},${lat},${lng});nwr["amenity"="hotel"](around:${radius},${lat},${lng}););out center 30;`;layer=_filmingHotelLayer;typeLabel="hébergements";if(!_filmingMap.hasLayer(layer)){_filmingMap.addLayer(layer);document.getElementById("fmap-layer-hotel")?.classList.add("active");}}
-  else if(type==="restaurant"){query=`[out:json][timeout:15];nwr["amenity"~"restaurant|cafe|bar|fast_food"](around:${radius},${lat},${lng});out center 30;`;layer=_filmingRestaurantLayer;typeLabel="restaurants";if(!_filmingMap.hasLayer(layer)){_filmingMap.addLayer(layer);document.getElementById("fmap-layer-restaurant")?.classList.add("active");}}
-  else if(type==="transport"){query=`[out:json][timeout:15];(nwr["aeroway"~"aerodrome|airport"](around:${radius},${lat},${lng});nwr["railway"~"station|halt"](around:${radius},${lat},${lng});nwr["amenity"~"bus_station|ferry_terminal"](around:${radius},${lat},${lng}););out center 30;`;layer=_filmingTransportLayer;typeLabel="transports";if(!_filmingMap.hasLayer(layer)){_filmingMap.addLayer(layer);document.getElementById("fmap-layer-transport")?.classList.add("active");}}
-  else if(type==="service"){query=`[out:json][timeout:15];nwr["amenity"~"hospital|police|fire_station|information"](around:${radius},${lat},${lng});out center 30;`;layer=_filmingTourismLayer;typeLabel="services";if(!_filmingMap.hasLayer(layer)){_filmingMap.addLayer(layer);document.getElementById("fmap-layer-tourism")?.classList.add("active");}}
+  if(type==="hotel"){
+    query=`[out:json][timeout:10];node["tourism"~"hotel|hostel|guest_house"](around:${r},${lat},${lng});out 10;`;
+    layer=_filmingHotelLayer;typeLabel="hébergements";
+  } else if(type==="restaurant"){
+    query=`[out:json][timeout:10];node["amenity"~"restaurant|cafe|fast_food"](around:${r},${lat},${lng});out 10;`;
+    layer=_filmingRestaurantLayer;typeLabel="restaurants";
+  } else if(type==="transport"){
+    query=`[out:json][timeout:10];node["railway"~"station|halt|tram_stop"](around:${r},${lat},${lng});out 10;`;
+    layer=_filmingTransportLayer;typeLabel="transports";
+  } else if(type==="service"){
+    query=`[out:json][timeout:10];node["amenity"~"hospital|police"](around:${r},${lat},${lng});out 10;`;
+    layer=_filmingTourismLayer;typeLabel="services";
+  }
   if(!layer)return;
-  toast(`🔍 Recherche des ${typeLabel} à 5km…`);
+  if(!_filmingMap.hasLayer(layer)){
+    _filmingMap.addLayer(layer);
+    document.getElementById(`fmap-layer-${type==="service"?"tourism":type}`)?.classList.add("active");
+  }
+  toast(`🔍 ${typeLabel} à 800m…`);
   const cacheKey=`${type}_${lat.toFixed(3)}_${lng.toFixed(3)}`;
   const elements=await fetchOverpassCached(query,cacheKey);
-  if(elements.length===0){toast(`Aucun ${typeLabel} trouvé dans un rayon de 5km.`);return;}
+  if(elements.length===0){toast(`Rien trouvé à 800m.`);return;}
   layer.clearLayers();
   elements.forEach(el=>_addMarkerToLayer(el,type,layer));
-  _filmingMap.flyTo([lat,lng],14,{duration:1});
+  _filmingMap.flyTo([lat,lng],15,{duration:0.8});
   const nearest=_findNearest(lat,lng,elements);
-  if(nearest)toast(`📍 Plus proche : ${nearest.tags?.name||typeLabel} (~${nearest._dist}m)`,5000);
+  if(nearest)toast(`📍 Plus proche : ${nearest.tags?.name||typeLabel} (~${nearest._dist}m)`,4000);
 }
 
 // ════ OVERPASS CACHE ════
@@ -1026,7 +1202,7 @@ function _addMarkerToLayer(el,type,layer){
   const colorMap={hotel:"#ffd700",restaurant:"#f06595",transport:"#74c0fc",service:"#4dabf7"};
   const iconMap={hotel:"fa-bed",restaurant:"fa-utensils",transport:"fa-train",service:"fa-info-circle"};
   const color=colorMap[type]||"#4dabf7",icon=iconMap[type]||"fa-circle";
-  const customIcon=L.divIcon({html:`<div style="background:#fff;border:2px solid ${color};color:${color};width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.2);"><i class="fas ${icon}" style="font-size:10px"></i></div>`,className:"",iconSize:[26,26],iconAnchor:[13,13]});
+  const customIcon=L.divIcon({html:`<div style="background:#1a1a2e;border:2px solid ${color};color:${color};width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.5);"><i class="fas ${icon}" style="font-size:10px"></i></div>`,className:"",iconSize:[26,26],iconAnchor:[13,13]});
   const marker=L.marker([lat,lon],{icon:customIcon});
   const phone=tags.phone?`<div style="margin-top:4px;font-size:.75rem"><i class="fas fa-phone"></i> <a href="tel:${tags.phone}" style="color:${color}">${tags.phone}</a></div>`:"";
   const website=tags.website?`<div style="margin-top:4px;font-size:.75rem"><i class="fas fa-globe"></i> <a href="${tags.website}" target="_blank" style="color:${color}">Site web</a></div>`:"";
@@ -1040,49 +1216,21 @@ function _addMarkerToLayer(el,type,layer){
 function _findNearest(lat,lng,elements){let best=null,bestDist=Infinity;elements.forEach(el=>{const elLat=el.lat||el.center?.lat,elLon=el.lon||el.center?.lon;if(!elLat||!elLon)return;const d=_haversineM(lat,lng,elLat,elLon);if(d<bestDist){bestDist=d;best={...el,_dist:Math.round(d)};}});return best;}
 function _haversineM(lat1,lon1,lat2,lon2){const R=6371000;const dLat=(lat2-lat1)*Math.PI/180,dLon=(lon2-lon1)*Math.PI/180;const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));}
 
-// ════ ISOCHRONE ════
-async function drawIsochrone(lat,lng,mode="foot",minutes=15){
+// ════ ISOCHRONE — Turf uniquement (pas de backend) ════
+function drawIsochrone(lat,lng,mode="foot",minutes=15){
   if(!_filmingMap)return;
-  if(_isochroneLayer){_filmingMap.removeLayer(_isochroneLayer);_isochroneLayer=null;}
-  if(_routeLayer){_filmingMap.removeLayer(_routeLayer);_routeLayer=null;}
-  if(window.turf){
-    const speedKmh=mode==="foot"?5:15,distKm=speedKmh*(minutes/60)*0.85;
-    const circle=turf.circle([lng,lat],distKm,{steps:64,units:"kilometers"});
-    _isochroneLayer=L.geoJSON(circle,{style:{color:"#ff6b35",weight:2.5,dashArray:"6,4",fillColor:"#ff6b35",fillOpacity:0.08}}).addTo(_filmingMap);
-    L.marker([lat,lng],{icon:L.divIcon({html:`<div class="fmap-isochrone-label">🚶 ~${minutes} min</div>`,className:"",iconSize:[80,24],iconAnchor:[40,-8]}),interactive:false}).addTo(_filmingMap);
-    toast("⏱️ Zone ~15 min à pied tracée");
-  }
-  await _findClosestPOIsInIsochrone(lat,lng,minutes);
-  try{const res=await safeFetch(`/isochrone?lat=${lat}&lng=${lng}&profile=${mode}&minutes=${minutes}`);if(res&&!res.error){if(_isochroneLayer)_filmingMap.removeLayer(_isochroneLayer);_isochroneLayer=L.geoJSON(res,{style:{color:"#ff6b35",weight:3,fillColor:"#ff6b35",fillOpacity:0.12}}).addTo(_filmingMap);toast("✅ Tracé précis chargé");}}catch(e){}
-}
-
-async function _findClosestPOIsInIsochrone(lat,lng,minutes){
-  const radius=Math.round((5/60)*minutes*1000);
-  const types=[
-    {type:"hotel",q:`nwr["tourism"~"hotel|hostel|guest_house"](around:${radius},${lat},${lng});`},
-    {type:"restaurant",q:`nwr["amenity"~"restaurant|cafe"](around:${radius},${lat},${lng});`},
-    {type:"transport",q:`nwr["railway"~"station|halt"](around:${radius},${lat},${lng});nwr["amenity"="bus_station"](around:${radius},${lat},${lng});`},
-    {type:"service",q:`nwr["amenity"~"hospital|police"](around:${radius},${lat},${lng});`},
-  ];
-  const results=await Promise.allSettled(types.map(async({type,q})=>{
-    const query=`[out:json][timeout:10];(${q});out center 5;`;
-    const elements=await fetchOverpassCached(query,`iso_${type}_${lat.toFixed(3)}_${lng.toFixed(3)}`);
-    return{type,elements};
-  }));
-  const colorMap={hotel:"#ffd700",restaurant:"#f06595",transport:"#74c0fc",service:"#4dabf7"};
-  const iconMap={hotel:"fa-bed",restaurant:"fa-utensils",transport:"fa-train",service:"fa-info-circle"};
-  results.forEach(r=>{
-    if(r.status!=="fulfilled")return;
-    const{type,elements}=r.value;if(!elements.length)return;
-    const nearest=_findNearest(lat,lng,elements);if(!nearest)return;
-    const nLat=nearest.lat||nearest.center?.lat,nLon=nearest.lon||nearest.center?.lon;if(!nLat||!nLon)return;
-    const color=colorMap[type]||"#00ffcc";
-    let line;
-    if(window.L?.polyline?.antPath){line=L.polyline.antPath([[lat,lng],[nLat,nLon]],{color,weight:3,opacity:0.85,dashArray:[10,20],delay:400,pulseColor:"#fff"}).addTo(_filmingMap);}
-    else{line=L.polyline([[lat,lng],[nLat,nLon]],{color,weight:3,opacity:0.85,dashArray:"8,8"}).addTo(_filmingMap);}
-    const destIcon=L.divIcon({html:`<div class="fmap-nearest-pin" style="border-color:${color}"><i class="fas ${iconMap[type]}" style="color:${color}"></i></div>`,className:"",iconSize:[30,30],iconAnchor:[15,30]});
-    L.marker([nLat,nLon],{icon:destIcon}).bindPopup(`<div style="padding:8px;min-width:140px"><strong>${escapeHtml(nearest.tags?.name||type)}</strong><br><span style="color:#666;font-size:.75rem">~${nearest._dist}m · ${type}</span></div>`).addTo(_filmingMap);
-  });
+  // Nettoyer l'isochrone précédent
+  _clearTempLayers();
+  if(!window.turf){toast("Turf.js non chargé");return;}
+  const speedKmh=mode==="foot"?5:15;
+  const distKm=speedKmh*(minutes/60)*0.85;
+  const circle=turf.circle([lng,lat],distKm,{steps:64,units:"kilometers"});
+  _isochroneLayer=L.geoJSON(circle,{style:{color:"#00ffcc",weight:2,dashArray:"6,4",fillColor:"#00ffcc",fillOpacity:0.07}}).addTo(_filmingMap);
+  // Label centré
+  const labelIcon=L.divIcon({html:`<div class="fmap-isochrone-label">🚶 ~${minutes} min</div>`,className:"",iconSize:[90,24],iconAnchor:[45,12]});
+  const labelMarker=L.marker([lat,lng],{icon:labelIcon,interactive:false,zIndexOffset:-100}).addTo(_filmingMap);
+  _tempMapLayers.push(labelMarker);
+  toast(`⏱️ Zone ~${minutes} min à pied tracée`);
 }
 
 // ════ TOGGLE LAYERS ════
@@ -1092,7 +1240,7 @@ function toggleFilmingLayer(layerName){
   const layerMap={hotel:_filmingHotelLayer,tourism:_filmingTourismLayer,restaurant:_filmingRestaurantLayer,transport:_filmingTransportLayer};
   const target=layerMap[layerName];if(!target)return;
   if(_filmingMap.hasLayer(target)){_filmingMap.removeLayer(target);btn?.classList.remove("active");}
-  else{_filmingMap.addLayer(target);btn?.classList.add("active");loadLayerData(layerName==="tourism"?"service":layerName);}
+  else{_filmingMap.addLayer(target);btn?.classList.add("active");}
 }
 function toggleFilmingHeatmap(){
   if(!_filmingMap||!window.L?.heatLayer)return;
@@ -1117,29 +1265,11 @@ function toggleFilmingMapFullscreen(){
 }
 
 async function loadLayerData(type){
-  if(!_filmingMap||_filmingMap.getZoom()<12)return;
-  const center=_filmingMap.getCenter();
-  const radius=5000,cacheKey=`${type}_${center.lat.toFixed(2)}_${center.lng.toFixed(2)}`;
-  let query="",layer=null;
-  if(type==="hotel"){query=`[out:json][timeout:15];(nwr["tourism"~"hotel|hostel|guest_house|motel|apartment|bed_and_breakfast"](around:${radius},${center.lat},${center.lng}););out center 30;`;layer=_filmingHotelLayer;}
-  else if(type==="restaurant"){query=`[out:json][timeout:15];nwr["amenity"~"restaurant|cafe|bar|fast_food"](around:${radius},${center.lat},${center.lng});out center 30;`;layer=_filmingRestaurantLayer;}
-  else if(type==="transport"){query=`[out:json][timeout:15];(nwr["railway"~"station|halt"](around:${radius},${center.lat},${center.lng});nwr["amenity"~"bus_station|ferry_terminal"](around:${radius},${center.lat},${center.lng}););out center 30;`;layer=_filmingTransportLayer;}
-  else if(type==="service"){query=`[out:json][timeout:15];nwr["amenity"~"hospital|police"](around:${radius},${center.lat},${center.lng});out center 30;`;layer=_filmingTourismLayer;}
-  if(!layer)return;
-  const elements=await fetchOverpassCached(query,cacheKey);
-  layer.clearLayers();
-  elements.forEach(el=>_addMarkerToLayer(el,type,layer));
+  // loadLayerData non utilisé — POI chargés via _autoLoadPOIsAround au clic sur "Voir lieux"
 }
 
 async function handleMapMove(){
-  clearTimeout(_filmingMoveTimeout);
-  _filmingMoveTimeout=setTimeout(async()=>{
-    if(!_filmingMap||_filmingMap.getZoom()<12)return;
-    if(_filmingMap.hasLayer(_filmingHotelLayer))await loadLayerData("hotel");
-    if(_filmingMap.hasLayer(_filmingRestaurantLayer))await loadLayerData("restaurant");
-    if(_filmingMap.hasLayer(_filmingTransportLayer))await loadLayerData("transport");
-    if(_filmingMap.hasLayer(_filmingTourismLayer))await loadLayerData("service");
-  },1200);
+  // handleMapMove désactivé — trop lourd, remplacé par chargement au clic
 }
 
 // ════════════════════════════════════════════════════════════════
