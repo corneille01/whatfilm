@@ -1286,10 +1286,10 @@ body {
   background: var(--bg);
 }
 
-/* Header fixe de la sidebar — compact et centré */
+/* Header fixe de la sidebar — ultra compact et centré */
 .filming-sidebar-header {
   flex-shrink: 0;
-  padding: 10px 14px 0;
+  padding: 6px 12px 0;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   z-index: 10;
@@ -1297,10 +1297,10 @@ body {
 }
 
 .filming-hero {
-  padding: 6px 0 8px;
+  padding: 4px 0 5px;
 }
 .filming-title {
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 900;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -1308,22 +1308,23 @@ body {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  margin: 0 0 2px;
+  margin: 0 0 1px;
+  line-height: 1.1;
 }
 .filming-subtitle {
   color: var(--muted);
-  font-size: .72rem;
-  margin: 0 0 6px;
+  font-size: .68rem;
+  margin: 0 0 4px;
 }
 .filming-stats-bar {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 40px;
-  padding: 3px 10px;
-  font-size: .68rem;
+  padding: 2px 8px;
+  font-size: .64rem;
   color: var(--muted);
   margin-bottom: 2px;
 }
@@ -1332,10 +1333,10 @@ body {
 
 /* Filtres */
 .filming-filters-wrap {
-  padding: 8px 0 10px;
+  padding: 5px 0 7px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 5px;
   text-align: left;
 }
 
@@ -1808,7 +1809,6 @@ body {
 
 /* ── Responsive — Mobile First ───────────────────────────────────────────── */
 
-/* Mobile : stack vertical, carte en bas */
 @media (max-width: 768px) {
   #filming-page:not([style*="display: none"]) {
     grid-template-columns: 1fr;
@@ -1824,68 +1824,62 @@ body {
   }
   .filming-sidebar-header {
     position: sticky;
-    top: 56px; /* hauteur header mobile */
+    top: 54px;
     z-index: 20;
     background: var(--bg);
-    padding: 8px 12px 0;
+    padding: 5px 10px 0;
   }
-  .filming-title { font-size: .95rem; }
-  .filming-subtitle { display: none; } /* trop verbeux sur mobile */
-  .filming-stats-bar { font-size: .62rem; padding: 2px 8px; }
-
-  .filming-filters-wrap { gap: 6px; padding: 6px 0 8px; }
-  .filming-search-box input { font-size: .82rem; padding: 8px 10px 8px 30px; }
-
-  .filming-filters-row-2 {
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-  }
-  .filming-filter-group label { font-size: .62rem; }
-  .filming-filter-group select { font-size: .78rem; padding: 7px 8px; }
+  .filming-title { font-size: .88rem; }
+  .filming-subtitle { display: none; }
+  .filming-stats-bar { font-size: .6rem; padding: 2px 7px; }
+  .filming-filters-wrap { gap: 5px; padding: 5px 0 6px; }
+  .filming-search-box input { font-size: .8rem; padding: 7px 10px 7px 28px; }
+  .filming-filters-row-2 { grid-template-columns: 1fr 1fr; gap: 5px; }
+  .filming-filter-group label { font-size: .6rem; }
+  .filming-filter-group select { font-size: .75rem; padding: 6px 8px; }
   .filming-media-toggle { padding: 2px; }
-  .fmedia-btn { font-size: .72rem; padding: 4px 4px; }
+  .fmedia-btn { font-size: .7rem; padding: 3px 4px; }
+  .filming-reset-row button { font-size: .7rem; padding: 5px 12px; }
+  .filming-grid-wrap { overflow: visible; padding: 8px 10px 20px; }
+  .filming-cards { grid-template-columns: repeat(2, 1fr); gap: 7px; }
 
-  .filming-reset-row button { font-size: .72rem; padding: 6px 14px; }
-
-  .filming-grid-wrap {
-    overflow: visible;
-    padding: 10px 12px 20px;
-  }
-  .filming-cards {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
-  }
-
-  /* Carte en bas, hauteur fixe raisonnable */
+  /* Carte mobile — marges latérales pour permettre le scroll */
   .filming-map-wrap {
     position: relative;
     top: 0;
-    height: 50vh;
-    min-height: 280px;
+    height: 52vh;
+    min-height: 260px;
     border-top: 1px solid var(--border);
+    /* Marges left/right pour que l'utilisateur puisse toucher et scroller */
+    margin: 0 12px;
+    border-radius: 12px;
+    overflow: hidden;
   }
   #filming-leaflet-map { height: 100%; }
-
-  /* Toolbar — icônes seulement sur mobile */
-  .fmap-btn { padding: 6px 8px; font-size: .7rem; }
+  .fmap-btn { padding: 5px 7px; font-size: .68rem; }
   .fmap-btn span { display: none !important; }
+  .filming-map-legend { font-size: .58rem; gap: 5px; padding: 3px 7px; }
 
-  /* Légende compacte */
-  .filming-map-legend { font-size: .6rem; gap: 5px; padding: 4px 8px; }
+  /* Après la carte, espace pour scroll */
+  .filming-map-wrap::after {
+    content: "";
+    display: block;
+    height: 0;
+  }
 }
 
-/* Petits phones (375px et moins) */
+/* Petits phones */
 @media (max-width: 390px) {
   .filming-cards { grid-template-columns: repeat(2, 1fr); gap: 6px; }
-  .filming-card-body h4 { font-size: .7rem; }
-  .filming-filters-row-2 { grid-template-columns: 1fr 1fr; }
-  .filming-show-locations-btn { font-size: .62rem; padding: 5px 6px; }
+  .filming-card-body h4 { font-size: .68rem; }
+  .filming-show-locations-btn { font-size: .6rem; padding: 4px 5px; }
+  .filming-map-wrap { margin: 0 8px; height: 45vh; }
 }
 
 /* Tablette portrait */
 @media (min-width: 769px) and (max-width: 960px) {
   #filming-page:not([style*="display: none"]) {
-    grid-template-columns: 320px 1fr;
+    grid-template-columns: 300px 1fr;
     height: calc(100vh - 64px);
     overflow: hidden;
   }
@@ -1895,7 +1889,7 @@ body {
 /* Desktop standard */
 @media (min-width: 961px) {
   #filming-page:not([style*="display: none"]) {
-    grid-template-columns: 360px 1fr;
+    grid-template-columns: 350px 1fr;
     height: calc(100vh - 64px);
     overflow: hidden;
   }
@@ -1904,9 +1898,8 @@ body {
 /* Grand écran */
 @media (min-width: 1400px) {
   #filming-page:not([style*="display: none"]) {
-    grid-template-columns: 420px 1fr;
+    grid-template-columns: 400px 1fr;
   }
-  .filming-cards { grid-template-columns: repeat(2, 1fr); }
 }
 
 @keyframes fadeInUp {
