@@ -1189,7 +1189,7 @@ async function chargerLieuxDeTournage(page = 1) {
     document.getElementById("btn-genre-filming")?.classList.add("active");
 
     let filmingPage = document.getElementById("filming-page");
-    if (filmingPage) filmingPage.style.display = "block";
+    if (filmingPage) filmingPage.style.display = "";
     navStack = [];
 
     const promises = [];

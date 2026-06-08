@@ -1260,21 +1260,22 @@ body {
 /* =============================================================
    PAGE FILMING (CORRIGÉE - SPLIT SCREEN)
    ============================================================= */
+/* Toujours caché par défaut */
 #filming-page {
-  display: none;                /* Caché par défaut */
+  display: none;
+}
+
+/* S’affiche en grid UNIQUEMENT si l’attribut style NE CONTIENT PAS display: none */
+#filming-page:not([style*="display: none"]) {
+  display: grid;
+  grid-template-columns: 400px 1fr;
+  gap: 20px;
+  align-items: start;
   width: 100%;
   max-width: 1600px;
   margin: 0 auto;
   padding: 0 16px 80px;
   animation: fadeInUp 0.35s ease both;
-  gap: 20px;
-  align-items: start;
-}
-
-/* S'affiche en grille UNIQUEMENT si le style inline ne contient PAS "display: none" */
-#filming-page:not([style*="display: none"]) {
-  display: grid;
-  grid-template-columns: 400px 1fr;
 }
 
 /* Panneau de gauche (Sidebar) */
@@ -1389,7 +1390,7 @@ body {
 /* Grille de cards filming */
 .filming-cards {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 12px;
 }
 .filming-card {
