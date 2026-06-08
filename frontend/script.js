@@ -417,6 +417,15 @@ function applyLang(){
   const btnFilming=document.getElementById("btn-genre-filming");
   if(btnFilming)btnFilming.innerHTML=`<i class="fas fa-map-marker-alt"></i> ${ld.filming_btn||"📍 Lieux de tournage"}`;
 }
+
+function bindFilmingButton(){
+  const btn=document.getElementById('btn-genre-filming');
+  if(btn){
+    btn.onclick=null;
+    btn.addEventListener('click', (e)=>{ e.preventDefault(); _loadFilmingCatalogue(); });
+  }
+}
+
 function genererNav(){
   const nav=document.getElementById("genre-nav");
   const g=dict[currentLang]?.genres||dict.fr.genres;
@@ -433,6 +442,7 @@ function genererNav(){
     <a class="btn-genre series" onclick="chargerSeries()"><i class="fas fa-tv"></i> ${g.series}</a>
     <a class="btn-genre trending" onclick="chargerTrending()"><i class="fas fa-bolt"></i> ${g.trending}</a>
     <a class="btn-genre filming" id="btn-genre-filming" onclick="_loadFilmingCatalogue()"><i class="fas fa-map-marker-alt"></i> ${ld.filming_btn||"📍 Lieux de tournage"}</a>`;
+  bindFilmingButton();
   const platNav=document.getElementById("platform-nav");
   platNav.innerHTML=`
     <button class="btn-platform" onclick="chargerParPlateforme('netflix')" style="border-color:#e50914"><span class="plat-dot" style="background:#e50914"></span> Netflix</button>
