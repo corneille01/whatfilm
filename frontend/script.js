@@ -22,6 +22,24 @@ async function safeFetch(url, options = {}) {
     return data;
 }
 
+// ════ OVERPASS CACHE (Anti-429) ════
+async function fetchOverpassCached(query, cacheKey) {
+    const cacheStr = localStorage.getItem("ovp_" + cacheKey);
+    if (cacheStr) {
+        const c = JSON.parse(cacheStr);
+        // Cache valide 24h
+        if (Date.now() - c.time < 86400000) return c.data;
+    }
+    const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+    if (!res.ok) throw new Error("Overpass HTTP " + res.status);
+    const data = await res.json();
+    if (data && data.elements) {
+        localStorage.setItem("ovp_" + cacheKey, JSON.stringify({time: Date.now(), data: data.elements}));
+        return data.elements;
+    }
+    return [];
+}
+
 // ════ DICTIONNAIRE INTERNATIONAL ════
 const dict = {
   "en-US": {
@@ -65,7 +83,7 @@ const dict = {
     filming_tv_only: "TV Series",
     filming_layer_film: "Filming locations",
     filming_layer_hotel: "Hotels & stays",
-    filming_layer_tourism: "Tourism offices",
+    filming_layer_tourism: "Tourism & Services",
     filming_cluster_toggle: "Cluster markers",
     filming_heatmap_toggle: "Heatmap",
     filming_fullscreen: "Fullscreen",
@@ -132,7 +150,7 @@ const dict = {
     filming_tv_only: "TV Series",
     filming_layer_film: "Filming locations",
     filming_layer_hotel: "Hotels & stays",
-    filming_layer_tourism: "Tourism offices",
+    filming_layer_tourism: "Tourism & Services",
     filming_cluster_toggle: "Cluster markers",
     filming_heatmap_toggle: "Heatmap",
     filming_fullscreen: "Fullscreen",
@@ -200,7 +218,7 @@ const dict = {
     filming_tv_only: "Séries",
     filming_layer_film: "Lieux de tournage",
     filming_layer_hotel: "Hôtels & hébergements",
-    filming_layer_tourism: "Offices de tourisme",
+    filming_layer_tourism: "Tourisme & Services",
     filming_cluster_toggle: "Regrouper les marqueurs",
     filming_heatmap_toggle: "Carte de chaleur",
     filming_fullscreen: "Plein écran",
@@ -267,7 +285,7 @@ const dict = {
     filming_tv_only: "Series",
     filming_layer_film: "Localizaciones",
     filming_layer_hotel: "Hoteles",
-    filming_layer_tourism: "Oficinas de turismo",
+    filming_layer_tourism: "Turismo & Servicios",
     filming_cluster_toggle: "Agrupar marcadores",
     filming_heatmap_toggle: "Mapa de calor",
     filming_fullscreen: "Pantalla completa",
@@ -334,7 +352,7 @@ const dict = {
     filming_tv_only: "Serien",
     filming_layer_film: "Drehorte",
     filming_layer_hotel: "Hotels",
-    filming_layer_tourism: "Touristikbüros",
+    filming_layer_tourism: "Tourismus & Service",
     filming_cluster_toggle: "Marker gruppieren",
     filming_heatmap_toggle: "Heatmap",
     filming_fullscreen: "Vollbild",
@@ -400,7 +418,7 @@ const dict = {
     filming_tv_only: "电视剧",
     filming_layer_film: "拍摄地点",
     filming_layer_hotel: "酒店",
-    filming_layer_tourism: "旅游局",
+    filming_layer_tourism: "旅游服务",
     filming_cluster_toggle: "聚合标记",
     filming_heatmap_toggle: "热力图",
     filming_fullscreen: "全屏",
@@ -472,7 +490,8 @@ let _filmingHotelLayer = null;
 let _filmingTourismLayer = null;
 let _filmingFilmLayer = null;
 let _filmingHeatmapLayer = null;
-let _filmingLayerControl = null;
+let _filmingRestaurantLayer = null;
+let _filmingTransportLayer = null;
 let _filmingCurrentPage = 1;
 let _filmingCurrentCountry = "";
 let _filmingCurrentCity = "";
@@ -481,7 +500,8 @@ let _filmingCurrentSort = "count_locations";
 let _filmingCurrentQ = "";
 let _filmingStats = null;
 let _filmingCountries = [];
-let _filmingAllMarkers = []; // [{lat,lng,title,poster,tmdb_id,location_name,country}]
+let _filmingCities = [];
+let _filmingAllMarkers = [];
 let _filmingLeafletReady = false;
 
 // ════ TRADUCTIONS ERREURS ════
@@ -592,10 +612,11 @@ function applyLang() {
   if (selAnnee) selAnnee.textContent = "📅 " + (langData.year || "Année");
   const btr = document.getElementById("btn-reset");
   if (btr) btr.innerHTML = `<i class="fas fa-times"></i> ${langData.reset || "Reset"}`;
-  // Bouton filming dans la nav
+  
   const btnFilming = document.getElementById("btn-genre-filming");
-  if (btnFilming) btnFilming.textContent = langData.filming_btn || "📍 Lieux de tournage";
+  if (btnFilming) btnFilming.innerHTML = `<i class="fas fa-map-marker-alt"></i> ${langData.filming_btn || "📍 Lieux de tournage"}`;
 }
+
 function genererNav() {
   const nav = document.getElementById("genre-nav");
   const g = dict[currentLang]?.genres || dict.fr.genres;
@@ -638,7 +659,7 @@ function changerLangueManuellement() {
   chargerTrending().then(() => { document.getElementById("hero").style.display = "block"; document.getElementById("genre-nav").style.display = "flex"; });
 }
 
-// ════ ERREURS ════
+// ════ ERREURS & TOAST ════
 function afficherErreur(msg) {
   const el = document.getElementById("error-message");
   document.getElementById("error-text").textContent = msg;
@@ -646,7 +667,7 @@ function afficherErreur(msg) {
   setTimeout(cacherErreur, 10000);
 }
 function cacherErreur() { const el = document.getElementById("error-message"); el.classList.remove("visible"); el.style.display = "none"; }
-function toast(msg, dur = 3000) { const t = document.getElementById("toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), dur); }
+function toast(msg, dur = 3000) { const t = document.getElementById("toast"); if(!t) return; t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), dur); }
 
 function afficherErreurRiche(data) {
   const d = dict[currentLang] || dict.fr;
@@ -1038,26 +1059,9 @@ function afficherResultatsRecherche(data,query){
   renderCards(data.results||[],"search",1,1);
 }
 
-// ════════════════════════════════════════════════════════════
-// ════ LIEUX DE TOURNAGE — PAGE CATALOGUE COMPLÈTE ══════════
-// ════════════════════════════════════════════════════════════
-
-// ════════════════════════════════════════════════════════════
-// SECTION LIEUX DE TOURNAGE — VERSION 2.0
-// Remplace tout depuis "chargerLieuxDeTournage" jusqu'à la fin
-// de la section "CARTE LEAFLET PROFESSIONNELLE"
-// ════════════════════════════════════════════════════════════
 // ════════════════════════════════════════════════════════════════════════════
-// FILMING PAGE v3.0 — Patch complet (remplace l'ancien bloc filming)
+// FILMING PAGE v3.0 — LIEUX DE TOURNAGE & CARTES
 // ════════════════════════════════════════════════════════════════════════════
-
-// ════ ÉTAT GLOBAL FILMING ════════════════════════════════════════════════════
-// (ces variables doivent déjà être déclarées dans le bloc ÉTAT GLOBAL du script)
-// let _filmingMap, _filmingMarkerClusterGroup, _filmingHotelLayer, etc.
-// let _filmingCurrentPage, _filmingCurrentCountry, _filmingCurrentCity, etc.
-// (on ne les redéclare pas ici pour éviter les erreurs de redéclaration)
-
-// ════ CHARGEMENT PRINCIPAL ═══════════════════════════════════════════════════
 
 async function chargerLieuxDeTournage(page = 1) {
     hideHero(); cacherErreur();
@@ -1073,15 +1077,9 @@ async function chargerLieuxDeTournage(page = 1) {
     document.getElementById("btn-genre-filming")?.classList.add("active");
 
     let filmingPage = document.getElementById("filming-page");
-    if (!filmingPage) {
-        filmingPage = document.createElement("div");
-        filmingPage.id = "filming-page";
-        document.body.insertBefore(filmingPage, document.getElementById("privacy-page"));
-    }
-    filmingPage.style.display = "block";
+    if (filmingPage) filmingPage.style.display = "block";
     navStack = [];
 
-    // Charger stats + pays en parallèle (seulement si pas encore chargés)
     const promises = [];
     if (!_filmingStats)
         promises.push(safeFetch("/films-tournes/stats").then(d => { _filmingStats = d; }).catch(() => {}));
@@ -1089,26 +1087,22 @@ async function chargerLieuxDeTournage(page = 1) {
         promises.push(safeFetch("/films-tournes/pays").then(d => { _filmingCountries = d.countries || []; }).catch(() => {}));
     if (promises.length) await Promise.allSettled(promises);
 
-    // Render initial ou mise à jour sélective
     const alreadyRendered = filmingPage.querySelector(".filming-filters-wrap");
     if (!alreadyRendered) {
         _renderFilmingPage(filmingPage);
     } else {
-        // Mettre à jour seulement les filtres sans recréer la carte
         _updateFilmingFilters();
     }
 
     await _loadFilmingCatalogue();
 }
 
-// ════ RENDER INITIAL ══════════════════════════════════════════════════════════
-
 function _renderFilmingPage(container) {
     const ld = dict[currentLang] || dict.fr;
     const stats = _filmingStats;
     const statsHtml = stats
         ? `<div class="filming-stats-bar">
-            <span><strong>${stats.total_films?.toLocaleString() || "—"}</strong> ${ld.filming_movies_only}</span>
+            <span><strong>${stats.total_films?.toLocaleString() || "—"}</strong> ${ld.filming_movies_only || 'Films'}</span>
             <span class="filming-stats-sep">·</span>
             <span><strong>${stats.total_locations?.toLocaleString() || "—"}</strong> lieux</span>
             <span class="filming-stats-sep">·</span>
@@ -1116,7 +1110,6 @@ function _renderFilmingPage(container) {
            </div>` : "";
 
     const countriesOptions = _buildCountryOptions();
-    const cityOptions      = _buildCityOptions();
 
     container.innerHTML = `
       <div class="filming-header">
@@ -1130,7 +1123,6 @@ function _renderFilmingPage(container) {
         </div>
       </div>
 
-      <!-- ══ CARTE ══ -->
       <div class="filming-map-wrap" id="filming-map-wrap">
         <div class="filming-map-toolbar">
           <div class="filming-map-toolbar-left">
@@ -1147,7 +1139,7 @@ function _renderFilmingPage(container) {
               <i class="fas fa-train"></i> <span>Transports</span>
             </button>
             <button class="fmap-btn" id="fmap-layer-tourism" onclick="toggleFilmingLayer('tourism')" title="${ld.filming_layer_tourism || 'Tourisme'}">
-              <i class="fas fa-info-circle"></i> <span>${ld.filming_layer_tourism || 'Tourisme'}</span>
+              <i class="fas fa-info-circle"></i> <span>${ld.filming_layer_tourism || 'Services'}</span>
             </button>
           </div>
           <div class="filming-map-toolbar-right">
@@ -1166,19 +1158,18 @@ function _renderFilmingPage(container) {
         <div class="filming-map-legend">
           <span class="fmap-legend-item"><span class="fmap-dot fmap-dot-film"></span> Tournages</span>
           <span class="fmap-legend-item"><span class="fmap-dot fmap-dot-hotel"></span> Hébergements</span>
-          <span class="fmap-legend-item"><span class="fmap-dot fmap-dot-tourism"></span> Tourisme</span>
+          <span class="fmap-legend-item"><span class="fmap-dot fmap-dot-tourism"></span> Services & Tourisme</span>
           <span class="fmap-legend-item"><span class="fmap-dot" style="background:#f06595"></span> Restaurants</span>
           <span class="fmap-legend-item"><span class="fmap-dot" style="background:#74c0fc"></span> Transports</span>
         </div>
       </div>
 
-      <!-- ══ FILTRES ══ -->
       <div class="filming-filters-wrap">
         <div class="filming-search-row">
           <div class="filming-search-box">
             <i class="fas fa-search"></i>
             <input type="text" id="filming-search-input"
-              placeholder="${ld.filming_search || 'Rechercher un film…'}"
+              placeholder="${ld.filming_search || 'Rechercher un film ou une ville…'}"
               value="${escapeHtml(_filmingCurrentQ)}"
               oninput="debounceFilmingSearch(this.value)"
               onkeydown="if(event.key==='Enter')chargerLieuxDeTournage(1)">
@@ -1200,10 +1191,6 @@ function _renderFilmingPage(container) {
             <option value="">${ld.filming_filter_country || 'Tous les pays'}</option>
             ${countriesOptions}
           </select>
-          <select id="filming-filter-city" onchange="setFilmingCity(this.value)" ${!_filmingCurrentCountry ? 'disabled' : ''}>
-            <option value="">Toutes les villes</option>
-            ${cityOptions}
-          </select>
           <select id="filming-filter-sort" onchange="setFilmingSort(this.value)">
             <option value="count_locations" ${_filmingCurrentSort === 'count_locations' ? 'selected' : ''}>${ld.filming_sort_count || 'Plus de lieux'}</option>
             <option value="rating"          ${_filmingCurrentSort === 'rating'          ? 'selected' : ''}>${ld.filming_sort_rating || 'Mieux notés'}</option>
@@ -1216,41 +1203,15 @@ function _renderFilmingPage(container) {
         </div>
       </div>
 
-      <!-- ══ RÉSULTATS ══ -->
       <div class="filming-grid-wrap">
         <div id="filming-result-count" class="filming-result-count"></div>
         <div id="filming-cards" class="filming-cards"></div>
         <div id="filming-pagination" class="filming-pagination"></div>
       </div>
-
-      <!-- ══ MODAL CARTE FILM ══ -->
-      <div id="film-map-modal" class="film-map-modal" style="display:none" onclick="if(event.target===this)closeFilmMapModal()">
-        <div class="film-map-modal-inner">
-          <div class="film-map-modal-header">
-            <h3 id="film-map-modal-title">Lieux de tournage</h3>
-            <button class="film-map-modal-close" onclick="closeFilmMapModal()"><i class="fas fa-times"></i></button>
-          </div>
-          <div class="film-map-modal-toolbar">
-            <button class="fmap-btn active" id="fmm-layer-film" onclick="toggleFilmModalLayer('film')">
-              <i class="fas fa-map-pin"></i> Lieux
-            </button>
-            <button class="fmap-btn" id="fmm-layer-hotel" onclick="toggleFilmModalLayer('hotel')">
-              <i class="fas fa-bed"></i> Hébergements
-            </button>
-            <button class="fmap-btn" id="fmm-layer-tourism" onclick="toggleFilmModalLayer('tourism')">
-              <i class="fas fa-info-circle"></i> Tourisme
-            </button>
-          </div>
-          <div id="film-map-modal-map" style="height:420px;width:100%"></div>
-          <div class="film-map-modal-locations" id="film-map-modal-locations"></div>
-        </div>
-      </div>
     `;
 
     _initFilmingLeafletMap();
 }
-
-// ════ MISE À JOUR FILTRES SANS RECRÉER LA PAGE ═══════════════════════════════
 
 function _buildCountryOptions() {
     return _filmingCountries.slice(0, 100).map(c =>
@@ -1258,97 +1219,47 @@ function _buildCountryOptions() {
     ).join("");
 }
 
-function _buildCityOptions() {
-    if (!_filmingCurrentCountry || !_filmingCities || !_filmingCities.length) return "";
-    return _filmingCities.map(c =>
-        `<option value="${escapeHtml(c.city)}" ${_filmingCurrentCity === c.city ? 'selected' : ''}>${escapeHtml(c.city)} (${c.count})</option>`
-    ).join("");
-}
-
 function _updateFilmingFilters() {
-    // Media type toggle
     document.querySelectorAll(".fmedia-btn").forEach((btn, i) => {
         const types = ['', 'movie', 'tv'];
         btn.classList.toggle("active", _filmingCurrentType === types[i]);
     });
-    // Country select
     const cs = document.getElementById("filming-filter-country");
     if (cs) cs.value = _filmingCurrentCountry;
-    // City select
-    const cityEl = document.getElementById("filming-filter-city");
-    if (cityEl) {
-        cityEl.innerHTML = `<option value="">Toutes les villes</option>${_buildCityOptions()}`;
-        cityEl.value = _filmingCurrentCity;
-        cityEl.disabled = !_filmingCurrentCountry;
-    }
-    // Sort
     const ss = document.getElementById("filming-filter-sort");
     if (ss) ss.value = _filmingCurrentSort;
-    // Search
     const si = document.getElementById("filming-search-input");
     if (si) si.value = _filmingCurrentQ;
 }
 
-// ════ VILLES PAR PAYS ═════════════════════════════════════════════════════════
-
-let _filmingCities = [];
-
-async function _loadCitiesForCountry(country) {
-    if (!country) { _filmingCities = []; return; }
-    try {
-        const data = await safeFetch(`/films-tournes/villes?country=${encodeURIComponent(country)}`);
-        _filmingCities = data.cities || [];
-    } catch(e) {
-        _filmingCities = [];
-    }
-}
-
-// ════ SETTERS ═════════════════════════════════════════════════════════════════
-
 let _filmingSearchTimeout = null;
-
 function debounceFilmingSearch(val) {
     _filmingCurrentQ = val;
     clearTimeout(_filmingSearchTimeout);
     _filmingSearchTimeout = setTimeout(() => chargerLieuxDeTournage(1), 500);
 }
-
 function setFilmingType(type) {
     _filmingCurrentType = type;
     _updateFilmingFilters();
     _loadFilmingCatalogue();
 }
-
 async function setFilmingCountry(country) {
     _filmingCurrentCountry = country;
-    _filmingCurrentCity    = "";
-    await _loadCitiesForCountry(country);
     _updateFilmingFilters();
     _loadFilmingCatalogue();
 }
-
-async function setFilmingCity(city) {
-    _filmingCurrentCity = city;
-    await _loadFilmingCatalogue();
-}
-
 function setFilmingSort(sort) {
     _filmingCurrentSort = sort;
     _loadFilmingCatalogue();
 }
-
 function resetFilmingFilters() {
     _filmingCurrentCountry = "";
-    _filmingCurrentCity    = "";
     _filmingCurrentType    = "";
     _filmingCurrentQ       = "";
     _filmingCurrentSort    = "count_locations";
-    _filmingCities         = [];
     _updateFilmingFilters();
     _loadFilmingCatalogue();
 }
-
-// ════ CATALOGUE API ══════════════════════════════════════════════════════════
 
 async function _loadFilmingCatalogue() {
     const cardsEl = document.getElementById("filming-cards");
@@ -1363,7 +1274,6 @@ async function _loadFilmingCatalogue() {
         sort:     _filmingCurrentSort,
     });
     if (_filmingCurrentCountry) params.set("country", _filmingCurrentCountry);
-    if (_filmingCurrentCity)    params.set("city",    _filmingCurrentCity);
     if (_filmingCurrentType)    params.set("media_type", _filmingCurrentType);
     if (_filmingCurrentQ)       params.set("q", _filmingCurrentQ);
 
@@ -1373,7 +1283,7 @@ async function _loadFilmingCatalogue() {
             cardsEl.innerHTML = `<p style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">Aucun résultat.</p>`;
             return;
         }
-        if (countEl) countEl.textContent = `${(data.total || 0).toLocaleString()} films`;
+        if (countEl) countEl.textContent = `${(data.total || 0).toLocaleString()} films (sur cette page)`;
         _renderFilmingCards(cardsEl, data.results);
         _renderFilmingPagination(data.page, data.total_pages);
         _updateFilmingMapMarkers(data.results);
@@ -1381,8 +1291,6 @@ async function _loadFilmingCatalogue() {
         if (cardsEl) cardsEl.innerHTML = `<p style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">Erreur de chargement.</p>`;
     }
 }
-
-// ════ CARDS ═══════════════════════════════════════════════════════════════════
 
 function _renderFilmingCards(container, results) {
     if (!results || results.length === 0) {
@@ -1403,11 +1311,9 @@ function _renderFilmingCards(container, results) {
             ? encodeURIComponent(primaryLoc.name + (primaryLoc.country ? ", " + primaryLoc.country : ""))
             : "";
         const bookingUrl = hotelQuery ? `https://www.booking.com/searchresults.html?ss=${hotelQuery}&aid=SHADOWFRAME` : null;
-        const airbnbUrl  = primaryLoc ? `https://www.airbnb.com/s/${encodeURIComponent(primaryLoc.name)}/homes` : null;
 
         return `
-          <div class="filming-card" onclick="afficherDetails(${f.tmdb_id},'${isTv ? 'tv' : 'movie'}')" role="button" tabindex="0"
-               onkeydown="if(event.key==='Enter')afficherDetails(${f.tmdb_id},'${isTv ? 'tv' : 'movie'}')">
+          <div class="filming-card" onclick="afficherDetails(${f.tmdb_id},'${isTv ? 'tv' : 'movie'}')" role="button" tabindex="0">
             <div class="filming-card-img-wrap">
               ${isTv ? `<span class="card-type-badge">TV</span>` : ""}
               <img src="${poster}" alt="${escapeHtml(f.title)}" loading="lazy">
@@ -1429,8 +1335,7 @@ function _renderFilmingCards(container, results) {
               ${countries  ? `<div class="filming-card-countries"><i class="fas fa-globe-europe"></i> ${escapeHtml(countries)}</div>` : ""}
               ${primaryLoc ? `<div class="filming-card-primary-loc"><i class="fas fa-map-pin"></i> ${escapeHtml(primaryLoc.name)}</div>` : ""}
               <div class="filming-card-actions" onclick="event.stopPropagation()">
-                ${bookingUrl ? `<a href="${bookingUrl}" target="_blank" rel="sponsored noopener" class="filming-action-btn filming-booking-btn" title="Booking.com"><i class="fas fa-bed"></i> Booking</a>` : ""}
-                ${airbnbUrl  ? `<a href="${airbnbUrl}"  target="_blank" rel="noopener"            class="filming-action-btn filming-airbnb-btn"  title="Airbnb"><i class="fas fa-home"></i> Airbnb</a>`  : ""}
+                ${bookingUrl ? `<a href="${bookingUrl}" target="_blank" rel="sponsored noopener" class="filming-action-btn filming-booking-btn" title="Booking.com"><i class="fas fa-bed"></i> Hébergements</a>` : ""}
               </div>
             </div>
           </div>`;
@@ -1450,8 +1355,7 @@ function _renderFilmingPagination(page, totalPages) {
     pag.innerHTML = html;
 }
 
-// ════ CARTE LEAFLET PRINCIPALE ═══════════════════════════════════════════════
-
+// ════ CARTE LEAFLET PRINCIPALE ════
 function _initFilmingLeafletMap() {
     _ensureLeafletFull(() => {
         const mapEl = document.getElementById("filming-leaflet-map");
@@ -1459,22 +1363,10 @@ function _initFilmingLeafletMap() {
 
         if (_filmingMap) { _filmingMap.remove(); _filmingMap = null; }
         _filmingAllMarkers = [];
-        _filmingFilmLayer = _filmingHotelLayer = _filmingTourismLayer = null;
-        _filmingHeatmapLayer = _filmingMarkerClusterGroup = null;
-        // Nouveaux layers
-        window._filmingRestaurantLayer = null;
-        window._filmingTransportLayer  = null;
 
-        const tileLayers = {
-            "🗺️ Dark":    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",             { attribution: '© OpenStreetMap © CARTO', subdomains: 'abcd', maxZoom: 19 }),
-            "🌍 OSM":     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",                        { attribution: '© OpenStreetMap',          maxZoom: 19 }),
-            "🛰️ Voyager": L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", { attribution: '© OpenStreetMap © CARTO', subdomains: 'abcd', maxZoom: 19 }),
-        };
-
-        _filmingMap = L.map(mapEl, { center: [20, 0], zoom: 2, zoomControl: false, layers: [tileLayers["🗺️ Dark"]] });
+        _filmingMap = L.map(mapEl, { center: [20, 0], zoom: 2, zoomControl: false });
         L.control.zoom({ position: "topright" }).addTo(_filmingMap);
-        L.control.layers(tileLayers, {}, { position: "topright", collapsed: true }).addTo(_filmingMap);
-        L.control.scale({ position: "bottomright", imperial: false }).addTo(_filmingMap);
+        L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 19 }).addTo(_filmingMap);
 
         if (window.L.markerClusterGroup) {
             _filmingMarkerClusterGroup = L.markerClusterGroup({
@@ -1490,15 +1382,10 @@ function _initFilmingLeafletMap() {
         _filmingFilmLayer              = L.layerGroup().addTo(_filmingMap);
         _filmingHotelLayer             = L.layerGroup();
         _filmingTourismLayer           = L.layerGroup();
-        window._filmingRestaurantLayer = L.layerGroup();
-        window._filmingTransportLayer  = L.layerGroup();
+        _filmingRestaurantLayer        = L.layerGroup();
+        _filmingTransportLayer         = L.layerGroup();
         _filmingLeafletReady           = true;
 
-        if (navigator.geolocation && !_filmingCurrentCountry) {
-            navigator.geolocation.getCurrentPosition(pos => {
-                _filmingMap.flyTo([pos.coords.latitude, pos.coords.longitude], 5, { duration: 1.5 });
-            }, () => {}, { timeout: 3000 });
-        }
         setTimeout(() => _filmingMap?.invalidateSize(), 400);
     });
 }
@@ -1506,20 +1393,15 @@ function _initFilmingLeafletMap() {
 function _ensureLeafletFull(callback) {
     if (window.L && window.L.markerClusterGroup) { callback(); return; }
     if (!document.querySelector('link[href*="leaflet.css"]')) {
-        const lk = document.createElement("link"); lk.rel = "stylesheet";
-        lk.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-        document.head.appendChild(lk);
+        const lk = document.createElement("link"); lk.rel = "stylesheet"; lk.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"; document.head.appendChild(lk);
     }
-    ["https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css",
-     "https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"].forEach(href => {
-        if (!document.querySelector(`link[href="${href}"]`)) {
-            const lk = document.createElement("link"); lk.rel = "stylesheet"; lk.href = href; document.head.appendChild(lk);
-        }
-    });
+    if (!document.querySelector('link[href*="MarkerCluster.css"]')) {
+        const lk2 = document.createElement("link"); lk2.rel = "stylesheet"; lk2.href = "https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"; document.head.appendChild(lk2);
+    }
     const scripts = [
-        { src: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",                            check: () => !!window.L },
+        { src: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js", check: () => !!window.L },
         { src: "https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js", check: () => !!window.L?.markerClusterGroup },
-        { src: "https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js",                   check: () => !!window.L?.heatLayer },
+        { src: "https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js", check: () => !!window.L?.heatLayer },
     ];
     function loadNext(idx) {
         if (idx >= scripts.length) { callback(); return; }
@@ -1532,13 +1414,14 @@ function _ensureLeafletFull(callback) {
     loadNext(0);
 }
 
-// ════ MARQUEURS FILMS ═════════════════════════════════════════════════════════
-
+// ════ MARQUEURS FILMS ════
 function _updateFilmingMapMarkers(films) {
     if (!_filmingLeafletReady || !_filmingMap) return;
     if (_filmingMarkerClusterGroup) _filmingMarkerClusterGroup.clearLayers();
     if (_filmingFilmLayer) _filmingFilmLayer.clearLayers();
     _filmingAllMarkers = [];
+
+    const bounds = L.latLngBounds();
 
     films.forEach(f => {
         const loc = f.primary_location;
@@ -1552,12 +1435,16 @@ function _updateFilmingMapMarkers(films) {
         const icon = L.divIcon({ html: iconHtml, className: "", iconSize: [36,36], iconAnchor: [18,36], popupAnchor: [0,-40] });
         const marker = L.marker([loc.lat, loc.lng], { icon });
 
+        // Clic droit : Copier les coordonnées
+        marker.on('contextmenu', (e) => {
+            const coords = `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
+            navigator.clipboard.writeText(coords).then(() => toast(`📍 Coordonnées copiées : ${coords}`));
+        });
+
         const locationQuery = encodeURIComponent(loc.name + (loc.country ? ", " + loc.country : ""));
         const bookingUrl    = `https://www.booking.com/searchresults.html?ss=${locationQuery}&aid=SHADOWFRAME`;
-        const airbnbUrl     = `https://www.airbnb.com/s/${encodeURIComponent(loc.name)}/homes`;
         const safeLocName   = escapeHtml(loc.name).replace(/'/g, "\\'");
-        const safeCountry   = escapeHtml(loc.country || "").replace(/'/g, "\\'");
-
+        
         marker.bindPopup(`
           <div class="fmap-popup">
             ${posterUrl ? `<img src="${posterUrl}" class="fmap-popup-poster" alt="">` : ""}
@@ -1566,302 +1453,151 @@ function _updateFilmingMapMarkers(films) {
               <div class="fmap-popup-meta">${f.year||""}${f.vote_average ? ` · ⭐ ${f.vote_average.toFixed(1)}` : ""}</div>
               <div class="fmap-popup-loc"><i class="fas fa-map-pin"></i> ${escapeHtml(loc.name)}</div>
               ${loc.country ? `<div class="fmap-popup-country">${escapeHtml(loc.country)}</div>` : ""}
+              
               <div class="fmap-popup-actions">
-                <button class="fmap-popup-btn fmap-popup-detail"
-                  onclick="afficherDetails(${f.tmdb_id},'${f.media_type||'movie'}');document.querySelector('.leaflet-popup-close-button')?.click()">
-                  <i class="fas fa-info-circle"></i> Détails
-                </button>
-                <button class="fmap-popup-btn"
-                  onclick="openFilmMapModal(${f.tmdb_id},'${escapeHtml(f.title).replace(/'/g,"\\'")}','${f.media_type||'movie'}');document.querySelector('.leaflet-popup-close-button')?.click()">
-                  <i class="fas fa-map-marked-alt"></i> Tous les lieux
-                </button>
-                <button class="fmap-popup-btn fmap-popup-hotel-near"
-                  onclick="_loadHotelsNear(${loc.lat},${loc.lng},'${safeLocName}','${safeCountry}')">
-                  <i class="fas fa-bed"></i> Hébergements
-                </button>
+                <button class="fmap-popup-btn fmap-popup-detail" onclick="afficherDetails(${f.tmdb_id},'${f.media_type||'movie'}');document.querySelector('.leaflet-popup-close-button')?.click()"><i class="fas fa-info-circle"></i> Détails</button>
+                <button class="fmap-popup-btn" onclick="openFilmMapModal(${f.tmdb_id},'${escapeHtml(f.title).replace(/'/g,"\\'")}','${f.media_type||'movie'}');document.querySelector('.leaflet-popup-close-button')?.click()"><i class="fas fa-map-marked-alt"></i> Tous les lieux</button>
               </div>
+              <div style="border-top: 1px solid rgba(255,255,255,0.1); margin: 6px 0; padding-top: 6px;"></div>
+              <div style="font-size: 0.65rem; color: var(--muted); margin-bottom: 4px;">Explorer aux alentours :</div>
               <div class="fmap-popup-book-row">
-                <a href="${bookingUrl}" target="_blank" rel="sponsored noopener" class="fmap-popup-btn fmap-popup-booking">
-                  <i class="fas fa-bed"></i> Booking
-                </a>
-                <a href="${airbnbUrl}" target="_blank" rel="noopener" class="fmap-popup-btn fmap-popup-airbnb">
-                  <i class="fas fa-home"></i> Airbnb
-                </a>
+                <button class="fmap-popup-btn fmap-popup-hotel-near" onclick="_loadHotelsNear(${loc.lat},${loc.lng},'${safeLocName}')"><i class="fas fa-bed"></i> Hébergements OSM</button>
+                <button class="fmap-popup-btn" onclick="_loadServicesNear(${loc.lat},${loc.lng},'${safeLocName}')"><i class="fas fa-plus-square"></i> Hôpitaux/Police OSM</button>
+              </div>
+              <div class="fmap-popup-book-row" style="margin-top:4px;">
+                <a href="${bookingUrl}" target="_blank" rel="sponsored noopener" class="fmap-popup-btn fmap-popup-booking"><i class="fas fa-bed"></i> Chercher sur Booking</a>
               </div>
             </div>
           </div>
-        `, { maxWidth: 310 });
+        `, { maxWidth: 320 });
 
         if (_filmingMarkerClusterGroup) _filmingMarkerClusterGroup.addLayer(marker);
         else marker.addTo(_filmingFilmLayer);
+        
         _filmingAllMarkers.push({ lat: loc.lat, lng: loc.lng, marker, film: f });
+        bounds.extend([loc.lat, loc.lng]);
     });
 
-    _refreshHeatmap();
+    if (bounds.isValid()) {
+        _filmingMap.flyToBounds(bounds, { padding: [50, 50], duration: 1.5 });
+    }
 }
 
-// ════ OVERPASS — HÉBERGEMENTS (tous types + tags complets) ════════════════════
-
-async function _loadHotelsNear(lat, lng, locationName, country = "") {
+// ════ OVERPASS — HÉBERGEMENTS ════
+async function _loadHotelsNear(lat, lng, locationName) {
     if (!_filmingMap || !_filmingHotelLayer) return;
     if (!_filmingMap.hasLayer(_filmingHotelLayer)) {
         _filmingMap.addLayer(_filmingHotelLayer);
         document.getElementById("fmap-layer-hotel")?.classList.add("active");
     }
-    _filmingMap.flyTo([lat, lng], 14, { duration: 1.5 });
+    _filmingMap.flyTo([lat, lng], 14, { duration: 1 });
     toast(`🏨 Recherche hébergements près de ${locationName}…`, 2000);
 
-    const R    = 0.02;
+    const R = 0.02;
     const bbox = `${lat-R},${lng-R},${lat+R},${lng+R}`;
     const query = `[out:json][timeout:20];(
-      node["tourism"="hotel"](${bbox});
-      node["tourism"="hostel"](${bbox});
-      node["tourism"="guest_house"](${bbox});
-      node["tourism"="motel"](${bbox});
-      node["tourism"="apartment"](${bbox});
-      node["tourism"="chalet"](${bbox});
-      node["tourism"="camp_site"](${bbox});
-      node["tourism"="caravan_site"](${bbox});
-      node["tourism"="alpine_hut"](${bbox});
-      node["tourism"="wilderness_hut"](${bbox});
+      node["tourism"~"hotel|hostel|guest_house|motel|apartment|chalet|camp_site"](${bbox});
       node["amenity"="hotel"](${bbox});
     );out body;`;
+    const cacheKey = `hotels_${lat.toFixed(3)}_${lng.toFixed(3)}`;
 
     try {
-        const res  = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-        const data = await res.json();
+        const elements = await fetchOverpassCached(query, cacheKey);
         _filmingHotelLayer.clearLayers();
-        const elements = data.elements || [];
 
         if (elements.length === 0) {
             toast(`Aucun hébergement OSM — ouverture Booking`, 2500);
-            window.open(`https://www.booking.com/searchresults.html?ss=${encodeURIComponent(locationName + (country ? ", " + country : ""))}&aid=SHADOWFRAME`, "_blank");
+            window.open(`https://www.booking.com/searchresults.html?ss=${encodeURIComponent(locationName)}&aid=SHADOWFRAME`, "_blank");
             return;
         }
-
-        elements.slice(0, 200).forEach(el => _addHotelMarker(el, locationName));
-        toast(`🏨 ${elements.length} hébergements près de ${locationName}`, 3000);
+        elements.slice(0, 150).forEach(el => _addHotelMarker(el, locationName, _filmingHotelLayer));
+        toast(`🏨 ${elements.length} hébergements ajoutés à la carte`, 3000);
     } catch(e) {
-        toast("Erreur OSM — ouverture Booking", 2500);
+        toast("Erreur OSM (trop de requêtes) — ouverture Booking", 2500);
         window.open(`https://www.booking.com/searchresults.html?ss=${encodeURIComponent(locationName)}&aid=SHADOWFRAME`, "_blank");
     }
 }
 
-function _addHotelMarker(el, fallbackCity, layer = null) {
+function _addHotelMarker(el, fallbackCity, layer) {
     if (!el.lat || !el.lon) return;
-    const targetLayer = layer || _filmingHotelLayer;
     const tags = el.tags || {};
-
-    const name        = tags.name || "Hébergement";
-    const type        = tags.tourism || tags.amenity || "hotel";
-    const typeLabels  = { hotel:"Hôtel", hostel:"Auberge de jeunesse", guest_house:"Chambre d'hôtes", motel:"Motel", apartment:"Appartement", chalet:"Chalet", camp_site:"Camping", caravan_site:"Camping-car", alpine_hut:"Refuge de montagne", wilderness_hut:"Refuge sauvage" };
-    const typeLabel   = typeLabels[type] || "Hébergement";
-    const stars       = tags.stars       ? "★".repeat(Math.min(parseInt(tags.stars), 5)) : "";
-    const rating      = tags["rating"]   || tags["stars:count"] || "";
-    const price       = tags["price:range"] || tags["charge"] || "";
-    const phone       = tags.phone       || tags["contact:phone"] || "";
-    const website     = tags.website     || tags["contact:website"] || "";
-    const email       = tags.email       || tags["contact:email"] || "";
-    const checkin     = tags["check_in"] || "";
-    const checkout    = tags["check_out"] || "";
-    const rooms       = tags["rooms"]    || "";
-    const addr        = [tags["addr:housenumber"], tags["addr:street"]].filter(Boolean).join(" ");
-    const city        = tags["addr:city"] || fallbackCity;
-    const internet    = tags["internet_access"] === "wlan" ? "📶 WiFi" : tags["internet_access"] ? "🌐 Internet" : "";
-    const wheelchair  = tags.wheelchair === "yes" ? "♿" : "";
-    const parking     = tags.parking === "yes" || tags["parking"] ? "🅿️" : "";
-    const pool        = tags["swimming_pool"] === "yes" ? "🏊" : "";
-    const pets        = tags["dog"] === "yes" ? "🐾" : "";
-    const amenities   = [internet, wheelchair, parking, pool, pets].filter(Boolean).join(" ");
-
-    const bookUrl   = `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(name + ", " + city)}&aid=SHADOWFRAME`;
-    const airbnbUrl = `https://www.airbnb.com/s/${encodeURIComponent(city)}/homes`;
+    const name = tags.name || "Hébergement";
+    const typeLabel = tags.tourism || "Hôtel";
+    const bookUrl = `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(name + ", " + fallbackCity)}&aid=SHADOWFRAME`;
 
     const hotelIcon = L.divIcon({ html: `<div class="fmap-marker-hotel"><i class="fas fa-bed"></i></div>`, className: "", iconSize: [30,30], iconAnchor: [15,30], popupAnchor: [0,-32] });
     const marker = L.marker([el.lat, el.lon], { icon: hotelIcon });
 
+    // Clic droit : Copier les coordonnées
+    marker.on('contextmenu', (e) => {
+        const coords = `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
+        navigator.clipboard.writeText(coords).then(() => toast(`📍 Coordonnées copiées : ${coords}`));
+    });
+
     marker.bindPopup(`
-      <div class="fmap-popup fmap-popup-hotel-detail">
-        <div class="fmap-popup-hotel-header">
-          <span class="fmap-popup-hotel-type">${typeLabel}</span>
-          ${amenities ? `<span class="fmap-popup-amenities">${amenities}</span>` : ""}
-        </div>
-        <div class="fmap-popup-title">${escapeHtml(name)}</div>
-        ${stars  ? `<div class="fmap-popup-stars">${stars}</div>` : ""}
-        ${rating ? `<div class="fmap-popup-rating"><i class="fas fa-star"></i> ${escapeHtml(String(rating))}</div>` : ""}
-        ${price  ? `<div class="fmap-popup-price">💰 ${escapeHtml(price)}</div>` : ""}
-        ${rooms  ? `<div class="fmap-popup-rooms"><i class="fas fa-door-open"></i> ${escapeHtml(rooms)} chambres</div>` : ""}
-        ${checkin  ? `<div class="fmap-popup-checkin"><i class="fas fa-clock"></i> Arrivée: ${escapeHtml(checkin)}</div>` : ""}
-        ${checkout ? `<div class="fmap-popup-checkin"><i class="fas fa-clock"></i> Départ: ${escapeHtml(checkout)}</div>` : ""}
-        ${addr   ? `<div class="fmap-popup-address"><i class="fas fa-map-marker-alt"></i> ${escapeHtml(addr)}, ${escapeHtml(city)}</div>` : ""}
-        ${phone  ? `<div class="fmap-popup-phone"><i class="fas fa-phone"></i> <a href="tel:${escapeHtml(phone)}">${escapeHtml(phone)}</a></div>` : ""}
-        ${email  ? `<div class="fmap-popup-phone"><i class="fas fa-envelope"></i> <a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a></div>` : ""}
-        ${website ? `<div class="fmap-popup-web"><i class="fas fa-globe"></i> <a href="${escapeHtml(website)}" target="_blank" rel="noopener">Site web</a></div>` : ""}
-        <div class="fmap-popup-book-row">
-          <a href="${bookUrl}" target="_blank" rel="sponsored noopener" class="fmap-popup-btn fmap-popup-booking"><i class="fas fa-bed"></i> Booking</a>
-          <a href="${airbnbUrl}" target="_blank" rel="noopener" class="fmap-popup-btn fmap-popup-airbnb"><i class="fas fa-home"></i> Airbnb</a>
-        </div>
+      <div class="fmap-popup-small">
+        <span style="font-size:.68rem;color:var(--primary);text-transform:uppercase">${typeLabel}</span><br>
+        <strong>${escapeHtml(name)}</strong><br>
+        <a href="${bookUrl}" target="_blank" rel="sponsored noopener" class="fmap-popup-btn fmap-popup-booking" style="margin-top:5px;"><i class="fas fa-bed"></i> Voir sur Booking</a>
       </div>
-    `, { maxWidth: 300 });
-
-    targetLayer.addLayer(marker);
+    `);
+    layer.addLayer(marker);
 }
 
-// ════ OVERPASS — HÉBERGEMENTS DANS LA VUE ════════════════════════════════════
-
-async function _loadHotelsInView() {
-    if (!_filmingMap || !_filmingHotelLayer) return;
-    if (_filmingMap.getZoom() < 10) return;
-    const b = _filmingMap.getBounds();
-    const bbox  = `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
-    const query = `[out:json][timeout:15];(
-      node["tourism"~"hotel|hostel|guest_house|motel|apartment|chalet|camp_site|caravan_site|alpine_hut"](${bbox});
-      node["amenity"="hotel"](${bbox});
-    );out body;`;
-    try {
-        const res  = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-        const data = await res.json();
-        _filmingHotelLayer.clearLayers();
-        (data.elements || []).slice(0, 150).forEach(el => _addHotelMarker(el, ""));
-    } catch(e) {}
-}
-
-// ════ OVERPASS — RESTAURANTS ══════════════════════════════════════════════════
-
-async function _loadRestaurantsInView() {
-    if (!_filmingMap || !window._filmingRestaurantLayer) return;
-    if (_filmingMap.getZoom() < 12) { toast("Zoomez davantage pour voir les restaurants", 2000); return; }
-    const b    = _filmingMap.getBounds();
-    const bbox = `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
-    const query = `[out:json][timeout:15];(
-      node["amenity"="restaurant"](${bbox});
-      node["amenity"="cafe"](${bbox});
-      node["amenity"="bar"](${bbox});
-      node["amenity"="fast_food"](${bbox});
-      node["amenity"="pub"](${bbox});
-    );out body;`;
-    try {
-        const res  = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-        const data = await res.json();
-        window._filmingRestaurantLayer.clearLayers();
-        (data.elements || []).slice(0, 120).forEach(el => {
-            if (!el.lat || !el.lon) return;
-            const tags    = el.tags || {};
-            const name    = tags.name    || "Restaurant";
-            const cuisine = tags.cuisine || "";
-            const price   = tags["price:range"] || "";
-            const phone   = tags.phone   || tags["contact:phone"] || "";
-            const website = tags.website || tags["contact:website"] || "";
-            const hours   = tags["opening_hours"] || "";
-            const type    = tags.amenity || "restaurant";
-            const typeEmoji = { restaurant:"🍽️", cafe:"☕", bar:"🍺", fast_food:"🍔", pub:"🍻" }[type] || "🍽️";
-            const rating  = tags["stars"] || "";
-            const wheelchair = tags.wheelchair === "yes" ? "♿ " : "";
-
-            const restoIcon = L.divIcon({ html: `<div class="fmap-marker-restaurant"><i class="fas fa-utensils"></i></div>`, className: "", iconSize: [28,28], iconAnchor: [14,28], popupAnchor: [0,-30] });
-            const marker = L.marker([el.lat, el.lon], { icon: restoIcon });
-            marker.bindPopup(`
-              <div class="fmap-popup-small fmap-popup-resto">
-                <div class="fmap-popup-title">${typeEmoji} ${escapeHtml(name)}</div>
-                ${cuisine ? `<div style="color:var(--primary);font-size:.72rem">${escapeHtml(cuisine.replace(/_/g,' '))}</div>` : ""}
-                ${rating  ? `<div style="color:var(--gold);font-size:.72rem">${"★".repeat(Math.min(parseInt(rating),5))}</div>` : ""}
-                ${price   ? `<div style="color:var(--gold);font-size:.7rem">💰 ${escapeHtml(price)}</div>` : ""}
-                ${hours   ? `<div style="font-size:.68rem;color:var(--muted)"><i class="fas fa-clock"></i> ${escapeHtml(hours)}</div>` : ""}
-                ${wheelchair ? `<div style="font-size:.68rem;color:var(--primary)">♿ Accessible PMR</div>` : ""}
-                ${phone   ? `<div style="font-size:.7rem"><a href="tel:${escapeHtml(phone)}" style="color:var(--primary)">${escapeHtml(phone)}</a></div>` : ""}
-                ${website ? `<div style="font-size:.7rem"><a href="${escapeHtml(website)}" target="_blank" rel="noopener" style="color:var(--primary)">Site web →</a></div>` : ""}
-              </div>
-            `, { maxWidth: 260 });
-            window._filmingRestaurantLayer.addLayer(marker);
-        });
-    } catch(e) {}
-}
-
-// ════ OVERPASS — TRANSPORTS ═══════════════════════════════════════════════════
-
-async function _loadTransportsInView() {
-    if (!_filmingMap || !window._filmingTransportLayer) return;
-    if (_filmingMap.getZoom() < 11) { toast("Zoomez pour voir les transports", 2000); return; }
-    const b    = _filmingMap.getBounds();
-    const bbox = `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
-    const query = `[out:json][timeout:15];(
-      node["railway"="station"](${bbox});
-      node["railway"="halt"](${bbox});
-      node["aeroway"="aerodrome"](${bbox});
-      node["amenity"="bus_station"](${bbox});
-      node["highway"="bus_stop"](${bbox});
-      node["station"="subway"](${bbox});
-      node["railway"="tram_stop"](${bbox});
-      node["amenity"="ferry_terminal"](${bbox});
-      node["amenity"="parking"](${bbox});
-      node["amenity"="bicycle_rental"](${bbox});
-    );out body;`;
-    try {
-        const res  = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-        const data = await res.json();
-        window._filmingTransportLayer.clearLayers();
-        (data.elements || []).slice(0, 150).forEach(el => {
-            if (!el.lat || !el.lon) return;
-            const tags = el.tags || {};
-            const name = tags.name || tags.ref || "Transport";
-            const type = tags.railway || tags.aeroway || tags.amenity || tags.highway || "transport";
-            const emoji = { station:"🚉", halt:"🚉", aerodrome:"✈️", bus_station:"🚌", bus_stop:"🚏", subway:"🚇", tram_stop:"🚊", ferry_terminal:"⛴️", parking:"🅿️", bicycle_rental:"🚲" }[type] || "🚌";
-            const lines = tags["ref"] || "";
-            const operator = tags["operator"] || "";
-
-            const transportIcon = L.divIcon({ html: `<div class="fmap-marker-transport">${emoji}</div>`, className: "", iconSize: [28,28], iconAnchor: [14,28], popupAnchor: [0,-30] });
-            const marker = L.marker([el.lat, el.lon], { icon: transportIcon });
-            marker.bindPopup(`
-              <div class="fmap-popup-small">
-                <div class="fmap-popup-title">${emoji} ${escapeHtml(name)}</div>
-                ${operator ? `<div style="font-size:.7rem;color:var(--muted)">${escapeHtml(operator)}</div>` : ""}
-                ${lines    ? `<div style="font-size:.7rem;color:var(--primary)">Ligne(s): ${escapeHtml(lines)}</div>` : ""}
-                <a href="https://www.google.com/maps/dir/?api=1&destination=${el.lat},${el.lon}" target="_blank" rel="noopener" style="font-size:.72rem;color:var(--primary)">Itinéraire →</a>
-              </div>
-            `, { maxWidth: 220 });
-            window._filmingTransportLayer.addLayer(marker);
-        });
-    } catch(e) {}
-}
-
-// ════ OVERPASS — OFFICES DE TOURISME ═════════════════════════════════════════
-
-async function _loadTourismOfficesInView(forceLoad = false) {
+// ════ OVERPASS — SERVICES (Hôpitaux & Police) ════
+async function _loadServicesNear(lat, lng, locationName) {
     if (!_filmingMap || !_filmingTourismLayer) return;
-    // Guard zoom seulement si pas forcé (premier chargement au clic = forcé)
-    if (!forceLoad && _filmingMap.getZoom() < 10) return;
-    const b    = _filmingMap.getBounds();
-    const bbox = `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
-    const query = `[out:json][timeout:10];(
-      node["tourism"="information"]["information"="office"](${bbox});
-      node["tourism"="information"]["information"="visitor_centre"](${bbox});
+    if (!_filmingMap.hasLayer(_filmingTourismLayer)) {
+        _filmingMap.addLayer(_filmingTourismLayer);
+        document.getElementById("fmap-layer-tourism")?.classList.add("active");
+    }
+    _filmingMap.flyTo([lat, lng], 14, { duration: 1 });
+    toast(`🏥 Recherche de services près de ${locationName}…`, 2000);
+
+    const R = 0.03;
+    const bbox = `${lat-R},${lng-R},${lat+R},${lng+R}`;
+    const query = `[out:json][timeout:20];(
+      node["amenity"~"hospital|police"](${bbox});
+      node["tourism"="information"](${bbox});
     );out body;`;
+    const cacheKey = `services_${lat.toFixed(3)}_${lng.toFixed(3)}`;
+
     try {
-        const res  = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-        const data = await res.json();
-        _filmingTourismLayer.clearLayers();
-        const tourIcon = L.divIcon({ html: `<div class="fmap-marker-tourism"><i class="fas fa-info"></i></div>`, className: "", iconSize: [24,24], iconAnchor: [12,24] });
-        (data.elements || []).slice(0, 60).forEach(el => {
+        const elements = await fetchOverpassCached(query, cacheKey);
+        // On n'efface pas tout pour permettre le cumul si l'utilisateur clique à plusieurs endroits
+        if (elements.length === 0) {
+            toast(`Aucun service OSM trouvé à proximité.`, 2500);
+            return;
+        }
+        elements.slice(0, 100).forEach(el => {
             if (!el.lat || !el.lon) return;
             const tags = el.tags || {};
-            const name = tags.name || "Office de tourisme";
-            const marker = L.marker([el.lat, el.lon], { icon: tourIcon });
-            marker.bindPopup(`
-              <div class="fmap-popup-small" style="padding:10px 12px;min-width:160px">
-                <strong style="color:var(--text)">${escapeHtml(name)}</strong>
-                ${tags["addr:city"]  ? `<p style="color:var(--muted);font-size:.72rem;margin:3px 0">${escapeHtml(tags["addr:city"])}</p>` : ""}
-                ${tags["opening_hours"] ? `<p style="font-size:.68rem;color:var(--muted)"><i class="fas fa-clock"></i> ${escapeHtml(tags["opening_hours"])}</p>` : ""}
-                ${tags.website ? `<a href="${escapeHtml(tags.website)}" target="_blank" rel="noopener" style="color:var(--primary);font-size:.75rem">Site web →</a>` : ""}
-                ${tags.phone   ? `<p style="font-size:.72rem;margin:3px 0"><a href="tel:${escapeHtml(tags.phone)}" style="color:var(--primary)">${escapeHtml(tags.phone)}</a></p>` : ""}
-                ${tags.email   ? `<p style="font-size:.7rem;color:var(--muted)">${escapeHtml(tags.email)}</p>` : ""}
-              </div>
-            `);
+            const type = tags.amenity || tags.tourism;
+            let iconHtml, color, iconClass;
+            
+            if (type === "hospital") { iconHtml = '<i class="fas fa-notes-medical"></i>'; color = '#ff4444'; iconClass = 'fmap-marker-hospital'; }
+            else if (type === "police") { iconHtml = '<i class="fas fa-shield-halved"></i>'; color = '#4dabf7'; iconClass = 'fmap-marker-police'; }
+            else { iconHtml = '<i class="fas fa-info"></i>'; color = '#4dabf7'; iconClass = 'fmap-marker-tourism'; }
+
+            const customIcon = L.divIcon({ html: `<div class="${iconClass}" style="background:${color}33;border:2px solid ${color};border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;color:${color}">${iconHtml}</div>`, className: "", iconSize: [24,24], iconAnchor: [12,24] });
+            const marker = L.marker([el.lat, el.lon], { icon: customIcon });
+
+            marker.on('contextmenu', (e) => {
+                const coords = `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
+                navigator.clipboard.writeText(coords).then(() => toast(`📍 Coordonnées copiées : ${coords}`));
+            });
+
+            marker.bindPopup(`<div class="fmap-popup-small"><strong>${escapeHtml(tags.name || type)}</strong></div>`);
             _filmingTourismLayer.addLayer(marker);
         });
-    } catch(e) {}
+        toast(`🏥 ${elements.length} services ajoutés à la carte`, 3000);
+    } catch(e) {
+        toast("Erreur OSM (trop de requêtes)", 2500);
+    }
 }
 
-// ════ CONTRÔLES LAYERS ════════════════════════════════════════════════════════
+// ════ CONTRÔLES LAYERS PRINCIPAUX ════
+let _filmingMoveTimeout = null;
 
 function toggleFilmingLayer(layer) {
     if (!_filmingMap) return;
@@ -1871,14 +1607,39 @@ function toggleFilmingLayer(layer) {
         film:       _filmingMarkerClusterGroup || _filmingFilmLayer,
         hotel:      _filmingHotelLayer,
         tourism:    _filmingTourismLayer,
-        restaurant: window._filmingRestaurantLayer,
-        transport:  window._filmingTransportLayer,
+        restaurant: _filmingRestaurantLayer,
+        transport:  _filmingTransportLayer,
     };
-    const loaderMap = {
-        hotel:      _loadHotelsInView,
-        tourism:    () => _loadTourismOfficesInView(true),
-        restaurant: _loadRestaurantsInView,
-        transport:  _loadTransportsInView,
+    
+    // Fonction qui charge les POIs dans la vue actuelle si le zoom est suffisant
+    const loaderFn = async () => {
+        if (_filmingMap.getZoom() < 13) return; // Sécurité anti-429
+        const b = _filmingMap.getBounds();
+        const bbox = `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
+        const center = _filmingMap.getCenter();
+        const cacheKey = `${layer}_${center.lat.toFixed(2)}_${center.lng.toFixed(2)}`; // Cache sur un quadrillage
+        
+        let query = "";
+        if (layer === "restaurant") query = `[out:json][timeout:10];(node["amenity"~"restaurant|cafe|bar|fast_food"](${bbox}););out body;`;
+        else if (layer === "transport") query = `[out:json][timeout:10];(node["railway"~"station|halt|tram_stop"](${bbox});node["amenity"="bus_station"](${bbox});node["highway"="bus_stop"](${bbox}););out body;`;
+        else return;
+
+        try {
+            const elements = await fetchOverpassCached(query, cacheKey);
+            layerMap[layer].clearLayers(); // On vide et on remplace pour la vue actuelle
+            elements.slice(0, 100).forEach(el => {
+                if (!el.lat || !el.lon) return;
+                const emoji = layer === "restaurant" ? "🍽️" : "🚌";
+                const customIcon = L.divIcon({ html: `<div style="background:rgba(255,255,255,0.1);border:1px solid #fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:10px">${emoji}</div>`, className: "", iconSize: [20,20] });
+                const marker = L.marker([el.lat, el.lon], { icon: customIcon });
+                marker.bindPopup(`<strong>${escapeHtml(el.tags.name || layer)}</strong>`);
+                marker.on('contextmenu', (e) => {
+                    const coords = `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
+                    navigator.clipboard.writeText(coords).then(() => toast(`📍 Coordonnées copiées : ${coords}`));
+                });
+                layerMap[layer].addLayer(marker);
+            });
+        } catch (e) { }
     };
 
     const target = layerMap[layer];
@@ -1887,40 +1648,34 @@ function toggleFilmingLayer(layer) {
     if (_filmingMap.hasLayer(target)) {
         _filmingMap.removeLayer(target);
         btn?.classList.remove("active");
-        if (loaderMap[layer]) _filmingMap.off("moveend", loaderMap[layer]);
+        if (layer === 'restaurant' || layer === 'transport') {
+            _filmingMap.off("moveend"); // Très basique, à affiner si plusieurs layers
+        }
     } else {
         _filmingMap.addLayer(target);
         btn?.classList.add("active");
-        if (loaderMap[layer]) {
-            loaderMap[layer]();
-            _filmingMap.on("moveend", loaderMap[layer]);
+        if (layer === 'restaurant' || layer === 'transport') {
+            toast("Zoomez pour charger les éléments automatiquement", 2000);
+            loaderFn();
+            _filmingMap.on("moveend", () => {
+                clearTimeout(_filmingMoveTimeout);
+                _filmingMoveTimeout = setTimeout(loaderFn, 1500); // Debounce de 1.5s
+            });
         }
     }
 }
 
 function toggleFilmingHeatmap() {
-    if (!_filmingMap) return;
+    if (!_filmingMap || !window.L?.heatLayer) return;
     const btn = document.getElementById("fmap-heatmap");
     if (_filmingHeatmapLayer && _filmingMap.hasLayer(_filmingHeatmapLayer)) {
         _filmingMap.removeLayer(_filmingHeatmapLayer);
         btn?.classList.remove("active");
     } else {
-        _refreshHeatmap(true);
+        const points = _filmingAllMarkers.map(m => [m.lat, m.lng, 0.5]);
+        _filmingHeatmapLayer = L.heatLayer(points, { radius: 35, blur: 25, maxZoom: 10, gradient: { 0.2: "#00ffcc33", 0.5: "#00ffcc88", 0.8: "#00ffcccc", 1.0: "#00ffcc" } }).addTo(_filmingMap);
         btn?.classList.add("active");
     }
-}
-
-function _refreshHeatmap(forceAdd = false) {
-    if (!_filmingMap || !window.L?.heatLayer) return;
-    const btn      = document.getElementById("fmap-heatmap");
-    const isActive = btn?.classList.contains("active") || forceAdd;
-    if (!isActive) return;
-    if (_filmingHeatmapLayer) _filmingMap.removeLayer(_filmingHeatmapLayer);
-    const points = _filmingAllMarkers.map(m => [m.lat, m.lng, 0.5]);
-    _filmingHeatmapLayer = L.heatLayer(points, {
-        radius: 35, blur: 25, maxZoom: 10,
-        gradient: { 0.2: "#00ffcc33", 0.5: "#00ffcc88", 0.8: "#00ffcccc", 1.0: "#00ffcc" },
-    }).addTo(_filmingMap);
 }
 
 function filmingNearMe() {
@@ -1928,8 +1683,7 @@ function filmingNearMe() {
     navigator.geolocation.getCurrentPosition(pos => {
         _filmingMap.flyTo([pos.coords.latitude, pos.coords.longitude], 10, { duration: 2 });
         const pulseIcon = L.divIcon({ html: `<div class="fmap-near-me-pulse"></div>`, className: "", iconSize: [24,24], iconAnchor: [12,12] });
-        L.marker([pos.coords.latitude, pos.coords.longitude], { icon: pulseIcon })
-         .addTo(_filmingMap).bindPopup("📍 Vous êtes ici").openPopup();
+        L.marker([pos.coords.latitude, pos.coords.longitude], { icon: pulseIcon }).addTo(_filmingMap).bindPopup("📍 Vous êtes ici").openPopup();
     }, () => toast("Géolocalisation refusée"), { timeout: 5000 });
 }
 
@@ -1947,10 +1701,9 @@ function toggleFilmingMapFullscreen() {
     setTimeout(() => _filmingMap?.invalidateSize(), 300);
 }
 
-// ════ MODAL CARTE FILM INDIVIDUEL ════════════════════════════════════════════
-
-let _filmModalMap    = null;
-let _filmModalLayers = {};
+// ════ MODAL CARTE FILM INDIVIDUEL ════
+let _filmModalMap = null;
+let _filmModalClusterGroup = null;
 
 async function openFilmMapModal(tmdbId, title, mediaType = "movie") {
     const modal = document.getElementById("film-map-modal");
@@ -1960,7 +1713,6 @@ async function openFilmMapModal(tmdbId, title, mediaType = "movie") {
     document.getElementById("film-map-modal-locations").innerHTML = `<div class="filming-loading"><i class="fas fa-circle-notch fa-spin"></i> Chargement des lieux…</div>`;
     modal.style.display = "flex";
 
-    // Charger les lieux
     let locations = [];
     try {
         const data = await safeFetch(`/movie/${tmdbId}/locations?type=${mediaType}`);
@@ -1969,20 +1721,16 @@ async function openFilmMapModal(tmdbId, title, mediaType = "movie") {
 
     if (locations.length === 0) {
         document.getElementById("film-map-modal-locations").innerHTML = `<p style="color:var(--muted);text-align:center;padding:20px">Aucun lieu de tournage trouvé.</p>`;
+    } else {
+        _renderFilmModalLocationsList(locations, title);
     }
 
-    // Remplir la liste des lieux
-    _renderFilmModalLocationsList(locations, title);
-
-    // Initialiser la carte modale
     await _initFilmModalMap(locations, tmdbId, title);
 }
 
 function closeFilmMapModal() {
     const modal = document.getElementById("film-map-modal");
     if (modal) modal.style.display = "none";
-    if (_filmModalMap) { _filmModalMap.remove(); _filmModalMap = null; }
-    _filmModalLayers = {};
 }
 
 async function _initFilmModalMap(locations, tmdbId, title) {
@@ -1993,23 +1741,24 @@ async function _initFilmModalMap(locations, tmdbId, title) {
 
     if (_filmModalMap) { _filmModalMap.remove(); _filmModalMap = null; }
 
-    _filmModalMap = L.map(mapEl, { zoomControl: true, scrollWheelZoom: true });
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-        attribution: '© OpenStreetMap © CARTO', subdomains: 'abcd', maxZoom: 19,
-    }).addTo(_filmModalMap);
+    _filmModalMap = L.map(mapEl, { zoomControl: true });
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 19 }).addTo(_filmModalMap);
 
-    _filmModalLayers = {
-        film:    L.layerGroup().addTo(_filmModalMap),
-        hotel:   L.layerGroup(),
-        tourism: L.layerGroup(),
-    };
+    _filmModalClusterGroup = L.markerClusterGroup({
+        showCoverageOnHover: false,
+        iconCreateFunction: (cluster) => {
+            const n = cluster.getChildCount();
+            return L.divIcon({ html: `<div class="fmap-cluster" style="width:35px;height:35px">${n}</div>`, className: "", iconSize: [35,35], iconAnchor: [17,17] });
+        }
+    });
+    _filmModalMap.addLayer(_filmModalClusterGroup);
 
     if (locations.length === 0) {
         _filmModalMap.setView([20, 0], 2);
         return;
     }
 
-    const bounds = [];
+    const bounds = L.latLngBounds();
     const locIcon = L.divIcon({
         html: `<div style="background:var(--primary,#00ffcc);width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #000;box-shadow:0 2px 12px rgba(0,255,204,.5)"></div>`,
         className: "", iconSize: [28,28], iconAnchor: [14,28], popupAnchor: [0,-30],
@@ -2018,34 +1767,38 @@ async function _initFilmModalMap(locations, tmdbId, title) {
     locations.forEach(loc => {
         if (loc.lat == null) return;
         const marker = L.marker([loc.lat, loc.lng], { icon: locIcon });
+        
+        // Clic droit dans la modale aussi !
+        marker.on('contextmenu', (e) => {
+            const coords = `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
+            navigator.clipboard.writeText(coords).then(() => toast(`📍 Coordonnées copiées : ${coords}`));
+        });
+
         const hotelQ = encodeURIComponent(loc.name);
         marker.bindPopup(`
           <div style="padding:8px;min-width:160px">
             <strong style="color:var(--text)">${escapeHtml(loc.name)}</strong>
             <div style="margin-top:8px;display:flex;gap:5px;flex-wrap:wrap">
               <a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank" rel="noopener" class="fmap-popup-btn" style="font-size:.7rem"><i class="fas fa-map"></i> Maps</a>
-              <button class="fmap-popup-btn" style="font-size:.7rem" onclick="_loadHotelsNearModal(${loc.lat},${loc.lng},'${escapeHtml(loc.name).replace(/'/g,"\\'")}')"><i class="fas fa-bed"></i> Hébergements</button>
-              <a href="https://www.booking.com/searchresults.html?ss=${hotelQ}&aid=SHADOWFRAME" target="_blank" rel="sponsored noopener" class="fmap-popup-btn fmap-popup-booking" style="font-size:.7rem"><i class="fas fa-bed"></i> Booking</a>
+              <a href="https://www.booking.com/searchresults.html?ss=${hotelQ}&aid=SHADOWFRAME" target="_blank" rel="sponsored noopener" class="fmap-popup-btn fmap-popup-booking" style="font-size:.7rem"><i class="fas fa-bed"></i> Hôtels</a>
             </div>
           </div>
         `);
-        _filmModalLayers.film.addLayer(marker);
-        bounds.push([loc.lat, loc.lng]);
+        _filmModalClusterGroup.addLayer(marker);
+        bounds.extend([loc.lat, loc.lng]);
     });
 
-    if (bounds.length === 1) _filmModalMap.setView(bounds[0], 12);
-    else _filmModalMap.fitBounds(bounds, { padding: [30, 30] });
-
-    setTimeout(() => _filmModalMap?.invalidateSize(), 300);
+    setTimeout(() => {
+        _filmModalMap?.invalidateSize();
+        if (bounds.isValid()) {
+            _filmModalMap.flyToBounds(bounds, { padding: [30, 30], duration: 1 });
+        }
+    }, 300);
 }
 
 function _renderFilmModalLocationsList(locations, title) {
     const el = document.getElementById("film-map-modal-locations");
     if (!el) return;
-    if (!locations.length) {
-        el.innerHTML = `<p style="color:var(--muted);text-align:center;padding:12px">Aucun lieu disponible.</p>`;
-        return;
-    }
     el.innerHTML = `
       <div class="film-modal-loc-list">
         ${locations.map((loc, i) => `
@@ -2061,84 +1814,12 @@ function _renderFilmModalLocationsList(locations, title) {
       </div>`;
 }
 
-function toggleFilmModalLayer(layer) {
-    if (!_filmModalMap || !_filmModalLayers[layer]) return;
-    const btn = document.getElementById(`fmm-layer-${layer}`);
-    if (_filmModalMap.hasLayer(_filmModalLayers[layer])) {
-        _filmModalMap.removeLayer(_filmModalLayers[layer]);
-        btn?.classList.remove("active");
-    } else {
-        _filmModalMap.addLayer(_filmModalLayers[layer]);
-        btn?.classList.add("active");
-        if (layer === "hotel")   _loadHotelsNearModalView();
-        if (layer === "tourism") _loadTourismModalView();
-    }
-}
-
-async function _loadHotelsNearModal(lat, lng, locationName) {
-    if (!_filmModalMap || !_filmModalLayers.hotel) return;
-    if (!_filmModalMap.hasLayer(_filmModalLayers.hotel)) {
-        _filmModalMap.addLayer(_filmModalLayers.hotel);
-        document.getElementById("fmm-layer-hotel")?.classList.add("active");
-    }
-    _filmModalMap.flyTo([lat, lng], 13);
-    toast(`🏨 Hébergements près de ${locationName}…`, 1500);
-    const R = 0.018;
-    const bbox = `${lat-R},${lng-R},${lat+R},${lng+R}`;
-    const query = `[out:json][timeout:15];(
-      node["tourism"~"hotel|hostel|guest_house|motel|apartment|chalet|camp_site"](${bbox});
-      node["amenity"="hotel"](${bbox});
-    );out body;`;
-    try {
-        const res  = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-        const data = await res.json();
-        _filmModalLayers.hotel.clearLayers();
-        (data.elements || []).slice(0, 100).forEach(el => _addHotelMarker(el, locationName, _filmModalLayers.hotel));
-        toast(`🏨 ${(data.elements||[]).length} hébergements trouvés`, 2500);
-    } catch(e) { toast("Erreur OSM", 2000); }
-}
-
-async function _loadHotelsNearModalView() {
-    if (!_filmModalMap || !_filmModalLayers.hotel) return;
-    if (_filmModalMap.getZoom() < 10) return;
-    const b    = _filmModalMap.getBounds();
-    const bbox = `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
-    const query = `[out:json][timeout:15];(node["tourism"~"hotel|hostel|guest_house|motel|apartment"](${bbox});node["amenity"="hotel"](${bbox}););out body;`;
-    try {
-        const res  = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-        const data = await res.json();
-        _filmModalLayers.hotel.clearLayers();
-        (data.elements || []).slice(0, 100).forEach(el => _addHotelMarker(el, "", _filmModalLayers.hotel));
-    } catch(e) {}
-}
-
-async function _loadTourismModalView() {
-    if (!_filmModalMap || !_filmModalLayers.tourism) return;
-    if (_filmModalMap.getZoom() < 10) return;
-    const b    = _filmModalMap.getBounds();
-    const bbox = `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
-    const query = `[out:json][timeout:10];(node["tourism"="information"]["information"="office"](${bbox}););out body;`;
-    try {
-        const res  = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-        const data = await res.json();
-        _filmModalLayers.tourism.clearLayers();
-        const tourIcon = L.divIcon({ html: `<div class="fmap-marker-tourism"><i class="fas fa-info"></i></div>`, className: "", iconSize: [24,24], iconAnchor: [12,24] });
-        (data.elements || []).slice(0, 40).forEach(el => {
-            if (!el.lat || !el.lon) return;
-            const tags = el.tags || {};
-            const marker = L.marker([el.lat, el.lon], { icon: tourIcon });
-            marker.bindPopup(`<div class="fmap-popup-small"><strong>${escapeHtml(tags.name||"Office de tourisme")}</strong>${tags.website?`<br><a href="${escapeHtml(tags.website)}" target="_blank" style="color:var(--primary);font-size:.75rem">Site web →</a>`:""}</div>`);
-            _filmModalLayers.tourism.addLayer(marker);
-        });
-    } catch(e) {}
-}
 
 // ════════════════════════════════════════════════════════════════════════════
-// FIN DE LA SECTION FILMING — LE RESTE DU SCRIPT (NON-FILMING) EST CI‑DESSOUS
+// FIN DE LA SECTION FILMING
 // ════════════════════════════════════════════════════════════════════════════
 
 // ════ NOT FOUND ════
-
 function afficherNotFound(data) {
   document.getElementById("page-film-detail").style.display="block";
   document.getElementById("genre-grid").style.display="none";
@@ -2157,7 +1838,6 @@ function afficherNotFound(data) {
 }
 
 // ════ DÉTAILS DU FILM ════
-
 async function afficherDetails(movieId, mediaType="movie") {
   if(currentMovieId&&currentMovieId!==movieId) navStack.push({id:currentMovieId,type:currentMediaType});
   currentMovieId=movieId; currentMediaType=mediaType; cacherErreur();
@@ -2283,7 +1963,6 @@ function afficherDetailFilm(data) {
 function afficherTrailer(btn,embedUrl){const iframe=document.getElementById("trailer_iframe");if(iframe){iframe.src=embedUrl;iframe.style.display="block";btn.style.display="none";}}
 
 // ════ SAISONS ════
-
 const _loadedSeasons={};
 async function toggleSaison(seriesId,seasonNumber){
   const card=document.getElementById(`season-${seasonNumber}`);if(!card)return;
@@ -2298,22 +1977,22 @@ async function toggleSaison(seriesId,seasonNumber){
     episodesList.innerHTML=episodes.map(ep=>{
       const still=ep.still_path?`https://image.tmdb.org/t/p/w185${ep.still_path}`:"";const airDate=ep.air_date?ep.air_date.split("-").reverse().join("/"):"";
       const stillHtml=still?`<img class="episode-still" src="${still}" alt="" loading="lazy">`:"";
-      return `<div class="episode-item"><div class="episode-num">${ep.episode_number}</div>${stillHtml}<div class="episode-body"><div class="episode-title">${ep.name||"Episode "+ep.episode_number}</div>${airDate?`<div class="episode-date">${airDate}</div>`:""  }${ep.overview?`<div class="episode-overview">${ep.overview}</div>`:""}</div></div>`;
+      return `<div class="episode-item"><div class="episode-num">${ep.episode_number}</div>${stillHtml}<div class="episode-body"><div class="episode-title">${ep.name||"Episode "+ep.episode_number}</div>${airDate?`<div class="episode-date">${airDate}</div>`:"" }${ep.overview?`<div class="episode-overview">${ep.overview}</div>`:""}</div></div>`;
     }).join("");
   }catch(e){episodesList.innerHTML=`<p style="padding:16px;color:var(--muted);font-size:.82rem;text-align:center"><i class="fas fa-exclamation-circle"></i> Erreur chargement épisodes</p>`;}
 }
 
 // ════ PUBLICITÉ ════
-
 let _adFinished=false,_analysisResult=null,_analysisCallback=null,_adCountdownInterval=null;
 function demarrerPub(){
   const modal=document.getElementById('ad-modal'),closeBtn=document.getElementById('ad-close-btn'),countdown=document.getElementById('ad-countdown');
+  if(!modal) return;
   _adFinished=false;modal.style.display='flex';closeBtn.disabled=true;closeBtn.style.background='rgba(255,255,255,0.1)';closeBtn.style.color='var(--text)';
   let seconds=5;countdown.textContent=seconds;
   _adCountdownInterval=setInterval(()=>{seconds--;countdown.textContent=seconds;if(seconds<=0){clearInterval(_adCountdownInterval);closeBtn.disabled=false;countdown.textContent='✕';closeBtn.style.background='rgba(0,255,204,0.2)';closeBtn.style.color='var(--primary)';_publicitéTerminée();}},1000);
 }
-function fermerPub(){const closeBtn=document.getElementById('ad-close-btn');if(closeBtn.disabled)return;clearInterval(_adCountdownInterval);_publicitéTerminée();}
-function _publicitéTerminée(){_adFinished=true;const modal=document.getElementById('ad-modal');modal.style.display='none';if(_analysisResult!==null){_afficherResultatFinal(_analysisResult);_analysisResult=null;}}
+function fermerPub(){const closeBtn=document.getElementById('ad-close-btn');if(closeBtn&&closeBtn.disabled)return;clearInterval(_adCountdownInterval);_publicitéTerminée();}
+function _publicitéTerminée(){_adFinished=true;const modal=document.getElementById('ad-modal');if(modal)modal.style.display='none';if(_analysisResult!==null){_afficherResultatFinal(_analysisResult);_analysisResult=null;}}
 function _afficherResultatFinal(data){
   if(!_adFinished){_analysisResult=data;return;}
   const overlay=document.getElementById("loading-overlay"),progressBar=document.getElementById("prog-fill"),percentLabel=document.getElementById("prog-percent");
@@ -2325,12 +2004,10 @@ function _afficherResultatFinal(data){
 }
 
 // ════ CONFIDENTIALITÉ ════
-
 function afficherPrivacy(){document.getElementById("hero").style.display="none";document.getElementById("genre-nav").style.display="none";document.getElementById("genre-grid").style.display="none";document.getElementById("page-film-detail").style.display="none";document.getElementById("filming-page").style.display="none";document.getElementById("privacy-page").style.display="block";window.scrollTo({top:0,behavior:"smooth"});}
 function cacherPrivacy(){document.getElementById("privacy-page").style.display="none";retourAccueil();}
 
 // ════ WIKIDATA ENRICHMENT ════
-
 async function chargerEnrichissementWikidata(tmdb_id,media_type="movie"){
   const sections={crew:document.getElementById("crew_section"),locations:document.getElementById("locations_section"),finance:document.getElementById("finance_section"),eidr:document.getElementById("eidr_badge")};
   if(sections.crew)sections.crew.innerHTML=`<div class="wd-loading"><i class="fas fa-circle-notch fa-spin"></i><span style="color:var(--muted);font-size:.82rem">Chargement équipe créative…</span></div>`;
@@ -2340,7 +2017,7 @@ async function chargerEnrichissementWikidata(tmdb_id,media_type="movie"){
     if(sections.crew)afficherCrewWikidata(sections.crew,wd);
     if(sections.locations)afficherLocationsWikidata(sections.locations,loc?.locations||[],wd?.locations||[]);
     if(sections.finance)afficherFinanceWikidata(sections.finance,wd);
-    if(sections.eidr&&wd?.eidr_id){sections.eidr.innerHTML=`<span class="eidr-badge" title="Identifiant EIDR standard industrie audiovisuelle"><i class="fas fa-fingerprint"></i>EIDR&nbsp;<code>${wd.eidr_id}</code></span>`;sections.eidr.style.display="flex";}
+    if(sections.eidr&&wd?.eidr_id){sections.eidr.innerHTML=`<span class="eidr-badge" title="Identifiant EIDR standard industrie audiovisuelle"><i class="fas fa-fingerprint"></i>EIDR <code>${wd.eidr_id}</code></span>`;sections.eidr.style.display="flex";}
   }catch(e){console.warn("Wikidata enrichment KO:",e);if(sections.crew)sections.crew.innerHTML="";}
 }
 
@@ -2366,7 +2043,7 @@ function afficherLocationsWikidata(container,locations){
   if(withGPS.length>0)mapHtml=`<div id="filming-map" class="filming-map-container" style="height:220px;border-radius:12px;overflow:hidden;margin-bottom:16px;border:1px solid var(--border)"><div id="filming-map-inner" style="width:100%;height:100%"></div></div>`;
   container.innerHTML=`<div class="locations-section-inner"><h3><i class="fas fa-map-marked-alt"></i> ${locLabel("title")} <span class="loc-count">${allLocs.length}</span></h3>${mapHtml}<div class="location-chips">${locItems}</div>${withGPS.length>0?`<p class="loc-affiliate"><i class="fas fa-bed"></i><a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(withGPS[0].name)}&aid=SHADOWFRAME" target="_blank" rel="sponsored noopener" class="loc-booking-link">Trouver un hôtel près du lieu de tournage →</a></p>`:""}<p class="wd-source"><i class="fab fa-wikipedia-w"></i> ${locLabel("source")}</p></div>`;
   if(withGPS.length>0&&typeof L!=="undefined") initFilmingMap(withGPS);
-  else if(withGPS.length>0) loadLeaflet(()=>initFilmingMap(withGPS));
+  else if(withGPS.length>0) _ensureLeafletFull(()=>initFilmingMap(withGPS));
 }
 
 function initFilmingMap(locations){
@@ -2380,17 +2057,15 @@ function initFilmingMap(locations){
     const bounds=[];
     locations.forEach(loc=>{
       const marker=L.marker([loc.lat,loc.lng],{icon}).addTo(map);
+      marker.on('contextmenu', (e) => {
+          const coords = `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
+          navigator.clipboard.writeText(coords).then(() => toast(`📍 Coordonnées copiées : ${coords}`));
+      });
       marker.bindPopup(`<strong>${loc.name}</strong><br><a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(loc.name)}&aid=SHADOWFRAME" target="_blank" style="color:#00ffcc;font-size:.8rem">🛏 Hôtels →</a> · <a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank" style="color:#00ffcc;font-size:.8rem">Maps →</a>`);
       bounds.push([loc.lat,loc.lng]);
     });
     if(bounds.length===1)map.setView(center,12);else map.fitBounds(bounds,{padding:[30,30]});
   }catch(e){console.warn("Leaflet map KO:",e);}
-}
-
-function loadLeaflet(callback){
-  if(window.L){callback();return;}
-  const link=document.createElement("link");link.rel="stylesheet";link.href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";document.head.appendChild(link);
-  const script=document.createElement("script");script.src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";script.onload=callback;document.head.appendChild(script);
 }
 
 function afficherFinanceWikidata(container,wd){
@@ -2401,7 +2076,6 @@ function afficherFinanceWikidata(container,wd){
 }
 
 // ════ I18N WIKIDATA ════
-
 const wdI18n={
   fr:{crew:{title:"Équipe créative",directors:"Réalisation",screenwriters:"Scénario",cinematographers:"Chef opérateur",editors:"Montage",composers:"Musique",producers:"Production",distributors:"Distribution",cast:"Acteurs",source:"Source Wikidata ·"},loc:{title:"Lieux de tournage",source:"Source Wikidata WikiProject Filming Locations"},fin:{title:"Chiffres clés",budget:"Budget",box_office:"Box-office mondial",source:"Source Wikidata"}},
   "en-US":{crew:{title:"Creative Team",directors:"Director(s)",screenwriters:"Screenplay",cinematographers:"Cinematography",editors:"Film Editing",composers:"Music",producers:"Produced by",distributors:"Distribution",cast:"Cast",source:"Source Wikidata ·"},loc:{title:"Filming Locations",source:"Source Wikidata WikiProject Filming Locations"},fin:{title:"Key Numbers",budget:"Budget",box_office:"Worldwide Box Office",source:"Source Wikidata"}},
@@ -2417,22 +2091,85 @@ function locLabel(key){return _getWdI18n(currentLang).loc[key]||key;}
 function finLabel(key){return _getWdI18n(currentLang).fin[key]||key;}
 
 // ════ UTILITAIRE ════
-
-function escapeHtml(str){if(!str)return"";return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+function escapeHtml(str) {
+  if (!str) return "";
+  
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 // ════ INIT ════
+window.addEventListener("scroll", () => {
+  document
+    .getElementById("back-top")
+    ?.classList.toggle("visible", window.scrollY > 400);
+});
 
-window.addEventListener("scroll",()=>{document.getElementById("back-top").classList.toggle("visible",window.scrollY>400);});
-window.onload=()=>{
+window.onload = () => {
   initLang();
-  chargerTrending().then(()=>{document.getElementById("hero").style.display="block";document.getElementById("genre-nav").style.display="flex";});
-  document.addEventListener("keydown",e=>{if(e.code==="Space"&&document.getElementById("loading-overlay").classList.contains("active")){e.preventDefault();gameJump();}});
-  const gc=document.getElementById("game-canvas");
-  if(gc){
-    gc.addEventListener("touchstart",e=>{e.preventDefault();gameJump();},{passive:false});
-    if(!gc.querySelector(".game-ground")){
-      gc.innerHTML=`<div class="game-star" style="top:20px;left:15%"></div><div class="game-star" style="top:40px;left:35%"></div><div class="game-star" style="top:15px;left:55%"></div><div class="game-star" style="top:50px;left:70%"></div><div class="game-star" style="top:28px;left:85%"></div><div class="game-cloud" style="width:60px;height:16px;top:28px;left:120%;animation-duration:9s"></div><div class="game-cloud" style="width:38px;height:12px;top:48px;left:140%;animation-duration:13s;animation-delay:-5s"></div><div class="game-cloud" style="width:80px;height:18px;top:16px;left:160%;animation-duration:11s;animation-delay:-3s"></div><div class="game-ground"></div><div class="game-score-display" id="game-score">0</div><div class="game-lives" id="game-lives">❤️❤️❤️</div><div class="game-level-display" id="game-level">LVL 1</div><div id="game-hero" style="left:60px">🥷</div><div class="game-tap-hint" id="game-hint">${t("game_hint")}</div>`;
+
+  chargerTrending().then(() => {
+    document.getElementById("hero").style.display = "block";
+    document.getElementById("genre-nav").style.display = "flex";
+  });
+
+  document.addEventListener("keydown", e => {
+    if (
+      e.code === "Space" &&
+      document.getElementById("loading-overlay")
+        ?.classList.contains("active")
+    ) {
+      e.preventDefault();
+      gameJump();
+    }
+  });
+
+  const gc = document.getElementById("game-canvas");
+
+  if (gc) {
+    gc.addEventListener(
+      "touchstart",
+      e => {
+        e.preventDefault();
+        gameJump();
+      },
+      { passive: false }
+    );
+
+    if (!gc.querySelector(".game-ground")) {
+      gc.innerHTML = `
+        <div class="game-star" style="top:20px;left:15%"></div>
+        <div class="game-star" style="top:40px;left:35%"></div>
+        <div class="game-star" style="top:15px;left:55%"></div>
+        <div class="game-star" style="top:50px;left:70%"></div>
+        <div class="game-star" style="top:28px;left:85%"></div>
+
+        <div class="game-cloud" style="width:60px;height:16px;top:28px;left:120%;animation-duration:9s"></div>
+        <div class="game-cloud" style="width:38px;height:12px;top:48px;left:140%;animation-duration:13s;animation-delay:-5s"></div>
+        <div class="game-cloud" style="width:80px;height:18px;top:16px;left:160%;animation-duration:11s;animation-delay:-3s"></div>
+
+        <div class="game-ground"></div>
+
+        <div class="game-score-display" id="game-score">0</div>
+        <div class="game-lives" id="game-lives">❤️❤️❤️</div>
+        <div class="game-level-display" id="game-level">LVL 1</div>
+
+        <div id="game-hero" style="left:60px">🥷</div>
+
+        <div class="game-tap-hint" id="game-hint">
+          ${typeof t === "function" ? t("game_hint") : "Tap to jump"}
+        </div>
+      `;
     }
   }
-  if(!localStorage.getItem("cookies_accepted"))setTimeout(()=>{document.getElementById("cookie-consent").style.display="flex";},2000);
+
+  if (!localStorage.getItem("cookies_accepted")) {
+    setTimeout(() => {
+      document.getElementById("cookie-consent").style.display = "flex";
+    }, 2000);
+  }
 };
