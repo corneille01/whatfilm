@@ -900,25 +900,26 @@ async function _loadFilmingCatalogue(){
   const cardsEl=document.getElementById("filming-cards");
   if(!cardsEl)return;
   cardsEl.innerHTML=`<div class="filming-loading"><i class="fas fa-circle-notch fa-spin"></i> Chargement…</div>`;
+
   const params=new URLSearchParams({page:_filmingCurrentPage,per_page:24,sort:"count_locations"});
   if(_filmingCurrentType)params.set("media_type",_filmingCurrentType);
   if(_filmingCurrentQ)params.set("q",_filmingCurrentQ);
   if(_filmingCurrentYear)params.set("year",_filmingCurrentYear);
+  // Passer le lieu comme paramètre "city" (filtrage côté serveur)
+  if(_filmingCurrentCountry)params.set("city",_filmingCurrentCountry);
+
   try{
     const data=await safeFetch(`/films-tournes?${params}`);
-    if(data.status!=="success"){cardsEl.innerHTML=`<p style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">Aucun résultat.</p>`;return;}
-    let results=data.results||[];
-    // Filtrage pays côté client (car country="Inconnu" dans le JSON, vrai nom dans name)
-    if(_filmingCurrentCountry){
-      results=results.filter(f=>(f.locations||[]).some(l=>{
-        const pays=l.country&&l.country!=="Inconnu"?l.country:l.name;
-        return pays===_filmingCurrentCountry;
-      }));
+    if(data.status!=="success"){
+      cardsEl.innerHTML=`<p style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">Aucun résultat.</p>`;
+      return;
     }
-    _renderFilmingCards(cardsEl,results);
+    _renderFilmingCards(cardsEl,data.results||[]);
     _renderFilmingPagination(data.page,data.total_pages);
-    _updateFilmingMapMarkers(results);
-  }catch(e){if(cardsEl)cardsEl.innerHTML=`<p style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">Erreur de chargement.</p>`;}
+    _updateFilmingMapMarkers(data.results||[]);
+  }catch(e){
+    if(cardsEl)cardsEl.innerHTML=`<p style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">Erreur de chargement.</p>`;
+  }
 }
 
 function _renderFilmingCards(container,results){

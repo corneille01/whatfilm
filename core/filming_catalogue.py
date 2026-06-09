@@ -199,24 +199,46 @@ _FALLBACK: list[dict] = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Filtres RAM
-# ---------------------------------------------------------------------------
+# ════════════════════════════════════════════════════════════════
+# PATCH — Remplace la fonction _apply_filters dans core/filming_catalogue.py
+# Le champ city est utilisé pour filtrer sur locations[].name
+# car country="Inconnu" dans tout le catalogue
+# ════════════════════════════════════════════════════════════════
+
 def _apply_filters(
     source: list[dict],
     country: str = "",
+    city: str = "",        # ← contient le nom du lieu (Paris, Los Angeles...)
     q: str = "",
     media_type: str = "",
 ) -> list[dict]:
     result = source
-    if country:
-        cl = country.lower()
-        result = [f for f in result if any(cl in c for c in f.get("_countries_lower", []))]
+
+    # Filtre texte titre
     if q:
         ql = q.lower()
         result = [f for f in result if ql in f.get("_title_lower", "")]
+
+    # Filtre type (movie/tv)
     if media_type:
         result = [f for f in result if f.get("media_type") == media_type]
+
+    # Filtre lieu — cherche dans locations[].name (country="Inconnu" toujours)
+    if city:
+        cl = city.lower()
+        def _has_location(f: dict) -> bool:
+            for loc in f.get("locations", []):
+                name = (loc.get("name") or "").lower()
+                if cl == name or cl in name:
+                    return True
+            return False
+        result = [f for f in result if _has_location(f)]
+
+    # Filtre country legacy (au cas où le champ serait rempli dans le futur)
+    elif country:
+        cl = country.lower()
+        result = [f for f in result if any(cl in c for c in f.get("_countries_lower", []))]
+
     return result
 
 
