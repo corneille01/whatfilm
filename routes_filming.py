@@ -127,7 +127,6 @@ async def films_tournes(
         country=country.strip(), city=city.strip(),
         media_type=media_type.strip(), q=q.strip(),
         sort=sort, lang=lang,
-        year=year.strip(),
     )
     return JSONResponse(content=result)
 

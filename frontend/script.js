@@ -998,6 +998,11 @@ function _ensureLeafletFull(callback){
   loadNext(0);
 }
 
+// ════ CACHE LOCAL DES LOCATIONS PAR FILM ════
+// Stocke les locations déjà reçues depuis l'API catalogue pour éviter
+// de rappeler Wikidata (qui est lent et rate-limité)
+const _filmLocationsCache = new Map(); // tmdbId → [{name, lat, lng}]
+
 // ════ MARQUEURS FILMS ════
 function _updateFilmingMapMarkers(films){
   if(!_filmingLeafletReady||!_filmingMap)return;
@@ -1005,7 +1010,11 @@ function _updateFilmingMapMarkers(films){
   _filmingAllMarkers=[];
   const bounds=L.latLngBounds();
   films.forEach(f=>{
-    const loc=f.primary_location||(f.locations&&f.locations[0])||null;
+    // Stocker les locations dans le cache local
+    const locs=(f.locations||[]).filter(l=>l.lat!=null&&l.lng!=null);
+    if(locs.length>0)_filmLocationsCache.set(f.tmdb_id, locs);
+
+    const loc=f.primary_location||locs[0]||null;
     if(!loc||loc.lat==null)return;
     const posterUrl=f.poster_path?`https://image.tmdb.org/t/p/w92${f.poster_path}`:null;
     const iconHtml=posterUrl?`<div class="fmap-marker-film" style="background-image:url('${posterUrl}')"></div>`:`<div class="fmap-marker-film fmap-marker-no-poster"><i class="fas fa-film"></i></div>`;
@@ -1023,6 +1032,8 @@ function _updateFilmingMapMarkers(films){
 }
 
 // ════ LIEUX D'UN FILM ════
+// Utilise le cache local (données déjà dans le JSON catalogue) en priorité
+// Fallback vers l'API Wikidata seulement si pas en cache
 async function showFilmLocationsOnMap(tmdbId,title,mediaType='movie'){
   if(!_filmingMap||!_filmingLeafletReady)return;
   _stopBounce();
@@ -1032,25 +1043,29 @@ async function showFilmLocationsOnMap(tmdbId,title,mediaType='movie'){
   if(_filmingMarkerClusterGroup&&_filmingMap.hasLayer(_filmingMarkerClusterGroup)){
     _filmingMap.removeLayer(_filmingMarkerClusterGroup);
   }
-  // S'assurer que filmLayer est sur la carte
   if(_filmingFilmLayer&&!_filmingMap.hasLayer(_filmingFilmLayer)){
     _filmingMap.addLayer(_filmingFilmLayer);
   }
   if(_filmingFilmLayer)_filmingFilmLayer.clearLayers();
   _activeFilmMarkers=[];
 
-  toast(`📍 Chargement des lieux de "${title}"…`);
-  let locations=[];
-  try{
-    const data=await safeFetch(`/movie/${tmdbId}/locations?type=${mediaType}`);
-    locations=(data.locations||[]).filter(l=>l.lat!=null&&l.lng!=null);
-  }catch(e){
-    if(_filmingMarkerClusterGroup)_filmingMap.addLayer(_filmingMarkerClusterGroup);
-    toast("Erreur lors du chargement des lieux.");return;
+  // ── Priorité 1 : locations déjà en cache local (depuis le JSON catalogue) ──
+  let locations = _filmLocationsCache.get(tmdbId) || [];
+
+  // ── Priorité 2 : appel API Wikidata (fallback) ──
+  if(locations.length===0){
+    toast(`📍 Chargement des lieux de "${title}"…`);
+    try{
+      const data=await safeFetch(`/movie/${tmdbId}/locations?type=${mediaType}`);
+      locations=(data.locations||[]).filter(l=>l.lat!=null&&l.lng!=null);
+      if(locations.length>0)_filmLocationsCache.set(tmdbId, locations);
+    }catch(e){ /* silencieux */ }
   }
+
   if(locations.length===0){
     if(_filmingMarkerClusterGroup)_filmingMap.addLayer(_filmingMarkerClusterGroup);
-    toast("Aucun lieu géolocalisé pour ce film.");return;
+    toast("Aucun lieu géolocalisé pour ce film.");
+    return;
   }
 
   const bounds=L.latLngBounds();
@@ -1063,7 +1078,10 @@ async function showFilmLocationsOnMap(tmdbId,title,mediaType='movie'){
 
   if(bounds.isValid())_filmingMap.flyToBounds(bounds,{padding:[60,60],duration:1.2,maxZoom:13});
   _startBounce();
-  // Charger POI autour du premier lieu (silencieux)
+  // Sur mobile : scroller vers la carte
+  const mapWrap=document.getElementById("filming-map-wrap");
+  if(mapWrap&&window.innerWidth<=768){mapWrap.scrollIntoView({behavior:"smooth",block:"start"});}
+  // POI autour du premier lieu
   if(locations[0])_autoLoadPOIsAround(locations[0].lat,locations[0].lng);
 }
 
