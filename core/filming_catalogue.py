@@ -205,6 +205,12 @@ _FALLBACK: list[dict] = [
 # car country="Inconnu" dans tout le catalogue
 # ════════════════════════════════════════════════════════════════
 
+# ════════════════════════════════════════════════════════════════
+# PATCH — Remplace la fonction _apply_filters dans core/filming_catalogue.py
+# Le champ city est utilisé pour filtrer sur locations[].name
+# car country="Inconnu" dans tout le catalogue
+# ════════════════════════════════════════════════════════════════
+
 def _apply_filters(
     source: list[dict],
     country: str = "",

@@ -1000,35 +1000,72 @@ function _ensureLeafletFull(callback){
 }
 
 // ════ CACHE LOCAL DES LOCATIONS PAR FILM ════
-// Stocke les locations déjà reçues depuis l'API catalogue pour éviter
-// de rappeler Wikidata (qui est lent et rate-limité)
-const _filmLocationsCache = new Map(); // tmdbId → [{name, lat, lng}]
+const _filmLocationsCache = new Map();
 
-// ════ MARQUEURS FILMS ════
+// ════ MARQUEURS FILMS (cluster général) ════
 function _updateFilmingMapMarkers(films){
   if(!_filmingLeafletReady||!_filmingMap)return;
   if(_filmingMarkerClusterGroup)_filmingMarkerClusterGroup.clearLayers();
   _filmingAllMarkers=[];
   const bounds=L.latLngBounds();
+
   films.forEach(f=>{
-    // Stocker les locations dans le cache local
+    // Stocker locations en cache local
     const locs=(f.locations||[]).filter(l=>l.lat!=null&&l.lng!=null);
-    if(locs.length>0)_filmLocationsCache.set(f.tmdb_id, locs);
+    if(locs.length>0)_filmLocationsCache.set(f.tmdb_id,locs);
 
     const loc=f.primary_location||locs[0]||null;
     if(!loc||loc.lat==null)return;
+
     const posterUrl=f.poster_path?`https://image.tmdb.org/t/p/w92${f.poster_path}`:null;
-    const iconHtml=posterUrl?`<div class="fmap-marker-film" style="background-image:url('${posterUrl}')"></div>`:`<div class="fmap-marker-film fmap-marker-no-poster"><i class="fas fa-film"></i></div>`;
+
+    // Marqueur SVG inline — visible quelle que soit la police chargée
+    const bgStyle=posterUrl
+      ?`background-image:url('${posterUrl}');background-size:cover;background-position:center;`
+      :`background:#1a1a2e;`;
+    const iconHtml=`<div style="${bgStyle}width:36px;height:36px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2.5px solid #00ffcc;box-shadow:0 3px 10px rgba(0,255,204,.4);overflow:hidden;"></div>`;
+
     const icon=L.divIcon({html:iconHtml,className:"",iconSize:[36,36],iconAnchor:[18,36],popupAnchor:[0,-40]});
     const marker=L.marker([loc.lat,loc.lng],{icon});
-    marker.on('contextmenu',e=>{navigator.clipboard.writeText(`${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`).then(()=>toast("📍 Coordonnées copiées"));});
+
+    marker.on('contextmenu',e=>{
+      navigator.clipboard.writeText(`${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`)
+        .then(()=>toast("📍 Coordonnées copiées"));
+    });
+
     const bookQ=encodeURIComponent(loc.name);
     const safeT=escapeHtml(f.title).replace(/'/g,"\\'");
-    marker.bindPopup(`<div class="fmap-popup">${posterUrl?`<img src="${posterUrl}" class="fmap-popup-poster" alt="">`:""}<div class="fmap-popup-body"><div class="fmap-popup-title">${escapeHtml(f.title)}</div><div class="fmap-popup-meta">${f.year||""}${f.vote_average?` · ⭐ ${f.vote_average.toFixed(1)}`:""}</div><div class="fmap-popup-loc"><i class="fas fa-map-pin"></i> ${escapeHtml(loc.name)}</div><div class="fmap-popup-actions" style="margin-top:8px;flex-wrap:wrap;gap:4px;display:flex;"><button class="fmap-popup-btn" onclick="afficherDetails(${f.tmdb_id},'movie')"><i class="fas fa-info-circle"></i> Détails</button><button class="fmap-popup-btn" onclick="showFilmLocationsOnMap(${f.tmdb_id},'${safeT}','movie')"><i class="fas fa-map-marked-alt"></i> Voir lieux</button></div><div class="fmap-popup-actions" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:4px;"><button class="fmap-popup-btn btn-osm-action" data-type="isochrone" data-lat="${loc.lat}" data-lng="${loc.lng}"><i class="fas fa-shoe-prints"></i> 15 min</button><button class="fmap-popup-btn btn-osm-action" data-type="hotel" data-lat="${loc.lat}" data-lng="${loc.lng}"><i class="fas fa-bed"></i> Hôtels</button><button class="fmap-popup-btn btn-osm-action" data-type="restaurant" data-lat="${loc.lat}" data-lng="${loc.lng}"><i class="fas fa-utensils"></i> Restos</button><button class="fmap-popup-btn btn-osm-action" data-type="transport" data-lat="${loc.lat}" data-lng="${loc.lng}"><i class="fas fa-train"></i> Transports</button><button class="fmap-popup-btn btn-osm-action" data-type="service" data-lat="${loc.lat}" data-lng="${loc.lng}"><i class="fas fa-info-circle"></i> Services</button></div><a href="https://www.booking.com/searchresults.html?ss=${bookQ}&aid=SHADOWFRAME" target="_blank" rel="sponsored noopener" class="fmap-popup-btn fmap-popup-booking" style="margin-top:6px;display:inline-flex;"><i class="fas fa-bed"></i> Booking.com</a></div></div>`,{maxWidth:300});
+    marker.bindPopup(
+      `<div class="fmap-popup">
+        ${posterUrl?`<img src="${posterUrl}" class="fmap-popup-poster" alt="">`:""}
+        <div class="fmap-popup-body">
+          <div class="fmap-popup-title">${escapeHtml(f.title)}</div>
+          <div class="fmap-popup-meta">${f.year||""}${f.vote_average?` · ⭐ ${f.vote_average.toFixed(1)}`:""}</div>
+          <div class="fmap-popup-loc">📍 ${escapeHtml(loc.name)}</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;">
+            <button class="fmap-popup-btn" onclick="afficherDetails(${f.tmdb_id},'movie')">🎬 Détails</button>
+            <button class="fmap-popup-btn" onclick="showFilmLocationsOnMap(${f.tmdb_id},'${safeT}','movie')">🗺 Voir lieux</button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:4px;">
+            <button class="fmap-popup-btn btn-osm-action" data-type="hotel" data-lat="${loc.lat}" data-lng="${loc.lng}">🏨 Hôtels</button>
+            <button class="fmap-popup-btn btn-osm-action" data-type="restaurant" data-lat="${loc.lat}" data-lng="${loc.lng}">🍽 Restos</button>
+            <button class="fmap-popup-btn btn-osm-action" data-type="transport" data-lat="${loc.lat}" data-lng="${loc.lng}">🚆 Transports</button>
+            <button class="fmap-popup-btn btn-osm-action" data-type="isochrone" data-lat="${loc.lat}" data-lng="${loc.lng}">🚶 15 min</button>
+          </div>
+          <a href="https://www.booking.com/searchresults.html?ss=${bookQ}&aid=SHADOWFRAME"
+             target="_blank" rel="sponsored noopener"
+             class="fmap-popup-btn fmap-popup-booking"
+             style="margin-top:6px;display:inline-flex;">🛏 Booking.com</a>
+        </div>
+      </div>`,
+      {maxWidth:300}
+    );
+
     if(_filmingMarkerClusterGroup)_filmingMarkerClusterGroup.addLayer(marker);
     _filmingAllMarkers.push({lat:loc.lat,lng:loc.lng,marker,film:f});
     bounds.extend([loc.lat,loc.lng]);
   });
+
   if(bounds.isValid())_filmingMap.flyToBounds(bounds,{padding:[50,50],duration:1.5});
 }
 
@@ -1087,12 +1124,45 @@ async function showFilmLocationsOnMap(tmdbId,title,mediaType='movie'){
 }
 
 function _createFilmLocationMarker(loc,filmTitle,tmdbId,mediaType){
-  const icon=L.divIcon({html:`<div class="fmap-marker-film-loc fmap-marker-active"><i class="fas fa-map-marker-alt"></i></div>`,className:"",iconSize:[32,40],iconAnchor:[16,40],popupAnchor:[0,-42]});
-  const marker=L.marker([loc.lat,loc.lng],{icon});
-  marker.on('contextmenu',e=>{navigator.clipboard.writeText(`${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`).then(()=>toast("📍 Coordonnées copiées"));});
+  // Marqueur SVG inline — aucune dépendance FA, toujours visible
+  const svgPin=`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="42" viewBox="0 0 32 42">
+    <path d="M16 0 C7.16 0 0 7.16 0 16 C0 28 16 42 16 42 C16 42 32 28 32 16 C32 7.16 24.84 0 16 0Z" fill="#ff007f" stroke="#fff" stroke-width="2"/>
+    <circle cx="16" cy="16" r="7" fill="#fff"/>
+  </svg>`;
+  const icon=L.divIcon({
+    html:svgPin,
+    className:"",
+    iconSize:[32,42],
+    iconAnchor:[16,42],
+    popupAnchor:[0,-44]
+  });
+  const marker=L.marker([loc.lat,loc.lng],{icon,zIndexOffset:1000});
+  marker.on('contextmenu',e=>{
+    navigator.clipboard.writeText(`${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`)
+      .then(()=>toast("📍 Coordonnées copiées"));
+  });
   const bookQ=encodeURIComponent(loc.name);
   const safeT=filmTitle.replace(/'/g,"\\'");
-  marker.bindPopup(`<div class="fmap-popup-loc"><div class="fmap-popup-loc-title"><i class="fas fa-film"></i> ${escapeHtml(filmTitle)}</div><div class="fmap-popup-loc-name"><i class="fas fa-map-pin" style="color:var(--primary)"></i> ${escapeHtml(loc.name)}</div><div class="fmap-popup-actions" style="margin-top:8px;flex-wrap:wrap;gap:4px;display:flex;"><button class="fmap-popup-btn" onclick="showAllFilmLocations()"><i class="fas fa-layer-group"></i> Tous les lieux</button><button class="fmap-popup-btn btn-osm-action" data-type="isochrone" data-lat="${loc.lat}" data-lng="${loc.lng}"><i class="fas fa-shoe-prints"></i> 15 min</button><button class="fmap-popup-btn btn-osm-action" data-type="hotel" data-lat="${loc.lat}" data-lng="${loc.lng}"><i class="fas fa-bed"></i> Hôtels</button><button class="fmap-popup-btn btn-osm-action" data-type="restaurant" data-lat="${loc.lat}" data-lng="${loc.lng}"><i class="fas fa-utensils"></i> Restos</button><button class="fmap-popup-btn btn-osm-action" data-type="transport" data-lat="${loc.lat}" data-lng="${loc.lng}"><i class="fas fa-train"></i> Transports</button><button class="fmap-popup-btn btn-osm-action" data-type="service" data-lat="${loc.lat}" data-lng="${loc.lng}"><i class="fas fa-info-circle"></i> Services</button></div><a href="https://www.booking.com/searchresults.html?ss=${bookQ}&aid=SHADOWFRAME" target="_blank" rel="sponsored noopener" class="fmap-popup-btn fmap-popup-booking" style="margin-top:6px;display:inline-flex;"><i class="fas fa-bed"></i> Booking.com</a></div>`,{maxWidth:300});
+  marker.bindPopup(
+    `<div class="fmap-popup-loc">
+      <div class="fmap-popup-loc-title">🎬 ${escapeHtml(filmTitle)}</div>
+      <div class="fmap-popup-loc-name">📍 ${escapeHtml(loc.name)}</div>
+      <div class="fmap-popup-actions" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;">
+        <button class="fmap-popup-btn" onclick="showAllFilmLocations()">◀ Tous les lieux</button>
+        <button class="fmap-popup-btn btn-osm-action" data-type="hotel" data-lat="${loc.lat}" data-lng="${loc.lng}">🏨 Hôtels</button>
+        <button class="fmap-popup-btn btn-osm-action" data-type="restaurant" data-lat="${loc.lat}" data-lng="${loc.lng}">🍽 Restos</button>
+        <button class="fmap-popup-btn btn-osm-action" data-type="transport" data-lat="${loc.lat}" data-lng="${loc.lng}">🚆 Transports</button>
+        <button class="fmap-popup-btn btn-osm-action" data-type="isochrone" data-lat="${loc.lat}" data-lng="${loc.lng}">🚶 15 min</button>
+      </div>
+      <a href="https://www.booking.com/searchresults.html?ss=${bookQ}&aid=SHADOWFRAME"
+         target="_blank" rel="sponsored noopener"
+         class="fmap-popup-btn fmap-popup-booking"
+         style="margin-top:6px;display:inline-flex;">
+        🛏 Booking.com
+      </a>
+    </div>`,
+    {maxWidth:300}
+  );
   return marker;
 }
 
