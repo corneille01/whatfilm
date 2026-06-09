@@ -741,7 +741,7 @@ function _renderFilmingPage(container){
               </div>
             </div>
             <div class="filming-filter-group">
-              <label><i class="fas fa-globe"></i> Pays</label>
+              <label><i class="fas fa-map-pin"></i> Lieu</label>
               <select id="filming-filter-country" onchange="setFilmingCountry(this.value)">
                 <option value="">Tous</option>
               </select>
@@ -803,58 +803,57 @@ let _filmingAllCountries = [];
 async function _chargerMetaFiltres() {
   if (_filmingAllYears.length > 0 && _filmingAllCountries.length > 0) return;
 
-  // Stratégie : essayer d'abord /films-tournes/meta (si existe),
-  // sinon charger toutes les pages du catalogue
+  // Essai 1 : endpoint /films-tournes/meta (lit le JSON complet côté serveur)
   try {
     const meta = await safeFetch(`/films-tournes/meta`);
     if (meta.years && meta.years.length > 0) {
-      _filmingAllYears = [...new Set(meta.years)].sort((a,b)=>b-a);
-      _filmingAllCountries = [...new Set(meta.countries||[])].sort();
+      _filmingAllYears     = [...new Set(meta.years)].map(Number).sort((a,b)=>b-a);
+      // L'endpoint retourne "locations" (noms de villes/pays depuis name)
+      const locs = meta.locations || meta.countries || [];
+      _filmingAllCountries = [...new Set(locs)].filter(Boolean).sort((a,b)=>a.localeCompare(b));
+      console.log(`✅ Meta filtres: ${_filmingAllYears.length} années, ${_filmingAllCountries.length} lieux`);
       return;
     }
-  } catch(e) { /* endpoint n'existe pas, on continue */ }
+  } catch(e) { /* endpoint absent, fallback */ }
 
-  // Fallback : charger per_page=9999 (l'API peut limiter à son max)
-  try {
-    const data = await safeFetch(`/films-tournes?per_page=9999&sort=count_locations`);
-    if (data.status !== "success") return;
-    const all = data.results || [];
+  // Essai 2 : charger page par page et extraire depuis les résultats
+  console.log("📥 Chargement meta filtres page par page…");
+  const yearsSet = new Set();
+  const locsSet  = new Set();
 
-    const yearsSet = new Set();
-    const countriesSet = new Set();
-
-    all.forEach(f => {
+  const extractFromResults = (results) => {
+    (results||[]).forEach(f => {
       if (f.year) yearsSet.add(Number(f.year));
-      (f.locations || []).forEach(l => {
-        // Vrai pays = name quand country==="Inconnu" ou absent
-        const pays = (l.country && l.country !== "Inconnu") ? l.country : l.name;
-        if (pays && pays.length > 1) countriesSet.add(pays);
+      (f.locations||[]).forEach(l => {
+        // country est toujours "Inconnu" → vrai nom dans l.name
+        const nom = (l.country && l.country !== "Inconnu") ? l.country : l.name;
+        if (nom && nom.length > 1 && nom !== "Non spécifié" && nom !== "Inconnu") locsSet.add(nom);
       });
     });
+  };
 
-    _filmingAllYears = [...yearsSet].sort((a, b) => b - a);
-    _filmingAllCountries = [...countriesSet].sort((a,b) => a.localeCompare(b));
+  try {
+    // Première page avec per_page max
+    const first = await safeFetch(`/films-tournes?per_page=500&sort=count_locations&page=1`);
+    if (first.status !== "success") return;
+    extractFromResults(first.results);
 
-    // Si l'API a paginé (total_pages > 1), charger les pages restantes
-    if (data.total_pages > 1) {
-      const remaining = [];
-      for (let p = 2; p <= Math.min(data.total_pages, 20); p++) {
-        remaining.push(safeFetch(`/films-tournes?per_page=9999&sort=count_locations&page=${p}`).catch(()=>null));
+    // Pages suivantes si nécessaire
+    const totalPages = first.total_pages || 1;
+    if (totalPages > 1) {
+      const pages = [];
+      for (let p = 2; p <= totalPages; p++) {
+        pages.push(safeFetch(`/films-tournes?per_page=500&sort=count_locations&page=${p}`).catch(()=>null));
       }
-      const pages = await Promise.allSettled(remaining);
-      pages.forEach(r => {
-        if (r.status !== "fulfilled" || !r.value?.results) return;
-        r.value.results.forEach(f => {
-          if (f.year) yearsSet.add(Number(f.year));
-          (f.locations || []).forEach(l => {
-            const pays = (l.country && l.country !== "Inconnu") ? l.country : l.name;
-            if (pays && pays.length > 1) countriesSet.add(pays);
-          });
-        });
+      const settled = await Promise.allSettled(pages);
+      settled.forEach(r => {
+        if (r.status === "fulfilled" && r.value?.results) extractFromResults(r.value.results);
       });
-      _filmingAllYears = [...yearsSet].sort((a, b) => b - a);
-      _filmingAllCountries = [...countriesSet].sort((a,b) => a.localeCompare(b));
     }
+
+    _filmingAllYears     = [...yearsSet].sort((a,b)=>b-a);
+    _filmingAllCountries = [...locsSet].sort((a,b)=>a.localeCompare(b));
+    console.log(`✅ Meta filtres (fallback): ${_filmingAllYears.length} années, ${_filmingAllCountries.length} lieux`);
   } catch(e) {
     console.warn("Meta filtres KO:", e);
   }
