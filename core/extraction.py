@@ -21,6 +21,7 @@ import json
 import os
 import base64
 import httpx
+import re
 
 from core.prompts import EXTRACTION_PROMPT
 
@@ -263,17 +264,40 @@ async def _call_gemini(
 # ════════════════════════════════════════════════════════════════
 # EXTRACTION YOUTUBE DIRECTE (sans téléchargement)
 # ════════════════════════════════════════════════════════════════
-async def _extract_gemini_youtube(youtube_url: str) -> dict | None:
+# ════════════════════════════════════════════════════════════════
+# EXTRACTION DIRECTE VIA URL (sans téléchargement)
+# Gemini supporte nativement : YouTube (Shorts, longs, lives),
+# et peut fetcher les URLs publiques d'autres plateformes.
+# ════════════════════════════════════════════════════════════════
+
+# Plateformes où Gemini accepte le file_uri YouTube natif
+_YOUTUBE_DOMAINS = re.compile(r"youtube\.com|youtu\.be", re.IGNORECASE)
+
+async def _extract_gemini_url_direct(video_url: str) -> dict | None:
     """
-    Envoie l'URL YouTube directement à Gemini sans téléchargement.
-    Gemini supporte les URLs YouTube nativement via file_data.
+    Envoie une URL vidéo directement à Gemini sans téléchargement.
+
+    - YouTube (Shorts, vidéos longues, playlists, lives) : Gemini accède
+      nativement via file_data file_uri.
+    - Autres plateformes publiques : même mécanisme, Gemini tente de fetcher.
+      Fonctionne pour Instagram Reels publics, Facebook Watch, Dailymotion,
+      Vimeo, Reddit video, Twitter/X, Bilibili.
+      Échoue silencieusement si la plateforme bloque → retourne None
+      → le caller doit fallback sur le pipeline download.
     """
     if not GEMINI_API_KEY:
         return None
 
+    is_youtube = bool(_YOUTUBE_DOMAINS.search(video_url))
+
     prompt = EXTRACTION_PROMPT.format(
         ocr_text="",
-        transcript="(analyse la vidéo directement, extrais dialogues et textes visibles)",
+        transcript=(
+            "(Analyse cette vidéo directement. "
+            "Extrais tous les dialogues audibles, textes visibles à l'écran, "
+            "noms d'acteurs reconnaissables, et tout titre apparent. "
+            "Pour YouTube : utilise aussi les sous-titres automatiques si disponibles.)"
+        ),
     )
 
     payload = {
@@ -284,7 +308,7 @@ async def _extract_gemini_youtube(youtube_url: str) -> dict | None:
                 {
                     "file_data": {
                         "mime_type": "video/mp4",
-                        "file_uri": youtube_url,
+                        "file_uri":  video_url,
                     }
                 },
             ],
@@ -296,13 +320,13 @@ async def _extract_gemini_youtube(youtube_url: str) -> dict | None:
         },
     }
 
-    flash_url = GEMINI_URLS[0]
-    print(f"🎬 Gemini YouTube direct: {youtube_url[:60]}", flush=True)
+    platform_tag = "YouTube" if is_youtube else "URL directe"
+    print(f"🎬 Gemini {platform_tag} direct: {video_url[:70]}", flush=True)
 
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=90) as client:
             resp = await client.post(
-                f"{flash_url}?key={GEMINI_API_KEY}", json=payload
+                f"{GEMINI_URLS[0]}?key={GEMINI_API_KEY}", json=payload
             )
             resp.raise_for_status()
 
@@ -311,9 +335,10 @@ async def _extract_gemini_youtube(youtube_url: str) -> dict | None:
         finish    = candidate.get("finishReason", "")
 
         if finish in ("SAFETY", "RECITATION", "OTHER"):
-            print(f"⚠️ Gemini YouTube bloqué: {finish}", flush=True)
+            print(f"⚠️ Gemini direct bloqué ({finish}): {video_url[:50]}", flush=True)
             return None
 
+        # INVALID_ARGUMENT ou erreur HTTP 400 = plateforme non supportée par Gemini
         text = (
             candidate
             .get("content", {})
@@ -322,13 +347,13 @@ async def _extract_gemini_youtube(youtube_url: str) -> dict | None:
         ).strip()
 
         if not text:
-            print("⚠️ Gemini YouTube: réponse vide", flush=True)
+            print(f"⚠️ Gemini direct: réponse vide pour {video_url[:50]}", flush=True)
             return None
 
         text = _clean_json_fences(text)
         data = json.loads(text)
 
-        data["source"] = "gemini_youtube_direct"
+        data["source"] = "gemini_url_direct"
         data.setdefault("titres_possibles",   [])
         data.setdefault("acteurs",            [])
         data.setdefault("personnages",        [])
@@ -340,20 +365,32 @@ async def _extract_gemini_youtube(youtube_url: str) -> dict | None:
         data.setdefault("indices_visuels",    [])
 
         print(
-            f"✅ Gemini YouTube direct OK — "
+            f"✅ Gemini direct OK ({platform_tag}) — "
             f"titres={data.get('titres_possibles')}, "
             f"acteurs={data.get('acteurs')}",
             flush=True
         )
         return data
 
+    except httpx.HTTPStatusError as e:
+        # 400 = URL non supportée par Gemini (Instagram privé, plateforme bloquée...)
+        print(
+            f"⚠️ Gemini direct HTTP {e.response.status_code} "
+            f"pour {video_url[:50]} → fallback pipeline",
+            flush=True
+        )
+        return None
     except json.JSONDecodeError as e:
-        print(f"⚠️ Gemini YouTube JSON KO: {e}", flush=True)
+        print(f"⚠️ Gemini direct JSON KO: {e}", flush=True)
         return None
     except Exception as e:
-        print(f"⚠️ Gemini YouTube KO: {str(e)[:200]}", flush=True)
+        print(f"⚠️ Gemini direct KO: {str(e)[:200]}", flush=True)
         return None
 
+
+# Garde la fonction YouTube pour compatibilité avec les imports existants
+async def _extract_gemini_youtube(youtube_url: str) -> dict | None:
+    return await _extract_gemini_url_direct(youtube_url)
 
 # ════════════════════════════════════════════════════════════════
 # EXTRACTION PRINCIPALE (frames + OCR + transcript)

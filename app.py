@@ -271,15 +271,19 @@ async def _run_download_and_analyse(
     need_client_fallback = False
 
     # ══════════════════════════════════════════════════════════════
-    # SHORTCUT YOUTUBE — Gemini analyse l'URL directement
-    # Pas de téléchargement, pas de frames, pas de Whisper
+    # SHORTCUT GEMINI DIRECT — toutes plateformes sauf TikTok
+    # YouTube (Shorts, longs, lives), Instagram, Facebook, Twitter/X,
+    # Dailymotion, Vimeo, Reddit, LinkedIn, Bilibili, Snapchat...
+    # Gemini accède directement à l'URL sans téléchargement.
+    # Si Gemini échoue (URL privée, plateforme bloquée) → fallback download.
+    # TikTok exclu : leur CDN est fermé, Gemini ne peut pas y accéder.
     # ══════════════════════════════════════════════════════════════
-    if platform == "youtube":
-        print(f"🎬 YouTube shortcut → Gemini direct (pas de download)", flush=True)
+    if platform != "tiktok":
+        print(f"🎬 Gemini direct [{platform}] → pas de download", flush=True)
         session["status"] = "processing"
         try:
-            from core.extraction import _extract_gemini_youtube
-            extraction = await _extract_gemini_youtube(url)
+            from core.extraction import _extract_gemini_url_direct
+            extraction = await _extract_gemini_url_direct(url)
 
             if extraction:
                 result = await process_analysis(
@@ -296,28 +300,45 @@ async def _run_download_and_analyse(
                 session["timestamp"] = time.time()
                 return
             else:
-                print("⚠️ Gemini YouTube direct KO → fallback download", flush=True)
+                print(
+                    f"⚠️ Gemini direct KO [{platform}] → fallback pipeline download",
+                    flush=True
+                )
 
         except Exception as e:
-            print(f"⚠️ YouTube shortcut exception: {e} → fallback download", flush=True)
+            print(
+                f"⚠️ Gemini direct exception [{platform}]: {e} → fallback download",
+                flush=True
+            )
 
+    # ══════════════════════════════════════════════════════════════
+    # PIPELINE DOWNLOAD — TikTok + fallback toutes plateformes
+    # ══════════════════════════════════════════════════════════════
     try:
         # ── 1. Download ──────────────────────────────────────────
         session["status"] = "downloading"
-        print(f"📥 DOWNLOAD (max {MAX_VIDEO_SECONDS}s) [{platform}] session={session_id}", flush=True)
+        print(
+            f"📥 DOWNLOAD (max {MAX_VIDEO_SECONDS}s) [{platform}] session={session_id}",
+            flush=True
+        )
         dl_result = await download_video(url, video_path, platform)
 
         if not dl_result["ok"]:
             session["status"] = "error"
-            session["result"] = {"status": "error",
-                                 "code":    dl_result["code"],
-                                 "message": dl_result["message"]}
+            session["result"] = {
+                "status":  "error",
+                "code":    dl_result["code"],
+                "message": dl_result["message"],
+            }
             return
 
         if not os.path.exists(video_path) or os.path.getsize(video_path) < 1000:
             session["status"] = "error"
-            session["result"] = {"status": "error", "code": "download_empty",
-                                 "message": "Le fichier vidéo est vide ou corrompu."}
+            session["result"] = {
+                "status":  "error",
+                "code":    "download_empty",
+                "message": "Le fichier vidéo est vide ou corrompu.",
+            }
             return
 
         # ── 2. Conversion si nécessaire ──────────────────────────
@@ -356,8 +377,10 @@ async def _run_download_and_analyse(
             if 0 < duration < 3:
                 session["status"] = "error"
                 session["result"] = {
-                    "status": "error", "code": "video_too_short",
-                    "message": f"Vidéo trop courte ({duration:.1f}s). Essayez un extrait d'au moins 3 secondes."
+                    "status":  "error",
+                    "code":    "video_too_short",
+                    "message": f"Vidéo trop courte ({duration:.1f}s). "
+                               f"Essayez un extrait d'au moins 3 secondes.",
                 }
                 return
             print(f"✅ Durée: {duration:.1f}s", flush=True)
@@ -378,9 +401,14 @@ async def _run_download_and_analyse(
                  "-y", audio_path],
                 check=True, capture_output=True, timeout=30
             )
-            audio_exists = os.path.exists(audio_path) and os.path.getsize(audio_path) > 100
+            audio_exists = (
+                os.path.exists(audio_path) and os.path.getsize(audio_path) > 100
+            )
         except Exception as e1:
-            print(f"⚠️ Audio libmp3lame KO ({str(e1)[:60]}) → tentative 2", flush=True)
+            print(
+                f"⚠️ Audio libmp3lame KO ({str(e1)[:60]}) → tentative 2",
+                flush=True
+            )
             try:
                 subprocess.run(
                     ["ffmpeg", "-i", video_path,
@@ -389,9 +417,14 @@ async def _run_download_and_analyse(
                      "-f", "mp3", "-y", audio_path],
                     check=True, capture_output=True, timeout=30
                 )
-                audio_exists = os.path.exists(audio_path) and os.path.getsize(audio_path) > 100
+                audio_exists = (
+                    os.path.exists(audio_path) and os.path.getsize(audio_path) > 100
+                )
             except Exception as e2:
-                print(f"⚠️ Audio extraction KO définitif: {str(e2)[:80]}", flush=True)
+                print(
+                    f"⚠️ Audio extraction KO définitif: {str(e2)[:80]}",
+                    flush=True
+                )
 
         # ── 4. Extraction frames ─────────────────────────────────
         print("🖼️ FRAMES", flush=True)
@@ -400,13 +433,19 @@ async def _run_download_and_analyse(
         except Exception as e:
             print(f"⚠️ Keyframes: {e}", flush=True)
             frames = []
-        frames = [f for f in frames if os.path.exists(f) and os.path.getsize(f) > 0]
+        frames = [
+            f for f in frames
+            if os.path.exists(f) and os.path.getsize(f) > 0
+        ]
         print(f"✅ Frames valides: {len(frames)}", flush=True)
 
         if not frames and not audio_exists:
             session["status"] = "error"
-            session["result"] = {"status": "error", "code": "no_frames",
-                                 "message": "Impossible d'extraire des images ou de l'audio de cette vidéo."}
+            session["result"] = {
+                "status":  "error",
+                "code":    "no_frames",
+                "message": "Impossible d'extraire des images ou de l'audio de cette vidéo.",
+            }
             return
 
         # ── 5. Transcription ─────────────────────────────────────
@@ -425,12 +464,14 @@ async def _run_download_and_analyse(
             print("⚠️ Pas d'audio", flush=True)
 
         # ── 6. Analyse ───────────────────────────────────────────
-        # Si des frames sont disponibles, Gemini peut analyser même sans transcript.
-        # Le fallback client (Tesseract.js + Whisper.js) n'est déclenché que si
-        # aucune frame n'est disponible (cas très rare).
+        # Si des frames sont disponibles, Gemini analyse même sans transcript.
+        # Le fallback client ne se déclenche que si aucune frame n'est dispo.
         if frames:
             if not transcript:
-                print("🔍 Pas de transcript → Gemini analyse les frames seules", flush=True)
+                print(
+                    "🔍 Pas de transcript → Gemini analyse les frames seules",
+                    flush=True
+                )
             result = await process_analysis(
                 frames, "", transcript, url, lang, browser_lang
             )
@@ -438,11 +479,10 @@ async def _run_download_and_analyse(
             session["result"] = result
             return
 
-        # ── 7. Fallback client (plus de frames disponibles) ──────
+        # ── 7. Fallback client (aucune frame disponible) ─────────
         print("🔄 Fallback client (Tesseract.js + Whisper.js)", flush=True)
         need_client_fallback = True
-        frames_b64 = []
-        audio_b64  = ""
+        audio_b64 = ""
         if audio_exists:
             try:
                 with open(audio_path, "rb") as f:
@@ -465,19 +505,27 @@ async def _run_download_and_analyse(
         session["result"] = {
             "status":        "transcription_needed",
             "session_id":    fallback_sid,
-            "frames_base64": frames_b64,
+            "frames_base64": [],
             "audio_base64":  audio_b64,
         }
 
     except Exception:
-        print(f"❌ _run_download_and_analyse: {traceback.format_exc()}", flush=True)
+        print(
+            f"❌ _run_download_and_analyse: {traceback.format_exc()}",
+            flush=True
+        )
         session["status"] = "error"
-        session["result"] = {"status": "error", "code": "unexpected",
-                             "message": "Une erreur inattendue s'est produite. Réessayez."}
+        session["result"] = {
+            "status":  "error",
+            "code":    "unexpected",
+            "message": "Une erreur inattendue s'est produite. Réessayez.",
+        }
     finally:
         if not need_client_fallback:
             cleanup_files(video_path, audio_path, frame_dir, audio_exists)
         session["timestamp"] = time.time()
+
+
 # ════════════════════════════════════════════════════════════════
 # ENDPOINT PRINCIPAL
 # ════════════════════════════════════════════════════════════════
