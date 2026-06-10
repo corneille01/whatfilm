@@ -12,6 +12,10 @@ Fix v3 :
     avant l'appel principal, notamment les caractères JP/KO/ZH/AR)
   - Lite utilisé uniquement en fallback, pas en égal
   - Log explicite quand acteurs vides
+
+Fix v4 :
+  - _extract_gemini_youtube : analyse URL YouTube directement via Gemini file_data
+    (pas de téléchargement, pas de frames, pas de Whisper)
 """
 import json
 import os
@@ -82,24 +86,15 @@ def _encode_image(path: str) -> str | None:
 
 # ════════════════════════════════════════════════════════════════
 # OCR AUTOMATIQUE SUR LES FRAMES
-# Appel Gemini léger pour extraire tout texte visible à l'écran
-# (titres, génériques, sous-titres, bannières, caractères non-latins).
-# Séparé de l'extraction principale pour ne pas alourdir le payload.
 # ════════════════════════════════════════════════════════════════
 async def _ocr_frames(frames: list) -> str:
     """
     Passe les frames à Gemini Flash Lite pour extraire tout texte visible.
-
-    Priorité aux caractères non-latins (JP/KO/ZH/AR) qui peuvent être
-    des titres de films non identifiables autrement.
-
-    Returns:
-        Texte extrait (peut être vide si rien de visible), max ~500 chars.
+    Priorité aux caractères non-latins (JP/KO/ZH/AR).
     """
     if not GEMINI_API_KEY or not frames:
         return ""
 
-    # Prendre au max 3 frames pour l'OCR (économie de tokens)
     frames_to_ocr = frames[:3]
     parts = [
         {
@@ -125,7 +120,6 @@ async def _ocr_frames(frames: list) -> str:
                 })
 
     if len(parts) == 1:
-        # Aucune frame encodée
         return ""
 
     payload = {
@@ -137,7 +131,7 @@ async def _ocr_frames(frames: list) -> str:
     }
 
     try:
-        lite_url = GEMINI_URLS[1]  # Flash Lite pour l'OCR (économie de quota)
+        lite_url = GEMINI_URLS[1]
         async with httpx.AsyncClient(timeout=20) as client:
             resp = await client.post(
                 f"{lite_url}?key={GEMINI_API_KEY}", json=payload
@@ -225,7 +219,6 @@ async def _call_gemini(
             print(f"   Texte reçu : {text[:200]}", flush=True)
             return None
 
-        # Normaliser les champs manquants
         data["source"] = "gemini_vision"
         data.setdefault("titres_possibles",   [])
         data.setdefault("acteurs",            [])
@@ -237,7 +230,6 @@ async def _call_gemini(
         data.setdefault("langue_originale",   "")
         data.setdefault("indices_visuels",    [])
 
-        # Log résultat
         acteurs = data.get("acteurs", [])
         titres  = data.get("titres_possibles", [])
         print(
@@ -269,125 +261,9 @@ async def _call_gemini(
 
 
 # ════════════════════════════════════════════════════════════════
-# EXTRACTION PRINCIPALE
+# EXTRACTION YOUTUBE DIRECTE (sans téléchargement)
 # ════════════════════════════════════════════════════════════════
-async def _extract_gemini_vision(
-    frames: list,
-    ocr_text: str,
-    transcript: str,
-) -> dict | None:
-    if not GEMINI_API_KEY:
-        print("⚠️ GEMINI_API_KEY manquante → skip Gemini", flush=True)
-        return None
-
-    # ── OCR automatique sur les frames si ocr_text vide ──────────
-    # Gemini lit les caractères non-latins que Tesseract rate souvent.
-    effective_ocr = ocr_text.strip()
-    if not effective_ocr and frames:
-        print("🔤 OCR vide → tentative OCR automatique sur frames...", flush=True)
-        effective_ocr = await _ocr_frames(frames)
-        if effective_ocr:
-            print(f"✅ OCR auto → {len(effective_ocr)} chars", flush=True)
-        else:
-            print("ℹ️  OCR auto → rien trouvé", flush=True)
-
-    prompt = EXTRACTION_PROMPT.format(
-        ocr_text=effective_ocr[:MAX_OCR_CHARS],
-        transcript=transcript[:MAX_TRANSCRIPT_CHARS],
-    )
-
-    # Prompt en premier, puis frames, puis rappel de croisement
-    parts = [{"text": prompt}]
-
-    frames_added = 0
-    for fp in frames[:6]:
-        if os.path.exists(fp) and os.path.getsize(fp) > 0:
-            b64 = _encode_image(fp)
-            if b64:
-                parts.append({
-                    "inline_data": {"mime_type": "image/jpeg", "data": b64}
-                })
-                frames_added += 1
-
-    if frames_added == 0:
-        print("⚠️ Aucune frame valide pour Gemini", flush=True)
-
-    if frames_added > 0 and transcript:
-        parts.append({
-            "text": (
-                f"Tu as {frames_added} image(s) ci-dessus ET la transcription complète "
-                f"({len(transcript)} chars) dans le prompt. "
-                "Croise obligatoirement les deux : si tu reconnais un visage, "
-                "cherche si un nom correspondant est mentionné dans la transcription. "
-                "Si la transcription cite un titre ou un nom propre, vérifie si tu le vois "
-                "aussi visuellement. "
-                "Si tu vois des caractères non-latins (japonais, coréen, chinois, arabe...) "
-                "sur une bannière ou générique, transcris-les EXACTEMENT dans titres_possibles. "
-                "Réponds UNIQUEMENT en JSON valide sur une seule ligne."
-            )
-        })
-
-    # ── Tentative 1 : Flash avec maxOutputTokens=3000 ────────────
-    flash_url = GEMINI_URLS[0]
-    result = await _call_gemini(flash_url, parts, max_output_tokens=3000)
-    if result:
-        return result
-
-    # ── Tentative 2 : Flash avec moins de frames (3 au lieu de 6) ─
-    if len(frames) > 3:
-        print("🔄 Retry Flash avec 3 frames seulement...", flush=True)
-        parts_reduced = [parts[0]]  # prompt
-        count = 0
-        for part in parts[1:]:
-            if "inline_data" in part and count < 3:
-                parts_reduced.append(part)
-                count += 1
-        if transcript:
-            parts_reduced.append(parts[-1])  # rappel croisement
-
-        result = await _call_gemini(flash_url, parts_reduced, max_output_tokens=3000)
-        if result:
-            return result
-
-    # ── Tentative 3 : Flash Lite (fallback) ──────────────────────
-    print("🔄 Fallback Flash Lite...", flush=True)
-    lite_url = GEMINI_URLS[1]
-    result = await _call_gemini(lite_url, parts, max_output_tokens=3000)
-    if result:
-        return result
-
-    return None
-
-
-# ════════════════════════════════════════════════════════════════
-# POINT D'ENTRÉE PRINCIPAL
-# ════════════════════════════════════════════════════════════════
-async def multimodal_extract(frames, ocr_text, transcript):
-    ocr_text   = (ocr_text   or "").strip()
-    transcript = (transcript or "").strip()
-    combined   = f"{transcript} {ocr_text}".strip()
-
-    if not frames and len(combined) < TRANSCRIPT_THRESHOLD:
-        print("⚠️ Pas assez de données → retour minimal", flush=True)
-        result = _minimal_fallback("insufficient_data")
-        result["description_courte"] = combined
-        return result
-
-    print(
-        f"🔍 Gemini vision ({len(frames)} frames, "
-        f"transcript={len(transcript)}c, ocr={len(ocr_text)}c)...",
-        flush=True
-    )
-    result = await _extract_gemini_vision(frames, ocr_text, transcript)
-    if result:
-        return result
-
-    print("⚠️ Gemini échoué → retour minimal", flush=True)
-    result = _minimal_fallback("fallback")
-    result["description_courte"] = combined[:500]
-    return result
-
-    async def _extract_gemini_youtube(youtube_url: str) -> dict | None:
+async def _extract_gemini_youtube(youtube_url: str) -> dict | None:
     """
     Envoie l'URL YouTube directement à Gemini sans téléchargement.
     Gemini supporte les URLs YouTube nativement via file_data.
@@ -477,3 +353,120 @@ async def multimodal_extract(frames, ocr_text, transcript):
     except Exception as e:
         print(f"⚠️ Gemini YouTube KO: {str(e)[:200]}", flush=True)
         return None
+
+
+# ════════════════════════════════════════════════════════════════
+# EXTRACTION PRINCIPALE (frames + OCR + transcript)
+# ════════════════════════════════════════════════════════════════
+async def _extract_gemini_vision(
+    frames: list,
+    ocr_text: str,
+    transcript: str,
+) -> dict | None:
+    if not GEMINI_API_KEY:
+        print("⚠️ GEMINI_API_KEY manquante → skip Gemini", flush=True)
+        return None
+
+    effective_ocr = ocr_text.strip()
+    if not effective_ocr and frames:
+        print("🔤 OCR vide → tentative OCR automatique sur frames...", flush=True)
+        effective_ocr = await _ocr_frames(frames)
+        if effective_ocr:
+            print(f"✅ OCR auto → {len(effective_ocr)} chars", flush=True)
+        else:
+            print("ℹ️  OCR auto → rien trouvé", flush=True)
+
+    prompt = EXTRACTION_PROMPT.format(
+        ocr_text=effective_ocr[:MAX_OCR_CHARS],
+        transcript=transcript[:MAX_TRANSCRIPT_CHARS],
+    )
+
+    parts = [{"text": prompt}]
+
+    frames_added = 0
+    for fp in frames[:6]:
+        if os.path.exists(fp) and os.path.getsize(fp) > 0:
+            b64 = _encode_image(fp)
+            if b64:
+                parts.append({
+                    "inline_data": {"mime_type": "image/jpeg", "data": b64}
+                })
+                frames_added += 1
+
+    if frames_added == 0:
+        print("⚠️ Aucune frame valide pour Gemini", flush=True)
+
+    if frames_added > 0 and transcript:
+        parts.append({
+            "text": (
+                f"Tu as {frames_added} image(s) ci-dessus ET la transcription complète "
+                f"({len(transcript)} chars) dans le prompt. "
+                "Croise obligatoirement les deux : si tu reconnais un visage, "
+                "cherche si un nom correspondant est mentionné dans la transcription. "
+                "Si la transcription cite un titre ou un nom propre, vérifie si tu le vois "
+                "aussi visuellement. "
+                "Si tu vois des caractères non-latins (japonais, coréen, chinois, arabe...) "
+                "sur une bannière ou générique, transcris-les EXACTEMENT dans titres_possibles. "
+                "Réponds UNIQUEMENT en JSON valide sur une seule ligne."
+            )
+        })
+
+    # ── Tentative 1 : Flash ───────────────────────────────────────
+    flash_url = GEMINI_URLS[0]
+    result = await _call_gemini(flash_url, parts, max_output_tokens=3000)
+    if result:
+        return result
+
+    # ── Tentative 2 : Flash avec 3 frames seulement ───────────────
+    if len(frames) > 3:
+        print("🔄 Retry Flash avec 3 frames seulement...", flush=True)
+        parts_reduced = [parts[0]]
+        count = 0
+        for part in parts[1:]:
+            if "inline_data" in part and count < 3:
+                parts_reduced.append(part)
+                count += 1
+        if transcript:
+            parts_reduced.append(parts[-1])
+
+        result = await _call_gemini(flash_url, parts_reduced, max_output_tokens=3000)
+        if result:
+            return result
+
+    # ── Tentative 3 : Flash Lite ──────────────────────────────────
+    print("🔄 Fallback Flash Lite...", flush=True)
+    lite_url = GEMINI_URLS[1]
+    result = await _call_gemini(lite_url, parts, max_output_tokens=3000)
+    if result:
+        return result
+
+    return None
+
+
+# ════════════════════════════════════════════════════════════════
+# POINT D'ENTRÉE PRINCIPAL
+# ════════════════════════════════════════════════════════════════
+async def multimodal_extract(frames, ocr_text, transcript):
+    ocr_text   = (ocr_text   or "").strip()
+    transcript = (transcript or "").strip()
+    combined   = f"{transcript} {ocr_text}".strip()
+
+    if not frames and len(combined) < TRANSCRIPT_THRESHOLD:
+        print("⚠️ Pas assez de données → retour minimal", flush=True)
+        result = _minimal_fallback("insufficient_data")
+        result["description_courte"] = combined
+        return result
+
+    print(
+        f"🔍 Gemini vision ({len(frames)} frames, "
+        f"transcript={len(transcript)}c, ocr={len(ocr_text)}c)...",
+        flush=True
+    )
+    result = await _extract_gemini_vision(frames, ocr_text, transcript)
+    if result:
+        return result
+
+    print("⚠️ Gemini échoué → retour minimal", flush=True)
+    result = _minimal_fallback("fallback")
+    result["description_courte"] = combined[:500]
+    return result
