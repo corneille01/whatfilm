@@ -386,3 +386,94 @@ async def multimodal_extract(frames, ocr_text, transcript):
     result = _minimal_fallback("fallback")
     result["description_courte"] = combined[:500]
     return result
+
+    async def _extract_gemini_youtube(youtube_url: str) -> dict | None:
+    """
+    Envoie l'URL YouTube directement à Gemini sans téléchargement.
+    Gemini supporte les URLs YouTube nativement via file_data.
+    """
+    if not GEMINI_API_KEY:
+        return None
+
+    prompt = EXTRACTION_PROMPT.format(
+        ocr_text="",
+        transcript="(analyse la vidéo directement, extrais dialogues et textes visibles)",
+    )
+
+    payload = {
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {"text": prompt},
+                {
+                    "file_data": {
+                        "mime_type": "video/mp4",
+                        "file_uri": youtube_url,
+                    }
+                },
+            ],
+        }],
+        "generationConfig": {
+            "temperature":      0.1,
+            "maxOutputTokens":  3000,
+            "responseMimeType": "application/json",
+        },
+    }
+
+    flash_url = GEMINI_URLS[0]
+    print(f"🎬 Gemini YouTube direct: {youtube_url[:60]}", flush=True)
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                f"{flash_url}?key={GEMINI_API_KEY}", json=payload
+            )
+            resp.raise_for_status()
+
+        raw       = resp.json()
+        candidate = raw.get("candidates", [{}])[0]
+        finish    = candidate.get("finishReason", "")
+
+        if finish in ("SAFETY", "RECITATION", "OTHER"):
+            print(f"⚠️ Gemini YouTube bloqué: {finish}", flush=True)
+            return None
+
+        text = (
+            candidate
+            .get("content", {})
+            .get("parts", [{}])[0]
+            .get("text", "")
+        ).strip()
+
+        if not text:
+            print("⚠️ Gemini YouTube: réponse vide", flush=True)
+            return None
+
+        text = _clean_json_fences(text)
+        data = json.loads(text)
+
+        data["source"] = "gemini_youtube_direct"
+        data.setdefault("titres_possibles",   [])
+        data.setdefault("acteurs",            [])
+        data.setdefault("personnages",        [])
+        data.setdefault("objets_importants",  [])
+        data.setdefault("description_courte", "")
+        data.setdefault("genre_apparent",     "")
+        data.setdefault("annee_estimee",      None)
+        data.setdefault("langue_originale",   "")
+        data.setdefault("indices_visuels",    [])
+
+        print(
+            f"✅ Gemini YouTube direct OK — "
+            f"titres={data.get('titres_possibles')}, "
+            f"acteurs={data.get('acteurs')}",
+            flush=True
+        )
+        return data
+
+    except json.JSONDecodeError as e:
+        print(f"⚠️ Gemini YouTube JSON KO: {e}", flush=True)
+        return None
+    except Exception as e:
+        print(f"⚠️ Gemini YouTube KO: {str(e)[:200]}", flush=True)
+        return None

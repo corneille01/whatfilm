@@ -262,6 +262,37 @@ async def _run_download_and_analyse(
     session = _dl_sessions.get(session_id)
     if not session:
         return
+     # ══════════════════════════════════════════════════
+    # SHORTCUT YOUTUBE — Gemini analyse l'URL directement
+    # Pas de téléchargement, pas de frames, pas de Whisper
+    # ══════════════════════════════════════════════════
+    if platform == "youtube":
+        print(f"🎬 YouTube shortcut → Gemini direct", flush=True)
+        session["status"] = "processing"
+        try:
+            from core.extraction import _extract_gemini_youtube
+            extraction = await _extract_gemini_youtube(url)
+
+            if extraction:
+                # Pipeline normal à partir de l'extraction
+                result = await process_analysis(
+                    frames=[],
+                    ocr_text="",
+                    transcript=extraction.get("_transcript_raw", ""),
+                    url=url,
+                    lang=lang,
+                    browser_lang=browser_lang,
+                    prefetched_extraction=extraction,  # ← on passe l'extraction déjà faite
+                )
+                session["status"] = "done"
+                session["result"] = result
+                return
+            else:
+                print("⚠️ Gemini YouTube direct KO → fallback download", flush=True)
+                # Continue vers le download normal ci-dessous
+        except Exception as e:
+            print(f"⚠️ YouTube shortcut exception: {e} → fallback download", flush=True)
+
 
     uid        = session["uid"]
     video_path = session["video_path"]
@@ -586,6 +617,7 @@ async def process_analysis(
     url,
     lang,
     browser_lang: str | None = None,
+    prefetched_extraction=None,   # ← NOUVEAU
 ):
     # Si browser_lang non transmis, fallback sur lang
     browser_lang = browser_lang or lang
@@ -596,6 +628,13 @@ async def process_analysis(
         if content_hit:
             set_cache(url, content_hit, transcript=transcript, ocr_text=ocr_text)
             return {"status": "cached", **content_hit}
+    # Utiliser l'extraction déjà faite si fournie
+    if prefetched_extraction:
+        extraction = prefetched_extraction
+        print("✅ Extraction prefetchée utilisée (YouTube direct)", flush=True)
+    else:
+        # ... extraction multimodale normale ...
+        extraction = await multimodal_extract(frames, ocr_text, transcript) or {}
 
     # ── 2. Détection de script ───────────────────────────────────
     combined_text   = (transcript or "") + " " + (ocr_text or "")

@@ -22,37 +22,68 @@ YTDLP_BASE_OPTIONS = {
 }
 
 # ══════════════════════════════════════════════════════════════
-# FONCTIONS INTERNES
+# YOUTUBE — subprocess worker (isolé du process principal)
 # ══════════════════════════════════════════════════════════════
 
-async def _download_youtube_pytubefix(url: str, output_path: str) -> Dict[str, Any]:
-    """Télécharge une vidéo YouTube avec pytubefix (contourne le bot Android)."""
-    try:
-        from pytubefix import YouTube
-    except ImportError:
-        return {"ok": False, "code": "pytubefix_missing", "message": "pytubefix non installé"}
+async def _download_youtube_via_worker(url: str, output_path: str) -> Dict[str, Any]:
+    """
+    Lance youtube_worker.py en subprocess isolé.
+    Le worker tente : yt-dlp android_vr → Invidious API.
+    Retourne {"ok": True} si le fichier est téléchargé, sinon {"ok": False, ...}.
+    """
+    worker_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "youtube_worker.py"
+    )
+    if not os.path.exists(worker_path):
+        return {"ok": False, "code": "worker_missing",
+                "message": f"youtube_worker.py introuvable à {worker_path}"}
 
     try:
-        loop = asyncio.get_event_loop()
-        yt = await loop.run_in_executor(None, lambda: YouTube(url, use_oauth=False, allow_oauth_cache=False))
-        # Utiliser le flux vidéo progressif (audio+vidéo) de meilleure qualité mp4
-        stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
-        if not stream:
-            stream = yt.streams.filter(file_extension='mp4').order_by('resolution').desc().first()
-        if not stream:
-            return {"ok": False, "code": "no_stream", "message": "Aucun flux vidéo trouvé"}
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, worker_path, url,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=45)
 
-        await loop.run_in_executor(None, lambda: stream.download(output_path=os.path.dirname(output_path), filename=os.path.basename(output_path)))
-        if os.path.getsize(output_path) > 1000:
-            return {"ok": True}
-        else:
-            return {"ok": False, "code": "download_empty", "message": "Fichier téléchargé vide"}
+        if stderr:
+            print(f"  [youtube_worker stderr] {stderr.decode()[:400]}", flush=True)
+
+        if not stdout:
+            return {"ok": False, "code": "worker_no_output",
+                    "message": "Worker YouTube n'a produit aucune sortie"}
+
+        worker_result = json.loads(stdout.decode())
+
+    except asyncio.TimeoutError:
+        return {"ok": False, "code": "worker_timeout",
+                "message": "Timeout worker YouTube (45s)"}
+    except json.JSONDecodeError as e:
+        return {"ok": False, "code": "worker_json_error",
+                "message": f"JSON invalide du worker: {e}"}
     except Exception as e:
-        return {"ok": False, "code": "pytubefix_error", "message": str(e)[:200]}
+        return {"ok": False, "code": "worker_exception",
+                "message": str(e)[:200]}
 
+    if not worker_result.get("ok"):
+        print(f"⚠️ Worker YouTube KO: {worker_result.get('message', '')}", flush=True)
+        return worker_result
+
+    direct_url = worker_result.get("direct_url", "")
+    if not direct_url:
+        return {"ok": False, "code": "worker_no_url",
+                "message": "Worker YouTube n'a pas retourné d'URL directe"}
+
+    print(f"✅ Worker YouTube → URL directe obtenue, téléchargement...", flush=True)
+    return await _download_via_direct_url(direct_url, output_path)
+
+
+# ══════════════════════════════════════════════════════════════
+# yt-dlp générique (plateformes non-YouTube)
+# ══════════════════════════════════════════════════════════════
 
 async def _download_with_ytdlp(url: str, output_path: str) -> Dict[str, Any]:
-    """yt-dlp avec stratégies multiples (utilisé pour non-YouTube ou fallback)."""
+    """yt-dlp avec stratégies multiples (utilisé pour non-YouTube ou fallback final)."""
     try:
         import yt_dlp
     except ImportError:
@@ -101,7 +132,9 @@ async def _download_with_ytdlp(url: str, output_path: str) -> Dict[str, Any]:
         try:
             loop = asyncio.get_event_loop()
             with yt_dlp.YoutubeDL(opts) as ydl:
-                info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=True))
+                info = await loop.run_in_executor(
+                    None, lambda: ydl.extract_info(url, download=True)
+                )
                 if info and "requested_downloads" in info:
                     downloaded_file = info["requested_downloads"][0]["filepath"]
                     if downloaded_file != output_path:
@@ -118,28 +151,34 @@ async def _download_with_ytdlp(url: str, output_path: str) -> Dict[str, Any]:
             try:
                 if os.path.exists(cookie_file):
                     os.remove(cookie_file)
-            except:
+            except Exception:
                 pass
 
     return {"ok": False, "code": "ytdlp_error", "message": last_error}
 
 
-# ════ TikTok (inchangé) ════
+# ══════════════════════════════════════════════════════════════
+# TikTok
+# ══════════════════════════════════════════════════════════════
 
 async def _download_tiktok_playwright_subprocess(url: str) -> Dict[str, Any]:
-    worker_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "playwright_worker.py")
+    worker_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "playwright_worker.py"
+    )
     try:
         proc = await asyncio.create_subprocess_exec(
             sys.executable, worker_path, url,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
-            return {"ok": False, "code": "playwright_subprocess_error",
-                    "message": f"Worker Playwright a échoué (exit {proc.returncode}): {stderr.decode()[:200]}"}
-        result = json.loads(stdout.decode())
-        return result
+            return {
+                "ok": False, "code": "playwright_subprocess_error",
+                "message": f"Worker Playwright a échoué (exit {proc.returncode}): "
+                           f"{stderr.decode()[:200]}",
+            }
+        return json.loads(stdout.decode())
     except FileNotFoundError:
         return {"ok": False, "code": "playwright_worker_missing",
                 "message": f"playwright_worker.py introuvable à {worker_path}"}
@@ -147,7 +186,8 @@ async def _download_tiktok_playwright_subprocess(url: str) -> Dict[str, Any]:
         return {"ok": False, "code": "playwright_worker_output",
                 "message": "Réponse JSON invalide du worker Playwright"}
     except Exception as e:
-        return {"ok": False, "code": "playwright_subprocess_error", "message": str(e)[:200]}
+        return {"ok": False, "code": "playwright_subprocess_error",
+                "message": str(e)[:200]}
 
 
 async def _download_tiktok_playwright_direct(url: str) -> Dict[str, Any]:
@@ -160,39 +200,55 @@ async def _download_tiktok_playwright_direct(url: str) -> Dict[str, Any]:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Linux; Android 10; Pixel 3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36"
+                user_agent=(
+                    "Mozilla/5.0 (Linux; Android 10; Pixel 3) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/90.0.4430.91 Mobile Safari/537.36"
+                )
             )
             page = await context.new_page()
-            await page.route("**/*", lambda route: route.abort()
-                             if route.request.resource_type in ("image", "font", "stylesheet")
-                             else route.continue_())
+            await page.route(
+                "**/*",
+                lambda route: route.abort()
+                if route.request.resource_type in ("image", "font", "stylesheet")
+                else route.continue_(),
+            )
             await page.goto(url, wait_until="domcontentloaded", timeout=25000)
             await page.wait_for_timeout(3000)
+
             video_url = None
             try:
                 el = await page.query_selector("video")
                 if el:
                     video_url = await el.get_attribute("src")
-            except:
+            except Exception:
                 pass
+
             if not video_url:
                 try:
                     meta = await page.query_selector('meta[property="og:video"]')
                     if meta:
                         video_url = await meta.get_attribute("content")
-                except:
+                except Exception:
                     pass
+
             if not video_url:
                 try:
-                    data = await page.evaluate("() => window.__UNIVERSAL_DATA__ || window.__NEXT_DATA__ || window.__DATA__")
+                    data = await page.evaluate(
+                        "() => window.__UNIVERSAL_DATA__ "
+                        "|| window.__NEXT_DATA__ || window.__DATA__"
+                    )
                     if isinstance(data, dict):
-                        for key, val in data.items():
-                            if isinstance(val, str) and val.startswith("http") and ".mp4" in val:
+                        for val in data.values():
+                            if isinstance(val, str) and val.startswith("http") \
+                                    and ".mp4" in val:
                                 video_url = val
                                 break
-                except:
+                except Exception:
                     pass
+
             await browser.close()
+
             if video_url:
                 return {"ok": True, "direct_url": video_url}
             return {"ok": False, "code": "no_video_found",
@@ -201,22 +257,41 @@ async def _download_tiktok_playwright_direct(url: str) -> Dict[str, Any]:
         return {"ok": False, "code": "playwright_error", "message": str(e)[:200]}
 
 
+# ══════════════════════════════════════════════════════════════
+# Téléchargement URL directe
+# ══════════════════════════════════════════════════════════════
+
 async def _download_via_direct_url(direct_url: str, output_path: str) -> Dict[str, Any]:
-    """Télécharge une URL directe (utilisé pour TikTok après Playwright)."""
+    """Télécharge un fichier depuis une URL directe (httpx streaming)."""
     try:
         import httpx
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(
+            timeout=60,
+            follow_redirects=True,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Linux; Android 10; K) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.6367.82 Mobile Safari/537.36"
+                ),
+                "Referer": "https://www.youtube.com/",
+            },
+        ) as client:
             async with client.stream("GET", direct_url) as resp:
                 if resp.status_code != 200:
-                    return {"ok": False, "code": "direct_download_failed",
-                            "message": f"Échec du téléchargement direct (HTTP {resp.status_code})"}
-                with open(output_path, 'wb') as f:
+                    return {
+                        "ok": False, "code": "direct_download_failed",
+                        "message": f"Échec du téléchargement direct (HTTP {resp.status_code})",
+                    }
+                with open(output_path, "wb") as f:
                     async for chunk in resp.aiter_bytes(chunk_size=8192):
                         f.write(chunk)
-        if os.path.getsize(output_path) > 1000:
+
+        size = os.path.getsize(output_path)
+        if size > 1000:
             return {"ok": True}
-        else:
-            return {"ok": False, "code": "direct_download_empty", "message": "Fichier téléchargé vide"}
+        return {"ok": False, "code": "direct_download_empty",
+                "message": f"Fichier téléchargé trop petit ({size} octets)"}
     except Exception as e:
         return {"ok": False, "code": "direct_download_error", "message": str(e)[:200]}
 
@@ -226,22 +301,43 @@ async def _download_via_direct_url(direct_url: str, output_path: str) -> Dict[st
 # ══════════════════════════════════════════════════════════════
 
 async def download_video(url: str, output_path: str, platform: str = "unknown") -> Dict[str, Any]:
-    """Télécharge une vidéo depuis n'importe quelle plateforme."""
+    """
+    Télécharge une vidéo depuis n'importe quelle plateforme.
+
+    Cascade YouTube :
+      1. youtube_worker.py (subprocess isolé)
+         → yt-dlp android_vr (sans cookies)
+         → Invidious API (4 instances)
+      2. yt-dlp direct en fallback ultime
+
+    Cascade TikTok :
+      1. playwright_worker.py (subprocess isolé sur Render)
+         ou Playwright direct (local)
+      2. yt-dlp
+
+    Autres plateformes :
+      → yt-dlp directement
+    """
     if os.path.exists(output_path):
         os.remove(output_path)
 
-    # ── YouTube : pytubefix d'abord, puis yt-dlp (fallback) ──
+    # ── YouTube ──────────────────────────────────────────────────
     if platform == "youtube" or "youtube.com" in url or "youtu.be" in url:
-        print("🎬 Téléchargement YouTube via pytubefix", flush=True)
-        result = await _download_youtube_pytubefix(url, output_path)
+        print("🎬 Téléchargement YouTube via worker subprocess", flush=True)
+
+        result = await _download_youtube_via_worker(url, output_path)
         if result["ok"]:
             return result
-        print(f"⚠️ pytubefix a échoué : {result.get('message')}. Tentative yt-dlp...", flush=True)
-        # Fallback sur yt-dlp
-        result = await _download_with_ytdlp(url, output_path)
-        return result
 
-    # ── TikTok ──
+        # Fallback ultime : yt-dlp direct (fonctionne parfois hors Render)
+        print(
+            f"⚠️ Worker YouTube KO ({result.get('code')}) "
+            f"→ fallback yt-dlp direct",
+            flush=True,
+        )
+        return await _download_with_ytdlp(url, output_path)
+
+    # ── TikTok ───────────────────────────────────────────────────
     if platform == "tiktok":
         playwright_result = None
         if IS_RENDER:
@@ -249,12 +345,15 @@ async def download_video(url: str, output_path: str, platform: str = "unknown") 
         else:
             playwright_result = await _download_tiktok_playwright_direct(url)
 
-        if playwright_result and playwright_result.get("ok") and playwright_result.get("direct_url"):
-            dl_result = await _download_via_direct_url(playwright_result["direct_url"], output_path)
+        if playwright_result and playwright_result.get("ok") \
+                and playwright_result.get("direct_url"):
+            dl_result = await _download_via_direct_url(
+                playwright_result["direct_url"], output_path
+            )
             if dl_result["ok"]:
                 return dl_result
 
         return await _download_with_ytdlp(url, output_path)
 
-    # ── Autres plateformes ──
+    # ── Autres plateformes ───────────────────────────────────────
     return await _download_with_ytdlp(url, output_path)
