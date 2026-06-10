@@ -297,7 +297,6 @@ async def _run_download_and_analyse(
                 return
             else:
                 print("⚠️ Gemini YouTube direct KO → fallback download", flush=True)
-                # continue vers le pipeline download normal ci-dessous
 
         except Exception as e:
             print(f"⚠️ YouTube shortcut exception: {e} → fallback download", flush=True)
@@ -374,14 +373,25 @@ async def _run_download_and_analyse(
             subprocess.run(
                 ["ffmpeg", "-i", video_path,
                  "-t", str(MAX_VIDEO_SECONDS),
-                 "-vn", "-acodec", "mp3",
+                 "-vn", "-acodec", "libmp3lame",
                  "-ar", "16000", "-ac", "1", "-b:a", "64k",
                  "-y", audio_path],
                 check=True, capture_output=True, timeout=30
             )
             audio_exists = os.path.exists(audio_path) and os.path.getsize(audio_path) > 100
-        except Exception as e:
-            print(f"⚠️ Audio extraction: {e}", flush=True)
+        except Exception as e1:
+            print(f"⚠️ Audio libmp3lame KO ({str(e1)[:60]}) → tentative 2", flush=True)
+            try:
+                subprocess.run(
+                    ["ffmpeg", "-i", video_path,
+                     "-t", str(MAX_VIDEO_SECONDS),
+                     "-vn", "-ar", "16000", "-ac", "1",
+                     "-f", "mp3", "-y", audio_path],
+                    check=True, capture_output=True, timeout=30
+                )
+                audio_exists = os.path.exists(audio_path) and os.path.getsize(audio_path) > 100
+            except Exception as e2:
+                print(f"⚠️ Audio extraction KO définitif: {str(e2)[:80]}", flush=True)
 
         # ── 4. Extraction frames ─────────────────────────────────
         print("🖼️ FRAMES", flush=True)
@@ -408,57 +418,56 @@ async def _run_download_and_analyse(
                 if transcript:
                     print(f"✅ Transcription OK ({len(transcript)} chars)", flush=True)
                 else:
-                    print("⚠️ Transcription vide → fallback client", flush=True)
+                    print("⚠️ Transcription vide", flush=True)
             except Exception as e:
                 print(f"⚠️ Transcription KO: {e}", flush=True)
         else:
-            print("⚠️ Pas d'audio → fallback client", flush=True)
+            print("⚠️ Pas d'audio", flush=True)
 
-        need_client_fallback = not bool(transcript)
-
-        if need_client_fallback:
-            print("🔄 Fallback client (Tesseract.js + Whisper.js)", flush=True)
-            frames_b64 = []
-            for fpath in frames:
-                try:
-                    with open(fpath, "rb") as f:
-                        frames_b64.append(base64.b64encode(f.read()).decode())
-                except Exception:
-                    pass
-            audio_b64 = ""
-            if audio_exists:
-                try:
-                    with open(audio_path, "rb") as f:
-                        audio_b64 = base64.b64encode(f.read()).decode()
-                except Exception:
-                    pass
-
-            fallback_sid = str(uuid.uuid4())[:12]
-            sessions[fallback_sid] = {
-                "url":          url,
-                "lang":         lang,
-                "browser_lang": browser_lang,
-                "video_path":   video_path,
-                "audio_path":   audio_path,
-                "frame_dir":    frame_dir,
-                "ocr_text":     "",
-                "timestamp":    time.time(),
-            }
+        # ── 6. Analyse ───────────────────────────────────────────
+        # Si des frames sont disponibles, Gemini peut analyser même sans transcript.
+        # Le fallback client (Tesseract.js + Whisper.js) n'est déclenché que si
+        # aucune frame n'est disponible (cas très rare).
+        if frames:
+            if not transcript:
+                print("🔍 Pas de transcript → Gemini analyse les frames seules", flush=True)
+            result = await process_analysis(
+                frames, "", transcript, url, lang, browser_lang
+            )
             session["status"] = "done"
-            session["result"] = {
-                "status":        "transcription_needed",
-                "session_id":    fallback_sid,
-                "frames_base64": frames_b64,
-                "audio_base64":  audio_b64,
-            }
+            session["result"] = result
             return
 
-        # ── 6. Analyse complète ──────────────────────────────────
-        result = await process_analysis(
-            frames, "", transcript, url, lang, browser_lang
-        )
+        # ── 7. Fallback client (plus de frames disponibles) ──────
+        print("🔄 Fallback client (Tesseract.js + Whisper.js)", flush=True)
+        need_client_fallback = True
+        frames_b64 = []
+        audio_b64  = ""
+        if audio_exists:
+            try:
+                with open(audio_path, "rb") as f:
+                    audio_b64 = base64.b64encode(f.read()).decode()
+            except Exception:
+                pass
+
+        fallback_sid = str(uuid.uuid4())[:12]
+        sessions[fallback_sid] = {
+            "url":          url,
+            "lang":         lang,
+            "browser_lang": browser_lang,
+            "video_path":   video_path,
+            "audio_path":   audio_path,
+            "frame_dir":    frame_dir,
+            "ocr_text":     "",
+            "timestamp":    time.time(),
+        }
         session["status"] = "done"
-        session["result"] = result
+        session["result"] = {
+            "status":        "transcription_needed",
+            "session_id":    fallback_sid,
+            "frames_base64": frames_b64,
+            "audio_base64":  audio_b64,
+        }
 
     except Exception:
         print(f"❌ _run_download_and_analyse: {traceback.format_exc()}", flush=True)
@@ -469,7 +478,6 @@ async def _run_download_and_analyse(
         if not need_client_fallback:
             cleanup_files(video_path, audio_path, frame_dir, audio_exists)
         session["timestamp"] = time.time()
-
 # ════════════════════════════════════════════════════════════════
 # ENDPOINT PRINCIPAL
 # ════════════════════════════════════════════════════════════════
