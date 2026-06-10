@@ -262,37 +262,6 @@ async def _run_download_and_analyse(
     session = _dl_sessions.get(session_id)
     if not session:
         return
-     # ══════════════════════════════════════════════════
-    # SHORTCUT YOUTUBE — Gemini analyse l'URL directement
-    # Pas de téléchargement, pas de frames, pas de Whisper
-    # ══════════════════════════════════════════════════
-    if platform == "youtube":
-        print(f"🎬 YouTube shortcut → Gemini direct", flush=True)
-        session["status"] = "processing"
-        try:
-            from core.extraction import _extract_gemini_youtube
-            extraction = await _extract_gemini_youtube(url)
-
-            if extraction:
-                # Pipeline normal à partir de l'extraction
-                result = await process_analysis(
-                    frames=[],
-                    ocr_text="",
-                    transcript=extraction.get("_transcript_raw", ""),
-                    url=url,
-                    lang=lang,
-                    browser_lang=browser_lang,
-                    prefetched_extraction=extraction,  # ← on passe l'extraction déjà faite
-                )
-                session["status"] = "done"
-                session["result"] = result
-                return
-            else:
-                print("⚠️ Gemini YouTube direct KO → fallback download", flush=True)
-                # Continue vers le download normal ci-dessous
-        except Exception as e:
-            print(f"⚠️ YouTube shortcut exception: {e} → fallback download", flush=True)
-
 
     uid        = session["uid"]
     video_path = session["video_path"]
@@ -300,6 +269,38 @@ async def _run_download_and_analyse(
     frame_dir  = session["frame_dir"]
     audio_exists         = False
     need_client_fallback = False
+
+    # ══════════════════════════════════════════════════════════════
+    # SHORTCUT YOUTUBE — Gemini analyse l'URL directement
+    # Pas de téléchargement, pas de frames, pas de Whisper
+    # ══════════════════════════════════════════════════════════════
+    if platform == "youtube":
+        print(f"🎬 YouTube shortcut → Gemini direct (pas de download)", flush=True)
+        session["status"] = "processing"
+        try:
+            from core.extraction import _extract_gemini_youtube
+            extraction = await _extract_gemini_youtube(url)
+
+            if extraction:
+                result = await process_analysis(
+                    frames=[],
+                    ocr_text="",
+                    transcript=extraction.get("_transcript_raw", ""),
+                    url=url,
+                    lang=lang,
+                    browser_lang=browser_lang,
+                    prefetched_extraction=extraction,
+                )
+                session["status"] = "done"
+                session["result"] = result
+                session["timestamp"] = time.time()
+                return
+            else:
+                print("⚠️ Gemini YouTube direct KO → fallback download", flush=True)
+                # continue vers le pipeline download normal ci-dessous
+
+        except Exception as e:
+            print(f"⚠️ YouTube shortcut exception: {e} → fallback download", flush=True)
 
     try:
         # ── 1. Download ──────────────────────────────────────────
@@ -617,9 +618,8 @@ async def process_analysis(
     url,
     lang,
     browser_lang: str | None = None,
-    prefetched_extraction=None,   # ← NOUVEAU
+    prefetched_extraction: dict | None = None,
 ):
-    # Si browser_lang non transmis, fallback sur lang
     browser_lang = browser_lang or lang
 
     # ── 1. Cache niveau contenu ──────────────────────────────────
@@ -628,35 +628,32 @@ async def process_analysis(
         if content_hit:
             set_cache(url, content_hit, transcript=transcript, ocr_text=ocr_text)
             return {"status": "cached", **content_hit}
-    # Utiliser l'extraction déjà faite si fournie
-    if prefetched_extraction:
+
+    # ── 2. Extraction multimodale ────────────────────────────────
+    if prefetched_extraction is not None:
         extraction = prefetched_extraction
         print("✅ Extraction prefetchée utilisée (YouTube direct)", flush=True)
+        detected_script = extraction.get("detected_script", "latin")
     else:
-        # ... extraction multimodale normale ...
+        combined_text   = (transcript or "") + " " + (ocr_text or "")
+        detected_script = "latin"
+        if re.search(r"[؀-ۿݐ-ݿ]", combined_text):
+            detected_script = "arabic"
+        elif re.search(r"[一-鿿㐀-䶿]", combined_text):
+            detected_script = "chinese"
+        elif re.search(r"[가-힯ᄀ-ᇿ]", combined_text):
+            detected_script = "korean"
+        elif re.search(r"[぀-ゟ゠-ヿ]", combined_text):
+            detected_script = "japanese"
+        elif re.search(r"[Ѐ-ӿ]", combined_text):
+            detected_script = "cyrillic"
+        if detected_script != "latin":
+            print(f"🌐 Script détecté: {detected_script}", flush=True)
+
         extraction = await multimodal_extract(frames, ocr_text, transcript) or {}
-
-    # ── 2. Détection de script ───────────────────────────────────
-    combined_text   = (transcript or "") + " " + (ocr_text or "")
-    detected_script = "latin"
-    if re.search(r"[؀-ۿݐ-ݿ]", combined_text):
-        detected_script = "arabic"
-    elif re.search(r"[一-鿿㐀-䶿]", combined_text):
-        detected_script = "chinese"
-    elif re.search(r"[가-힯ᄀ-ᇿ]", combined_text):
-        detected_script = "korean"
-    elif re.search(r"[぀-ゟ゠-ヿ]", combined_text):
-        detected_script = "japanese"
-    elif re.search(r"[Ѐ-ӿ]", combined_text):
-        detected_script = "cyrillic"
-    if detected_script != "latin":
-        print(f"🌐 Script détecté: {detected_script}", flush=True)
-
-    # ── 3. Extraction multimodale ────────────────────────────────
-    extraction = await multimodal_extract(frames, ocr_text, transcript) or {}
-    if detected_script != "latin":
-        extraction["detected_script"] = detected_script
-    extraction["_transcript_raw"] = transcript or ""
+        if detected_script != "latin":
+            extraction["detected_script"] = detected_script
+        extraction["_transcript_raw"] = transcript or ""
 
     transcript_lang = extraction.get("langue_originale") or None
     if not transcript_lang and detected_script != "latin":
@@ -675,7 +672,7 @@ async def process_analysis(
         flush=True
     )
 
-    # ── 4. Cache niveau titre ────────────────────────────────────
+    # ── 3. Cache niveau titre ────────────────────────────────────
     for titre_candidat in extraction.get("titres_possibles", []):
         if str(titre_candidat).startswith("?"):
             continue
@@ -688,7 +685,7 @@ async def process_analysis(
     candidates = []
     result     = None
 
-    # ── 5. Recherche via acteurs ─────────────────────────────────
+    # ── 4. Recherche via acteurs ─────────────────────────────────
     actor_candidates = await build_candidates_from_actors(
         extraction, lang=transcript_lang or browser_lang or lang
     )
@@ -710,7 +707,7 @@ async def process_analysis(
                 flush=True
             )
 
-    # ── 6. Fallback : cascade TMDB multi-langue ──────────────────
+    # ── 5. Fallback : cascade TMDB multi-langue ──────────────────
     if not result:
         candidates = await run_cascade_search(
             extraction,
@@ -727,11 +724,7 @@ async def process_analysis(
                     "media_type":     candidates[0].get("media_type", "movie"),
                 }
 
-    # ── 6b. Wikidata fallback ─────────────────────────────────────
-    # Priorité sur DDG : Wikidata indexe nativement kanji/hangeul,
-    # retourne directement des TMDB IDs → plus rapide et plus précis
-    # que scraper des snippets web pour les contenus asiatiques.
-    # Aussi déclenché si score < 40 + langue non-latine détectée.
+    # ── 5b. Wikidata fallback ─────────────────────────────────────
     current_score = result.get("score", 0) if result else 0
     if should_trigger_wikidata(current_score, extraction, ocr_text or ""):
         print("🌐 Déclenchement Wikidata fallback...", flush=True)
@@ -742,8 +735,7 @@ async def process_analysis(
         )
         if wd_candidates:
             print(f"🌐 Wikidata → {len(wd_candidates)} candidats TMDB", flush=True)
-            existing_ids = {c.get("id") for c in candidates if c.get("id")}
-            merged_wd    = wd_candidates + [
+            merged_wd = wd_candidates + [
                 c for c in candidates if c.get("id") not in {w.get("id") for w in wd_candidates}
             ]
             wd_result = await rerank(extraction, merged_wd)
@@ -760,9 +752,7 @@ async def process_analysis(
                 candidates    = merged_wd
                 current_score = wd_result.get("score", 0)
 
-    # ── 6c. Web search fallback (DDG) ────────────────────────────
-    # Déclenché si score encore insuffisant après Wikidata,
-    # ou candidats vides, ou CJK très obscur sans TMDB ID sur Wikidata.
+    # ── 5c. Web search fallback ───────────────────────────────────
     if should_trigger_web_fallback(current_score, candidates, extraction, ocr_text or ""):
         print("🌐 Déclenchement web search fallback...", flush=True)
         web_candidates = await web_search_fallback(
@@ -772,7 +762,6 @@ async def process_analysis(
         )
         if web_candidates:
             print(f"🌐 Web search → {len(web_candidates)} candidats TMDB supplémentaires", flush=True)
-            existing_ids      = {c.get("id") for c in candidates if c.get("id")}
             merged_candidates = web_candidates + [
                 c for c in candidates if c.get("id") not in {w.get("id") for w in web_candidates}
             ]
@@ -789,7 +778,7 @@ async def process_analysis(
                 result     = web_result
                 candidates = merged_candidates
 
-    # ── Aucun résultat même après tous les fallbacks ──────────────
+    # ── Aucun résultat ────────────────────────────────────────────
     if not candidates and not result:
         titres    = extraction.get("titres_possibles", [])
         titre     = str(titres[0]).lstrip("?") if titres else ""
@@ -811,7 +800,7 @@ async def process_analysis(
             "media_type":     candidates[0].get("media_type", "movie"),
         }
 
-    # ── 7. Score de confiance ────────────────────────────────────
+    # ── 6. Score de confiance ────────────────────────────────────
     confidence = result.get("score", 0)
 
     if confidence >= 30 and result.get("id"):
@@ -833,7 +822,7 @@ async def process_analysis(
         set_cache(url, low_conf, transcript=transcript or "", ocr_text=ocr_text or "")
         return low_conf
 
-    # ── 8. Détails TMDB ──────────────────────────────────────────
+    # ── 7. Détails TMDB ──────────────────────────────────────────
     movie_id       = result["id"]
     effective_type = result.get("media_type", "movie")
 
@@ -933,7 +922,6 @@ async def process_analysis(
         set_cache(url, final, transcript=transcript or "", ocr_text=ocr_text or "")
 
     return final
-
 # ════════════════════════════════════════════════════════════════
 # ROUTES PUBLIQUES
 # ════════════════════════════════════════════════════════════════
