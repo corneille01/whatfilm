@@ -103,6 +103,22 @@ RÈGLES STRICTES
    - JAMAIS inventer un titre inexistant
    - Si rien de certain, laisser []
 
+   SÉRIES ANTHOLOGIQUES — RÈGLE CRITIQUE :
+   Si tu identifies un épisode d'une série anthologique, mets TOUJOURS le titre
+   de la SÉRIE en premier dans titres_possibles (sans "?"), puis le titre de
+   l'épisode avec "?". TMDB n'indexe pas les épisodes individuellement.
+   Séries anthologiques connues : Love Death + Robots, Black Mirror, Electric Dreams,
+   Tales from the Loop, Amazing Stories, The Twilight Zone, Inside No. 9,
+   Midnight Mass, Cabinet of Curiosities, Guillermo del Toro's Cabinet of Curiosities,
+   Room 104, Creepshow, Shudder anthology series.
+   Exemples :
+   → Tu reconnais "Automated Customer Service" (Love Death & Robots S3E1) :
+     titres_possibles = ["Love, Death & Robots", "?Automated Customer Service"]
+   → Tu reconnais "San Junipero" (Black Mirror S3E4) :
+     titres_possibles = ["Black Mirror", "?San Junipero"]
+   → Tu reconnais un épisode de Twilight Zone :
+     titres_possibles = ["The Twilight Zone", "?<titre épisode>"]
+
 2. "acteurs" : Format "Prénom Nom". Uniquement si reconnu sur une image OU cité explicitement.
 
 3. "personnages" : noms de personnages vus à l'écran ou cités dans les dialogues/commentaires.

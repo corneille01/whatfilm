@@ -10,20 +10,15 @@ Fonctions principales :
   - build_cascade_queries        : génère les requêtes par ordre de précision
   - run_cascade_search           : exécute la cascade avec stratégie multi-langue
   - build_candidates_from_actors : candidats via crédits acteurs TMDB
-
-Fixes v4 :
-  - build_candidates_from_actors : credits[:30] au lieu de [:15]
-    → évite de rater des séries TV moins populaires (ex: The Shield)
-  - build_candidates_from_actors : filtre genre/année désactivé pour les
-    genres génériques (film-action, drame…) qui excluent les séries TV
-  - _GENERIC_GENRES : liste des genres trop larges pour filtrer
-  - Pas d'autres changements vs v3
 """
 
 import re
 import asyncio
 
-from data.tmdb import search_person, get_person_credits, search_multi_lang
+from data.tmdb import (
+    search_person, get_person_credits, search_multi_lang,
+    search_episode_parent_series,
+)
 
 
 # ════════════════════════════════════════════════════════════════
@@ -31,7 +26,6 @@ from data.tmdb import search_person, get_person_credits, search_multi_lang
 # ════════════════════════════════════════════════════════════════
 
 _FR_TO_EN_VISUAL: dict[str, str] = {
-    # Tenues / costumes
     "robe de moine":                    "monk robe",
     "robe moine":                       "monk robe",
     "robe de chambre":                  "bathrobe",
@@ -44,7 +38,6 @@ _FR_TO_EN_VISUAL: dict[str, str] = {
     "armure":                           "armor",
     "cape":                             "cape",
     "masque":                           "mask",
-    # Lieux / décors
     "jardin japonais":                  "japanese garden",
     "temple japonais":                  "japanese temple",
     "château japonais":                 "japanese castle",
@@ -61,7 +54,6 @@ _FR_TO_EN_VISUAL: dict[str, str] = {
     "arène":                            "arena",
     "temple":                           "temple",
     "pagode":                           "pagoda",
-    # Objets / accessoires
     "flèche":                           "arrow",
     "arc":                              "bow",
     "épée":                             "sword",
@@ -81,7 +73,6 @@ _FR_TO_EN_VISUAL: dict[str, str] = {
     "bague":                            "ring",
     "collier":                          "necklace",
     "carte":                            "map",
-    # Personnages / archétypes
     "samouraï":                         "samurai",
     "ninja":                            "ninja",
     "moine":                            "monk",
@@ -95,7 +86,6 @@ _FR_TO_EN_VISUAL: dict[str, str] = {
     "alien":                            "alien",
     "robot":                            "robot",
     "dragon":                           "dragon",
-    # Actions / concepts visuels
     "arts martiaux":                    "martial arts",
     "combat":                           "fight",
     "magie":                            "magic",
@@ -105,7 +95,6 @@ _FR_TO_EN_VISUAL: dict[str, str] = {
     "enquêteur":                        "detective",
     "fantaisie":                        "fantasy",
     "science-fiction":                  "science fiction",
-    # Éléments narratifs / descriptifs
     "crâne rasé":                       "shaved head",
     "tête rasée":                       "shaved head",
     "homme crâne rasé":                 "shaved head man",
@@ -160,8 +149,6 @@ _JP_SIGNAL_TERMS = {
     "robe de moine",
 }
 
-# Genres trop génériques pour filtrer les candidats acteurs :
-# ils excluent les séries TV et les films de genres voisins.
 _GENERIC_GENRES = {
     "film-action", "film-drame", "film-thriller", "film-romance",
     "film-comédie", "action", "drame", "thriller", "romance", "comédie",
@@ -212,6 +199,47 @@ def _get_jp_terms(all_clues: list, description: str, indices: list) -> list[str]
 
 
 # ════════════════════════════════════════════════════════════════
+# RÉSOLUTION DYNAMIQUE ÉPISODE → SÉRIE PARENTE
+# ════════════════════════════════════════════════════════════════
+
+async def _resolve_episode_to_series(
+    titres_incertains_precis: list,
+    lang: str = "en",
+) -> list[str]:
+    """
+    Pour chaque titre incertain précis de 2+ mots, tente de trouver
+    la série parente via TMDB search_episode_parent_series.
+
+    Pas de dictionnaire statique — couvre toutes les séries TMDB
+    dans toutes les langues, y compris les nouvelles sorties.
+
+    Retourne une liste de noms de séries parentes confirmées.
+    """
+    series_found: list[str] = []
+    seen: set[str] = set()
+
+    for titre in titres_incertains_precis[:2]:
+        if len(titre.split()) < 2:
+            continue  # titre d'un seul mot → probablement pas un épisode
+        try:
+            candidates = await search_episode_parent_series(titre, lang)
+            for c in candidates:
+                if c.get("_episode_match") and c.get("name"):
+                    serie_name = c["name"]
+                    if serie_name not in seen:
+                        seen.add(serie_name)
+                        series_found.append(serie_name)
+                        print(
+                            f"📺 Résolution dynamique: '{titre}' → '{serie_name}'",
+                            flush=True
+                        )
+        except Exception as e:
+            print(f"⚠️ _resolve_episode_to_series: {e}", flush=True)
+
+    return series_found
+
+
+# ════════════════════════════════════════════════════════════════
 # BUILD CASCADE QUERIES
 # ════════════════════════════════════════════════════════════════
 
@@ -219,21 +247,23 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
     """
     Génère une liste de requêtes par ordre de précision décroissante.
 
-      - Niveau 1   : titres certains
-      - Niveau 1b  : titres incertains mais précis (ex: "?Love, Death & Robots")
-      - Niveau 2   : acteurs connus
-      - Niveau 3   : personnages
-      - Niveau 4   : combinaisons indices_visuels + objets (FR + EN)
-      - Niveau 5   : mots-clés description_courte (FR)
-      - Niveau 5b  : termes EN extraits de description_courte
-      - Niveau 5c  : termes JP si contenu japonais détecté
-      - Niveau 6   : titres incertains vagues (descriptions)
-      - Niveau 7   : spécifiques au type de média (anime, documentaire)
-      - Niveau 8   : indices seuls (dernier recours)
+      - Niveau 1    : titres certains
+      - Niveau 1b   : titres incertains précis (ex: "?Love, Death & Robots")
+      - Niveau 1b+  : résolution dynamique épisode → série parente (TMDB)
+      - Niveau 1c   : titres incertains précis + "series/episode"
+      - Niveau 2    : acteurs connus
+      - Niveau 3    : personnages
+      - Niveau 4    : combinaisons indices_visuels + objets (FR + EN)
+      - Niveau 5    : mots-clés description_courte (FR)
+      - Niveau 5b   : termes EN extraits de description_courte
+      - Niveau 5c   : termes JP si contenu japonais détecté
+      - Niveau 6    : titres incertains vagues
+      - Niveau 7    : spécifiques au type de média (anime, documentaire)
+      - Niveau 8    : indices seuls (dernier recours)
     """
     titres_certains          = []
-    titres_incertains_precis = []   # titres ? qui ressemblent à de vrais titres
-    titres_incertains        = []   # titres ? vagues (descriptions)
+    titres_incertains_precis = []
+    titres_incertains        = []
 
     for t in extraction.get("titres_possibles", []):
         t = str(t).strip()
@@ -243,20 +273,14 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
             titre_clean = t[1:].strip()
             if not titre_clean:
                 continue
-            # Titre précis = majuscule interne, ponctuation spéciale, chiffre,
-            # ou plusieurs mots dont au moins un commence par une majuscule
             is_precise = (
-                re.search(r'(?<=[a-z])[A-Z]', titre_clean)        # camelCase interne
-                or re.search(r'[,&:\d\-]', titre_clean)            # ponctuation/chiffre
+                re.search(r'(?<=[a-z])[A-Z]', titre_clean)
+                or re.search(r'[,&:\d\-]', titre_clean)
                 or (
                     len(titre_clean.split()) >= 2
-                    and any(
-                        w[0].isupper()
-                        for w in titre_clean.split()[1:]
-                        if w
-                    )
+                    and any(w[0].isupper() for w in titre_clean.split()[1:] if w)
                 )
-                or len(titre_clean.split()) == 1 and titre_clean[0].isupper()
+                or (len(titre_clean.split()) == 1 and titre_clean[0].isupper())
             )
             if is_precise:
                 titres_incertains_precis.append(titre_clean)
@@ -275,7 +299,7 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
 
     genre_en = genre.replace("film-", "").replace("série", "series").strip()
 
-    queries = []
+    queries: list[str] = []
 
     # ── Niveau 1 : titres certains ───────────────────────────────
     for titre in titres_certains:
@@ -286,8 +310,6 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
             queries.append(f"{titre} {annee}")
 
     # ── Niveau 1b : titres incertains précis ─────────────────────
-    # Ex: "?Love, Death & Robots", "?Automated Customer Service"
-    # Cherchés AVANT les indices visuels car très probablement corrects.
     for titre in titres_incertains_precis:
         queries.append(titre)
         if annee:
@@ -295,11 +317,21 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
         if acteurs:
             queries.append(f"{titre} {acteurs[0]}")
 
-    # ── Niveau 1c : titres incertains précis + "series" ──────────
-    # Pour les titres qui ressemblent à des épisodes de série anthologique
-    # (Love Death Robots, Black Mirror, etc.) → chercher aussi la série
+    # ── Niveau 1b+ : résolution dynamique épisode → série parente ─
+    # Déclenché uniquement si des titres incertains précis de 2+ mots existent.
+    # Pas de dictionnaire statique : TMDB cherche dynamiquement.
+    # Coût : 1 appel /search/tv + max 3×5 appels /season (si épisode trouvé).
+    # Déclenchement conditionnel pour éviter les appels inutiles sur les films.
+    titres_multi_mots = [t for t in titres_incertains_precis if len(t.split()) >= 2]
+    if titres_multi_mots:
+        series_parentes = await _resolve_episode_to_series(titres_multi_mots, lang="en")
+        for serie in series_parentes:
+            if serie not in queries:
+                queries.insert(0, serie)  # priorité maximale → première requête
+
+    # ── Niveau 1c : titres incertains précis + "series/episode" ──
     for titre in titres_incertains_precis:
-        if len(titre.split()) >= 3:  # titre d'épisode souvent long
+        if len(titre.split()) >= 3:
             queries.append(f"{titre} series")
             queries.append(f"{titre} episode")
 
@@ -317,7 +349,7 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
     # ── Niveau 4 : combinaisons indices + objets (FR + EN) ───────
     all_clues = [o for o in objets if o] + [i for i in indices if i]
 
-    all_clues_en = []
+    all_clues_en: list[str] = []
     seen_en_clues: set[str] = set()
     for c in all_clues:
         translated = _translate_clue(c)
@@ -421,8 +453,8 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
             queries.append(clue)
 
     # ── Dédoublonnage ────────────────────────────────────────────
-    seen   = set()
-    result = []
+    seen:   set  = set()
+    result: list = []
     for q in queries:
         q = q.strip()
         if q and q not in seen and len(q) > 2:
@@ -431,6 +463,8 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
 
     print(f"🔍 Requêtes cascade ({len(result)}): {result[:6]}", flush=True)
     return result
+
+
 # ════════════════════════════════════════════════════════════════
 # RUN CASCADE SEARCH
 # ════════════════════════════════════════════════════════════════
@@ -511,7 +545,7 @@ async def run_cascade_search(
             print(f"⚡ Early stop : titre certain '{query}' trouvé", flush=True)
             break
 
-        if query in titres_precis and len(candidates) >= 5:
+        if query in titres_precis and len(candidates) >= 2:
             print(f"⚡ Early stop : titre précis '{query}' trouvé", flush=True)
             break
 
@@ -522,6 +556,7 @@ async def run_cascade_search(
     )
     return candidates[:max_candidates]
 
+
 # ════════════════════════════════════════════════════════════════
 # BUILD CANDIDATES FROM ACTORS
 # ════════════════════════════════════════════════════════════════
@@ -530,14 +565,6 @@ async def build_candidates_from_actors(
     extraction: dict,
     lang: str = "fr",
 ) -> list:
-    """
-    Construit des candidats TMDB à partir des acteurs reconnus.
-
-    Fix v4 :
-    - credits[:30] au lieu de [:15] → évite de rater les séries moins populaires
-    - filtre genre/année désactivé pour les genres génériques (_GENERIC_GENRES)
-      → un genre comme "film-action" ne doit pas exclure The Shield (série)
-    """
     acteurs = extraction.get("acteurs", []) or []
     if not acteurs:
         return []
@@ -583,9 +610,6 @@ async def build_candidates_from_actors(
     seen_ids: set  = set()
     merged:   list = []
     for credits in all_credits:
-        # Fix v4 : passer les 30 premiers crédits au lieu de 15
-        # Les séries TV ont souvent une popularité plus faible que les films
-        # et tombaient hors du top 15 (ex: The Shield de Michael Jai White)
         for c in credits[:30]:
             if c["id"] not in seen_ids:
                 seen_ids.add(c["id"])
@@ -596,9 +620,6 @@ async def build_candidates_from_actors(
     genre = (extraction.get("genre_apparent") or "").lower()
     annee = str(extraction.get("annee_estimee") or "")
 
-    # Fix v4 : ne pas filtrer si le genre est trop générique.
-    # "film-action" exclut les séries ; "film-horreur" ou "anime" sont assez
-    # spécifiques pour filtrer sans risque.
     genre_is_generic = genre in _GENERIC_GENRES or not genre
     if (genre or annee) and not genre_is_generic:
         filtered = _filter_by_genre_year(merged, genre, annee)
@@ -628,20 +649,16 @@ async def build_candidates_from_actors(
 # ════════════════════════════════════════════════════════════════
 
 _STOPWORDS = {
-    # Français
     "dans", "avec", "pour", "qui", "que", "les", "des", "une", "est",
     "sont", "cette", "leur", "plus", "tout", "mais", "dont", "elle",
     "lui", "ils", "elles", "nous", "vous", "très", "bien", "même",
     "aussi", "comme", "quand", "alors", "après", "avant", "jusqu",
     "entre", "contre", "sans", "sous", "sur", "par", "depuis",
-    # Anglais
     "when", "what", "that", "this", "with", "from", "have", "they",
     "which", "been", "were", "their", "there", "about", "would",
     "could", "should", "other", "into", "than", "then", "some",
-    # Espagnol / Allemand / Portugais
     "sehr", "wird", "eine", "auch", "oder", "para", "esto", "como",
     "donde", "tiene", "pero", "porque", "uma", "isso", "este",
-    # Mots trop génériques pour une recherche film
     "film", "scene", "scène", "vidéo", "video", "homme", "femme",
     "jeune", "vieux", "grand", "petit", "faire", "aller", "venir",
     "voir", "dire", "avoir", "être",
@@ -702,7 +719,6 @@ def _filter_by_genre_year(
     genre: str,
     annee: str,
 ) -> list:
-    """Filtre les candidats par genre TMDB et/ou année (±3 ans de tolérance)."""
     genre_id  = _GENRE_TMDB_IDS.get(genre)
     annee_int = int(annee) if annee and annee.isdigit() else None
     result    = []

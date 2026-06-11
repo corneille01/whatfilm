@@ -1,13 +1,5 @@
 """
 data/tmdb.py — Client TMDB avec stratégie multi-langue intelligente.
-
-Stratégie de recherche par langue :
-  1. Langue de la transcription  (langue du film lui-même)
-  2. Langue du navigateur        (langue de l'utilisateur pour les titres localisés)
-  3. Anglais                     (fallback universel TMDB)
-  → Les doublons sont filtrés, les résultats fusionnés par popularité.
-
-Langues supportées : tous les codes ISO 639-1 reconnus par TMDB.
 """
 
 import os
@@ -21,103 +13,39 @@ _genre_cache: dict = {}
 
 # ════════════════════════════════════════════════════════════════
 # LANGUES TMDB
-# Tous les codes ISO 639-1 supportés par TMDB.
-# Source : https://developer.themoviedb.org/docs/languages
 # ════════════════════════════════════════════════════════════════
 
-# Mapping code court → locale TMDB complète (xx-XX)
-# Utilisé pour les appels "language=" qui influencent les titres retournés.
 _LANG_TO_LOCALE: dict[str, str] = {
-    "af": "af-ZA",  # Afrikaans
-    "ar": "ar-AE",  # Arabe
-    "be": "be-BY",  # Biélorusse
-    "bg": "bg-BG",  # Bulgare
-    "bn": "bn-BD",  # Bengali
-    "ca": "ca-ES",  # Catalan
-    "cs": "cs-CZ",  # Tchèque
-    "cy": "cy-GB",  # Gallois
-    "da": "da-DK",  # Danois
-    "de": "de-DE",  # Allemand
-    "el": "el-GR",  # Grec
-    "en": "en-US",  # Anglais
-    "eo": "eo-EO",  # Espéranto
-    "es": "es-ES",  # Espagnol
-    "et": "et-EE",  # Estonien
-    "eu": "eu-ES",  # Basque
-    "fa": "fa-IR",  # Persan
-    "fi": "fi-FI",  # Finnois
-    "fr": "fr-FR",  # Français
-    "ga": "ga-IE",  # Irlandais
-    "gl": "gl-ES",  # Galicien
-    "gu": "gu-IN",  # Gujarati
-    "he": "he-IL",  # Hébreu
-    "hi": "hi-IN",  # Hindi
-    "hr": "hr-HR",  # Croate
-    "hu": "hu-HU",  # Hongrois
-    "hy": "hy-AM",  # Arménien
-    "id": "id-ID",  # Indonésien
-    "is": "is-IS",  # Islandais
-    "it": "it-IT",  # Italien
-    "ja": "ja-JP",  # Japonais
-    "ka": "ka-GE",  # Géorgien
-    "kk": "kk-KZ",  # Kazakh
-    "kn": "kn-IN",  # Kannada
-    "ko": "ko-KR",  # Coréen
-    "lt": "lt-LT",  # Lituanien
-    "lv": "lv-LV",  # Letton
-    "mk": "mk-MK",  # Macédonien
-    "ml": "ml-IN",  # Malayalam
-    "mr": "mr-IN",  # Marathi
-    "ms": "ms-MY",  # Malais
-    "mt": "mt-MT",  # Maltais
-    "nb": "nb-NO",  # Norvégien Bokmål
-    "nl": "nl-NL",  # Néerlandais
-    "no": "nb-NO",  # Norvégien (alias)
-    "pa": "pa-IN",  # Pendjabi
-    "pl": "pl-PL",  # Polonais
-    "pt": "pt-PT",  # Portugais
-    "pt-br": "pt-BR",  # Portugais brésilien
-    "ro": "ro-RO",  # Roumain
-    "ru": "ru-RU",  # Russe
-    "sk": "sk-SK",  # Slovaque
-    "sl": "sl-SI",  # Slovène
-    "sq": "sq-AL",  # Albanais
-    "sr": "sr-RS",  # Serbe
-    "sv": "sv-SE",  # Suédois
-    "sw": "sw-KE",  # Swahili
-    "ta": "ta-IN",  # Tamoul
-    "te": "te-IN",  # Télougou
-    "th": "th-TH",  # Thaï
-    "tl": "tl-PH",  # Filipino
-    "tr": "tr-TR",  # Turc
-    "uk": "uk-UA",  # Ukrainien
-    "ur": "ur-PK",  # Ourdou
-    "uz": "uz-UZ",  # Ouzbek
-    "vi": "vi-VN",  # Vietnamien
-    "zh": "zh-CN",  # Chinois simplifié
-    "zh-tw": "zh-TW",  # Chinois traditionnel
-    "zu": "zu-ZA",  # Zoulou
+    "af": "af-ZA", "ar": "ar-AE", "be": "be-BY", "bg": "bg-BG",
+    "bn": "bn-BD", "ca": "ca-ES", "cs": "cs-CZ", "cy": "cy-GB",
+    "da": "da-DK", "de": "de-DE", "el": "el-GR", "en": "en-US",
+    "eo": "eo-EO", "es": "es-ES", "et": "et-EE", "eu": "eu-ES",
+    "fa": "fa-IR", "fi": "fi-FI", "fr": "fr-FR", "ga": "ga-IE",
+    "gl": "gl-ES", "gu": "gu-IN", "he": "he-IL", "hi": "hi-IN",
+    "hr": "hr-HR", "hu": "hu-HU", "hy": "hy-AM", "id": "id-ID",
+    "is": "is-IS", "it": "it-IT", "ja": "ja-JP", "ka": "ka-GE",
+    "kk": "kk-KZ", "kn": "kn-IN", "ko": "ko-KR", "lt": "lt-LT",
+    "lv": "lv-LV", "mk": "mk-MK", "ml": "ml-IN", "mr": "mr-IN",
+    "ms": "ms-MY", "mt": "mt-MT", "nb": "nb-NO", "nl": "nl-NL",
+    "no": "nb-NO", "pa": "pa-IN", "pl": "pl-PL", "pt": "pt-PT",
+    "pt-br": "pt-BR", "ro": "ro-RO", "ru": "ru-RU", "sk": "sk-SK",
+    "sl": "sl-SI", "sq": "sq-AL", "sr": "sr-RS", "sv": "sv-SE",
+    "sw": "sw-KE", "ta": "ta-IN", "te": "te-IN", "th": "th-TH",
+    "tl": "tl-PH", "tr": "tr-TR", "uk": "uk-UA", "ur": "ur-PK",
+    "uz": "uz-UZ", "vi": "vi-VN", "zh": "zh-CN", "zh-tw": "zh-TW",
+    "zu": "zu-ZA",
 }
 
-# Langues dont les films ont souvent des titres originaux non traduits dans d'autres langues.
-# Pour ces langues, on cherche TOUJOURS en original + anglais même si la langue nav correspond.
 _ORIGINAL_LANG_PRIORITY = {"ja", "ko", "zh", "ar", "hi", "th", "ru", "he", "fa", "tr"}
-
 FALLBACK_LOCALE = "en-US"
 
 
 def _to_locale(lang_code: str) -> str:
-    """
-    Convertit un code langue ISO 639-1 (éventuellement avec région) en locale TMDB.
-    Exemples : "fr" → "fr-FR", "pt-BR" → "pt-BR", "zh-tw" → "zh-TW", "xyz" → "en-US"
-    """
     if not lang_code:
         return FALLBACK_LOCALE
     code = lang_code.lower().strip()
-    # Cas exact
     if code in _LANG_TO_LOCALE:
         return _LANG_TO_LOCALE[code]
-    # Cas avec région (ex: "fr-be" → essayer "fr")
     base = code.split("-")[0]
     if base in _LANG_TO_LOCALE:
         return _LANG_TO_LOCALE[base]
@@ -128,19 +56,6 @@ def _build_lang_priority(
     transcript_lang: str | None,
     browser_lang: str | None,
 ) -> list[str]:
-    """
-    Construit la liste ordonnée de locales TMDB à interroger.
-
-    Règles :
-      1. Langue de la transcription (langue du film)  → toujours en premier
-      2. Langue du navigateur (affichage utilisateur) → si différente de 1
-      3. Anglais                                      → toujours en dernier (fallback)
-
-    Si la langue originale fait partie de _ORIGINAL_LANG_PRIORITY (ja, ko, zh...),
-    on ajoute aussi zh-TW ou ja-JP selon le cas pour couvrir les variantes.
-
-    Résultat : liste de locales sans doublons, max 4 éléments.
-    """
     locales: list[str] = []
 
     def _add(lang: str | None) -> None:
@@ -150,20 +65,15 @@ def _build_lang_priority(
         if locale not in locales:
             locales.append(locale)
 
-    # 1. Transcription
     _add(transcript_lang)
 
-    # Variantes pour langues à priorité originale
     t = (transcript_lang or "").lower().split("-")[0]
     if t == "zh":
-        _add("zh-TW")  # couvrir les deux formes
+        _add("zh-TW")
     elif t == "pt":
         _add("pt-BR")
 
-    # 2. Navigateur
     _add(browser_lang)
-
-    # 3. Anglais (toujours)
     _add("en")
 
     return locales
@@ -174,13 +84,12 @@ def _build_lang_priority(
 # ════════════════════════════════════════════════════════════════
 
 async def _search_movies(query: str, locale: str) -> list:
-    """Recherche films TMDB dans une locale donnée."""
     url = f"{BASE_URL}/search/movie"
     params = {
-        "api_key": API_KEY,
-        "query": query,
-        "language": locale,
-        "page": 1,
+        "api_key":       API_KEY,
+        "query":         query,
+        "language":      locale,
+        "page":          1,
         "include_adult": False,
     }
     try:
@@ -188,7 +97,6 @@ async def _search_movies(query: str, locale: str) -> list:
             resp = await client.get(url, params=params, timeout=10)
             resp.raise_for_status()
             results = resp.json().get("results", [])
-            # Injecter media_type et locale source pour traçabilité
             for r in results:
                 r.setdefault("media_type", "movie")
                 r["_search_locale"] = locale
@@ -199,13 +107,12 @@ async def _search_movies(query: str, locale: str) -> list:
 
 
 async def _search_tv(query: str, locale: str) -> list:
-    """Recherche séries TV TMDB dans une locale donnée."""
     url = f"{BASE_URL}/search/tv"
     params = {
-        "api_key": API_KEY,
-        "query": query,
-        "language": locale,
-        "page": 1,
+        "api_key":       API_KEY,
+        "query":         query,
+        "language":      locale,
+        "page":          1,
         "include_adult": False,
     }
     try:
@@ -223,6 +130,108 @@ async def _search_tv(query: str, locale: str) -> list:
 
 
 # ════════════════════════════════════════════════════════════════
+# RECHERCHE ÉPISODE → SÉRIE PARENTE
+# ════════════════════════════════════════════════════════════════
+
+def _similarity(a: str, b: str) -> float:
+    """Similarité simple entre deux chaînes (ratio de caractères communs)."""
+    if not a or not b:
+        return 0.0
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    matches = sum(1 for c in shorter if c in longer)
+    return matches / len(longer)
+
+
+async def search_episode_parent_series(
+    episode_title: str,
+    lang: str = "en",
+) -> list[dict]:
+    """
+    Cherche la série parente d'un titre d'épisode via TMDB.
+
+    Stratégie :
+      1. Recherche directe /search/tv avec le titre d'épisode
+         → TMDB remonte souvent la série même avec un nom d'épisode célèbre
+      2. Pour les 3 premières séries candidates, vérifie si un épisode matche
+         en parcourant les saisons (max 5 saisons par série)
+
+    Retourne les candidats triés : séries avec épisode matchant en premier.
+    """
+    results: list[dict] = []
+    seen_ids: set = set()
+
+    # ── Étape 1 : recherche directe comme série TV ────────────────
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"{BASE_URL}/search/tv",
+                params={
+                    "api_key":       API_KEY,
+                    "query":         episode_title,
+                    "language":      lang,
+                    "include_adult": False,
+                },
+            )
+            resp.raise_for_status()
+            for item in resp.json().get("results", [])[:5]:
+                item_id = item.get("id")
+                if item_id and item_id not in seen_ids:
+                    seen_ids.add(item_id)
+                    item["media_type"] = "tv"
+                    results.append(item)
+    except Exception as e:
+        print(f"⚠️ search_episode_parent_series step1: {e}", flush=True)
+
+    # ── Étape 2 : vérification épisodes ──────────────────────────
+    episode_title_norm = episode_title.lower().strip()
+
+    for series in results[:3]:
+        series_id  = series.get("id")
+        nb_seasons = series.get("number_of_seasons") or 1
+        found      = False
+
+        for season_num in range(1, min(nb_seasons + 1, 6)):
+            if found:
+                break
+            try:
+                async with httpx.AsyncClient(timeout=8) as client:
+                    resp = await client.get(
+                        f"{BASE_URL}/tv/{series_id}/season/{season_num}",
+                        params={"api_key": API_KEY, "language": lang},
+                    )
+                    if resp.status_code != 200:
+                        continue
+                    for ep in resp.json().get("episodes", []):
+                        ep_name = (ep.get("name") or "").lower().strip()
+                        if (
+                            episode_title_norm in ep_name
+                            or ep_name in episode_title_norm
+                            or _similarity(episode_title_norm, ep_name) > 0.8
+                        ):
+                            print(
+                                f"📺 Épisode trouvé: '{ep.get('name')}' "
+                                f"→ série '{series.get('name')}' "
+                                f"S{season_num}E{ep.get('episode_number')}",
+                                flush=True
+                            )
+                            found                    = True
+                            series["_episode_match"] = True
+                            series["_episode_name"]  = ep.get("name")
+                            series["popularity"]     = (
+                                series.get("popularity") or 0
+                            ) + 100
+                            break
+            except Exception:
+                continue
+
+    results.sort(
+        key=lambda x: (x.get("_episode_match", False), x.get("popularity", 0)),
+        reverse=True,
+    )
+    return results[:5]
+
+
+# ════════════════════════════════════════════════════════════════
 # RECHERCHE MULTI-LANGUE (POINT D'ENTRÉE PRINCIPAL)
 # ════════════════════════════════════════════════════════════════
 
@@ -232,20 +241,6 @@ async def search_multi_lang(
     browser_lang: str | None = None,
     include_tv: bool = True,
 ) -> list:
-    """
-    Recherche TMDB multi-langue intelligente.
-
-    Args:
-        query:           Requête de recherche.
-        transcript_lang: Code ISO 639-1 de la langue de la transcription
-                         (ex: "fr", "ja", "ko"). Priorité maximale.
-        browser_lang:    Code ISO 639-1 de la langue du navigateur de l'utilisateur
-                         (ex: "fr", "de", "ar"). Priorité secondaire.
-        include_tv:      Inclure les séries TV dans les résultats.
-
-    Returns:
-        Liste fusionnée, dédoublonnée, triée par popularité. Max 20 items.
-    """
     locales = _build_lang_priority(transcript_lang, browser_lang)
     print(
         f"🌍 TMDB multi-lang '{query}' — "
@@ -254,15 +249,12 @@ async def search_multi_lang(
         flush=True
     )
 
-    # Lancer toutes les requêtes en parallèle
     tasks = [_search_movies(query, loc) for loc in locales]
     if include_tv:
         tasks += [_search_tv(query, loc) for loc in locales]
 
     batches = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Fusion et dédoublonnage par id TMDB
-    # On garde le premier résultat rencontré (priorité = ordre des locales)
     seen_ids: set = set()
     merged:   list = []
 
@@ -275,7 +267,6 @@ async def search_multi_lang(
                 seen_ids.add(item_id)
                 merged.append(item)
 
-    # Trier par popularité décroissante
     merged.sort(key=lambda x: x.get("popularity", 0), reverse=True)
 
     print(
@@ -289,21 +280,17 @@ async def search_multi_lang(
 
 # ════════════════════════════════════════════════════════════════
 # COMPATIBILITÉ ASCENDANTE
-# Les fonctions originales restent disponibles pour ne pas casser l'existant.
 # ════════════════════════════════════════════════════════════════
 
 def _tmdb_lang(lang: str) -> str:
-    """Compatibilité : convertit un code court en locale TMDB."""
     return _to_locale(lang)
 
 
 async def search_candidates(query: str, lang: str = "fr") -> list:
-    """Recherche films uniquement (compatibilité ascendante)."""
     return await _search_movies(query, _to_locale(lang))
 
 
 async def search_tv_candidates(query: str, lang: str = "fr") -> list:
-    """Recherche séries TV uniquement (compatibilité ascendante)."""
     return await _search_tv(query, _to_locale(lang))
 
 
@@ -314,8 +301,8 @@ async def search_tv_candidates(query: str, lang: str = "fr") -> list:
 async def get_movie_details(movie_id: int, lang: str = "fr") -> dict:
     url = f"{BASE_URL}/movie/{movie_id}"
     params = {
-        "api_key": API_KEY,
-        "language": _to_locale(lang),
+        "api_key":            API_KEY,
+        "language":           _to_locale(lang),
         "append_to_response": "credits,videos,similar,recommendations,watch/providers",
     }
     async with httpx.AsyncClient() as client:
@@ -327,8 +314,8 @@ async def get_movie_details(movie_id: int, lang: str = "fr") -> dict:
 async def get_tv_details(tv_id: int, lang: str = "fr") -> dict:
     url = f"{BASE_URL}/tv/{tv_id}"
     params = {
-        "api_key": API_KEY,
-        "language": _to_locale(lang),
+        "api_key":            API_KEY,
+        "language":           _to_locale(lang),
         "append_to_response": "credits,videos,similar,recommendations,watch/providers",
     }
     async with httpx.AsyncClient() as client:
@@ -338,7 +325,6 @@ async def get_tv_details(tv_id: int, lang: str = "fr") -> dict:
 
 
 async def get_genre_list(lang: str = "fr") -> list:
-    """Retourne la liste des genres de films (avec cache)."""
     locale = _to_locale(lang)
     if locale in _genre_cache:
         return _genre_cache[locale]
@@ -355,8 +341,8 @@ async def get_genre_list(lang: str = "fr") -> list:
 async def search_person(name: str, lang: str = "fr") -> dict | None:
     url = f"{BASE_URL}/search/person"
     params = {
-        "api_key": API_KEY,
-        "query": name,
+        "api_key":  API_KEY,
+        "query":    name,
         "language": _to_locale(lang),
     }
     async with httpx.AsyncClient() as client:
@@ -369,7 +355,7 @@ async def search_person(name: str, lang: str = "fr") -> dict | None:
 async def get_person_credits(person_id: int, lang: str = "fr") -> list:
     url = f"{BASE_URL}/person/{person_id}/combined_credits"
     params = {
-        "api_key": API_KEY,
+        "api_key":  API_KEY,
         "language": _to_locale(lang),
     }
     async with httpx.AsyncClient() as client:
@@ -389,11 +375,11 @@ async def discover_by_genre(
     endpoint = "discover/movie" if media_type != "tv" else "discover/tv"
     url = f"{BASE_URL}/{endpoint}"
     params = {
-        "api_key": API_KEY,
-        "language": _to_locale(lang),
-        "with_genres": str(genre_id),
-        "page": page,
-        "sort_by": "popularity.desc",
+        "api_key":       API_KEY,
+        "language":      _to_locale(lang),
+        "with_genres":   str(genre_id),
+        "page":          page,
+        "sort_by":       "popularity.desc",
         "include_adult": False,
     }
     async with httpx.AsyncClient() as client:
@@ -411,7 +397,7 @@ async def discover_by_genre(
 async def get_trending(lang: str = "fr", media_type: str = "movie") -> list:
     url = f"{BASE_URL}/trending/{media_type}/week"
     params = {
-        "api_key": API_KEY,
+        "api_key":  API_KEY,
         "language": _to_locale(lang),
     }
     async with httpx.AsyncClient() as client:
@@ -427,7 +413,7 @@ async def get_season_details(
 ) -> dict:
     url = f"{BASE_URL}/tv/{series_id}/season/{season_number}"
     params = {
-        "api_key": API_KEY,
+        "api_key":  API_KEY,
         "language": _to_locale(lang),
     }
     async with httpx.AsyncClient() as client:

@@ -285,6 +285,17 @@ async def _rerank_gemini(extraction: dict, candidates: list) -> dict | None:
             resp = await client.post(
                 f"{GEMINI_URL}?key={GEMINI_API_KEY}",
                 json={
+                    "system_instruction": {
+                        "parts": [{
+                            "text": (
+                                "Tu es un expert en cinéma et séries TV du monde entier. "
+                                "Réponds UNIQUEMENT avec un objet JSON minifié sur une seule ligne. "
+                                "AUCUN texte avant ou après le JSON. AUCUN markdown. "
+                                "Format exact attendu : "
+                                '{"id":123,"meilleur_titre":"Titre","score":75,"raison":"courte"}'
+                            )
+                        }]
+                    },
                     "contents": [
                         {"role": "user", "parts": [{"text": prompt}]}
                     ],
@@ -324,8 +335,6 @@ async def _rerank_gemini(extraction: dict, candidates: list) -> dict | None:
     except Exception as e:
         print(f"⚠️ Rerank Gemini KO: {str(e)[:120]}", flush=True)
         return None
-
-
 # ════════════════════════════════════════════════════════════════
 # POINT D'ENTRÉE PRINCIPAL
 # ════════════════════════════════════════════════════════════════
