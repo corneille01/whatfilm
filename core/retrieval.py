@@ -219,25 +219,49 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
     """
     Génère une liste de requêtes par ordre de précision décroissante.
 
-      - Niveau 1  : titres certains
-      - Niveau 2  : acteurs connus
-      - Niveau 3  : personnages
-      - Niveau 4  : combinaisons indices_visuels + objets (FR + EN)
-      - Niveau 5  : mots-clés description_courte (FR)
-      - Niveau 5b : termes EN extraits de description_courte
-      - Niveau 5c : termes JP si contenu japonais détecté
-      - Niveau 6  : titres incertains (?)
-      - Niveau 7  : spécifiques au type de média (anime, documentaire)
-      - Niveau 8  : indices seuls (dernier recours)
+      - Niveau 1   : titres certains
+      - Niveau 1b  : titres incertains mais précis (ex: "?Love, Death & Robots")
+      - Niveau 2   : acteurs connus
+      - Niveau 3   : personnages
+      - Niveau 4   : combinaisons indices_visuels + objets (FR + EN)
+      - Niveau 5   : mots-clés description_courte (FR)
+      - Niveau 5b  : termes EN extraits de description_courte
+      - Niveau 5c  : termes JP si contenu japonais détecté
+      - Niveau 6   : titres incertains vagues (descriptions)
+      - Niveau 7   : spécifiques au type de média (anime, documentaire)
+      - Niveau 8   : indices seuls (dernier recours)
     """
-    titres_certains   = []
-    titres_incertains = []
+    titres_certains          = []
+    titres_incertains_precis = []   # titres ? qui ressemblent à de vrais titres
+    titres_incertains        = []   # titres ? vagues (descriptions)
+
     for t in extraction.get("titres_possibles", []):
         t = str(t).strip()
         if not t:
             continue
         if t.startswith("?"):
-            titres_incertains.append(t[1:])
+            titre_clean = t[1:].strip()
+            if not titre_clean:
+                continue
+            # Titre précis = majuscule interne, ponctuation spéciale, chiffre,
+            # ou plusieurs mots dont au moins un commence par une majuscule
+            is_precise = (
+                re.search(r'(?<=[a-z])[A-Z]', titre_clean)        # camelCase interne
+                or re.search(r'[,&:\d\-]', titre_clean)            # ponctuation/chiffre
+                or (
+                    len(titre_clean.split()) >= 2
+                    and any(
+                        w[0].isupper()
+                        for w in titre_clean.split()[1:]
+                        if w
+                    )
+                )
+                or len(titre_clean.split()) == 1 and titre_clean[0].isupper()
+            )
+            if is_precise:
+                titres_incertains_precis.append(titre_clean)
+            else:
+                titres_incertains.append(titre_clean)
         else:
             titres_certains.append(t)
 
@@ -260,6 +284,16 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
             queries.append(f"{titre} {acteurs[0]}")
         if annee:
             queries.append(f"{titre} {annee}")
+
+    # ── Niveau 1b : titres incertains précis ─────────────────────
+    # Ex: "?Love, Death & Robots", "?Automated Customer Service"
+    # Cherchés AVANT les indices visuels car très probablement corrects.
+    for titre in titres_incertains_precis:
+        queries.append(titre)
+        if annee:
+            queries.append(f"{titre} {annee}")
+        if acteurs:
+            queries.append(f"{titre} {acteurs[0]}")
 
     # ── Niveau 2 : acteurs ───────────────────────────────────────
     if acteurs:
@@ -348,7 +382,7 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
                 if genre_en:
                     queries.append(f"japanese {genre_en} {annee}".strip())
 
-    # ── Niveau 6 : titres incertains ─────────────────────────────
+    # ── Niveau 6 : titres incertains vagues ──────────────────────
     for titre in titres_incertains:
         queries.append(titre)
         if acteurs:
@@ -356,7 +390,7 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
 
     # ── Niveau 7 : spécifiques au type de média ──────────────────
     if genre in ("anime", "serie-animation", "serie-animée"):
-        for titre in (titres_certains + titres_incertains)[:2]:
+        for titre in (titres_certains + titres_incertains_precis + titres_incertains)[:2]:
             queries.append(f"{titre} anime")
         for perso in personnages[:1]:
             queries.append(f"{perso} anime")
@@ -389,8 +423,6 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
 
     print(f"🔍 Requêtes cascade ({len(result)}): {result[:6]}", flush=True)
     return result
-
-
 # ════════════════════════════════════════════════════════════════
 # RUN CASCADE SEARCH
 # ════════════════════════════════════════════════════════════════

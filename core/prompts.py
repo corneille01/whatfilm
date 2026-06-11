@@ -151,5 +151,5 @@ RÈGLES STRICTES :
 - JAMAIS inventer un candidat qui n'est pas dans la liste.
 - Tu DOIS toujours retourner un id valide parmi les candidats listés. JAMAIS null.
 
-Réponds UNIQUEMENT avec ce JSON valide sur une seule ligne, sans markdown :
-{{"id":<id TMDB>,"meilleur_titre":"<titre exact>","score":<0-100>,"raison":"<explication courte>"}}"""
+Réponds UNIQUEMENT avec ce JSON minifié sur UNE SEULE LIGNE sans espace superflu, sans markdown :
+{{"id":<id>,"meilleur_titre":"<titre>","score":<0-100>,"raison":"<court>"}}"""

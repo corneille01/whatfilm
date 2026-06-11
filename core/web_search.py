@@ -43,7 +43,7 @@ def _has_korean(text: str) -> bool:
 def _extract_cjk(text: str) -> str:
     """Extrait les séquences CJK/japonaises d'un texte (max 8 chars)."""
     cjk_chars = re.findall(r'[一-鿿㐀-䶿\u3400-\u4DBF぀-ゟ゠-ヿ]+', text)
-    return "".join(cjk_chars[:2])[:8]  # max 2 séquences, 8 chars
+    return "".join(cjk_chars[:2])[:8]
 
 
 def _extract_korean(text: str) -> str:
@@ -88,12 +88,33 @@ def build_web_queries(extraction: dict, ocr_text: str = "") -> list[str]:
 
     all_clues = [o for o in objets if o] + [i for i in indices if i]
 
+    # ── Priorité 0 : titres précis (certains ou incertains précis) ─
+    # "Love, Death & Robots" → chercher directement sans passer par les indices
+    for titre in titres_certains[:2]:
+        if not _has_cjk(titre) and not _has_korean(titre):
+            queries.append(f'"{titre}" film site:imdb.com OR site:themoviedb.org')
+        else:
+            queries.append(f"{titre} film")
+
+    for titre in titres_incertains[:2]:
+        # Titres précis = majuscule interne, ponctuation, chiffre, ou multi-mots
+        is_precise = (
+            re.search(r'(?<=[a-z])[A-Z]', titre)
+            or re.search(r'[,&:\d\-]', titre)
+            or (len(titre.split()) >= 2
+                and any(w[0].isupper() for w in titre.split()[1:] if w))
+        )
+        if is_precise:
+            if not _has_cjk(titre) and not _has_korean(titre):
+                queries.append(f'"{titre}" film')
+            else:
+                queries.append(f"{titre} film")
+
     # ── Priorité 1 : CJK dans l'OCR (très discriminant) ─────────
     ocr = (ocr_text or "").strip()
     cjk_from_ocr = ""
     if _has_cjk(ocr):
         cjk_from_ocr = _extract_cjk(ocr)
-    # CJK dans les titres incertains Gemini
     cjk_from_titles = ""
     for t in titres_incertains:
         if _has_cjk(t):
@@ -104,12 +125,11 @@ def build_web_queries(extraction: dict, ocr_text: str = "") -> list[str]:
     if cjk:
         queries.append(f"{cjk} film")
         if all_clues:
-            # Traduction simple des 2 premiers indices en EN pour enrichir
             en_clues = _quick_translate(all_clues[:2])
             if en_clues:
                 queries.append(f"{cjk} {' '.join(en_clues)} movie")
 
-    # Idem pour le coréen
+    # Coréen
     ko = ""
     if _has_korean(ocr):
         ko = _extract_korean(ocr)
@@ -119,27 +139,21 @@ def build_web_queries(extraction: dict, ocr_text: str = "") -> list[str]:
                 ko = _extract_korean(t)
                 break
     if ko:
-        queries.append(f"{ko} 영화")  # "film" en coréen
+        queries.append(f"{ko} 영화")
         queries.append(f"{ko} film")
 
-    # ── Priorité 2 : titres certains Gemini ─────────────────────
-    for titre in titres_certains[:2]:
-        if not _has_cjk(titre) and not _has_korean(titre):
-            queries.append(f'"{titre}" film site:imdb.com OR site:themoviedb.org')
-        else:
-            queries.append(f"{titre} film")
-
-    # ── Priorité 3 : titres incertains + indices EN ───────────────
+    # ── Priorité 2 : titres incertains + indices EN ───────────────
     en_clues_all = _quick_translate(all_clues[:3])
     for titre in titres_incertains[:1]:
-        if en_clues_all:
-            queries.append(f"{titre} {' '.join(en_clues_all[:2])} movie")
-        else:
-            queries.append(f"{titre} movie")
+        if not re.search(r'(?<=[a-z])[A-Z]|[,&:\d\-]', titre):
+            # Titre vague → enrichir avec les indices
+            if en_clues_all:
+                queries.append(f"{titre} {' '.join(en_clues_all[:2])} movie")
+            else:
+                queries.append(f"{titre} movie")
 
-    # ── Priorité 4 : indices visuels en EN + "japanese/korean/asian film" ──
+    # ── Priorité 3 : indices visuels EN + contexte asiatique ──────
     if en_clues_all and len(en_clues_all) >= 2:
-        # Détecter si le contenu est asiatique d'après les indices
         asian_keyword = _detect_asian_keyword(all_clues, desc)
         base = " ".join(en_clues_all[:3])
         if asian_keyword:
@@ -149,7 +163,7 @@ def build_web_queries(extraction: dict, ocr_text: str = "") -> list[str]:
         if annee:
             queries.append(f"{base} {annee} movie")
 
-    # ── Priorité 5 : description courte → mots-clés EN ───────────
+    # ── Priorité 4 : description courte → mots-clés EN ───────────
     if desc and len(desc) > 20:
         desc_en = _quick_translate_text(desc)
         if desc_en and len(desc_en) >= 2:
@@ -188,7 +202,16 @@ _QUICK_FR_EN: dict[str, str] = {
     "fantôme": "ghost", "magie": "magic", "dragon": "dragon",
     "école": "school", "uniforme": "uniform", "détective": "detective",
     "enquêteur": "detective", "gangster": "gangster", "yakuza": "yakuza",
-    "ronin": "ronin", "shogun": "shogun", "ninja": "ninja",
+    "ronin": "ronin", "shogun": "shogun",
+    "robot": "robot", "humanoïde": "humanoid", "androïde": "android",
+    "vaisseau": "spaceship", "espace": "space", "alien": "alien",
+    "zombie": "zombie", "vampire": "vampire", "loup-garou": "werewolf",
+    "super-héros": "superhero", "cape": "cape", "masque": "mask",
+    "prison": "prison", "tribunal": "court", "avocat": "lawyer",
+    "médecin": "doctor", "hôpital": "hospital", "ambulance": "ambulance",
+    "policier": "police", "commissariat": "police station",
+    "balançoire": "swing", "parc": "park", "enfant": "child",
+    "fils": "son", "fille": "daughter", "mère": "mother", "père": "father",
 }
 
 _ASIAN_SIGNALS_FR: dict[str, str] = {
@@ -217,7 +240,6 @@ def _quick_translate(clues: list[str]) -> list[str]:
                 matched = True
                 break
         if not matched and len(clue) > 3 and clue.isascii():
-            # Déjà en anglais probablement
             if clue_lower not in seen_en:
                 seen_en.add(clue_lower)
                 result.append(clue)
@@ -249,15 +271,10 @@ def _detect_asian_keyword(clues: list[str], desc: str) -> str:
 # EXTRACTION DE TITRES DEPUIS LES SNIPPETS WEB
 # ════════════════════════════════════════════════════════════════
 
-# Patterns pour extraire des titres dans les snippets IMDB/TMDB/Wikipedia
 _TITLE_PATTERNS = [
-    # "Film Title (2020)" ou "Film Title - 2020"
     re.compile(r'^([^\(\[\|–—\-]{3,60})\s*[\(\[–—\-]\s*(\d{4})', re.MULTILINE),
-    # IMDB: "Title (year) - IMDb"
     re.compile(r'^(.+?)\s*\((\d{4})\)\s*[-–—|]', re.MULTILINE),
-    # Wikipedia: "Film Name is a XXXX Japanese film"
     re.compile(r'([A-Z][^\.\!\?]{2,50})\s+is\s+a\s+(\d{4})\s+\w+\s+film', re.IGNORECASE),
-    # Titres japonais/coréens dans parenthèses
     re.compile(r'([一-鿿㐀-䶿\u3400-\u4DBF぀-ゟ゠-ヿ가-힯]{2,20})'),
 ]
 
@@ -269,10 +286,6 @@ _NOISE_WORDS = {
 
 
 def _extract_titles_from_snippet(title: str, snippet: str) -> list[str]:
-    """
-    Extrait des titres de films candidats depuis le titre/snippet d'un résultat web.
-    Retourne une liste de strings (titres potentiels).
-    """
     found: list[str] = []
     text = f"{title}\n{snippet}"
 
@@ -280,13 +293,10 @@ def _extract_titles_from_snippet(title: str, snippet: str) -> list[str]:
         for m in pattern.finditer(text):
             candidate = m.group(1).strip()
             candidate = re.sub(r'\s+', ' ', candidate)
-            # Filtrer les titres trop courts ou trop longs
             if 2 <= len(candidate) <= 80:
-                # Filtrer les mots-clés parasites
                 if not any(noise in candidate.lower() for noise in _NOISE_WORDS):
                     found.append(candidate)
 
-    # Dédoublonnage
     seen: set = set()
     result: list[str] = []
     for t in found:
@@ -302,22 +312,29 @@ def _extract_titles_from_snippet(title: str, snippet: str) -> list[str]:
 
 async def _ddg_search(query: str, max_results: int = 5) -> list[dict]:
     """
-    Recherche DuckDuckGo asynchrone (via thread pool car DDGS est synchrone).
-    Retourne une liste de dicts {title, snippet, url}.
+    Recherche DuckDuckGo asynchrone via thread pool (DDGS est synchrone).
+    Tente d'abord le nouveau package 'ddgs', puis l'ancien 'duckduckgo_search'.
     """
     def _sync_search():
+        # Essai 1 : nouveau package ddgs
+        try:
+            from ddgs import DDGS
+            with DDGS() as ddgs:
+                return list(ddgs.text(query, max_results=max_results))
+        except ImportError:
+            pass
+        except Exception as e:
+            print(f"⚠️ ddgs KO pour '{query[:40]}': {e}", flush=True)
+
+        # Essai 2 : ancien package duckduckgo_search
         try:
             from duckduckgo_search import DDGS
             with DDGS() as ddgs:
-                results = list(ddgs.text(
-                    query,
-                    max_results=max_results,
-                    timelimit=None,
-                ))
-            return results
+                return list(ddgs.text(query, max_results=max_results))
         except Exception as e:
-            print(f"⚠️ DDG search KO pour '{query[:40]}': {e}", flush=True)
-            return []
+            print(f"⚠️ duckduckgo_search KO pour '{query[:40]}': {e}", flush=True)
+
+        return []
 
     loop = asyncio.get_event_loop()
     try:
@@ -357,16 +374,6 @@ async def web_search_fallback(
     3. Extrait des titres candidats des snippets
     4. Valide chaque titre sur TMDB
     5. Retourne des candidats TMDB normalisés pour rerank()
-
-    Args:
-        extraction:          Résultat de multimodal_extract()
-        ocr_text:            Texte OCR brut (peut contenir des kanji)
-        browser_lang:        Langue du navigateur (pour les requêtes TMDB)
-        max_tmdb_candidates: Nombre max de candidats TMDB retournés
-
-    Returns:
-        Liste de dicts TMDB (même format que run_cascade_search),
-        vide si rien trouvé.
     """
     print("🌐 Web search fallback démarré...", flush=True)
 
@@ -375,14 +382,13 @@ async def web_search_fallback(
         print("🌐 Aucune requête web générée", flush=True)
         return []
 
-    # ── Étape 1 : recherches web (max 4, séquentielles pour éviter ban) ──
+    # ── Étape 1 : recherches web (max 4, séquentielles) ──────────
     all_web_results: list[dict] = []
     for i, query in enumerate(queries[:4]):
         results = await _ddg_search(query, max_results=5)
         if results:
             print(f"  🔎 '{query[:50]}' → {len(results)} résultats web", flush=True)
             all_web_results.extend(results)
-        # Petite pause entre les requêtes pour éviter le rate-limit DDG
         if i < len(queries) - 1:
             await asyncio.sleep(0.5)
 
@@ -404,15 +410,31 @@ async def web_search_fallback(
                 seen_titles.add(t.lower())
                 candidate_titles.append(t)
 
-    # Ajouter les séquences CJK brutes comme titres candidats
+    # Ajouter les séquences CJK brutes en priorité
     ocr_cjk = _extract_cjk((ocr_text or ""))
     if ocr_cjk and ocr_cjk not in seen_titles:
-        candidate_titles.insert(0, ocr_cjk)  # priorité maximale
+        candidate_titles.insert(0, ocr_cjk)
 
     for t in extraction.get("titres_possibles", []):
         t_clean = str(t).lstrip("?").strip()
         if t_clean and _has_cjk(t_clean) and t_clean not in seen_titles:
             candidate_titles.insert(0, t_clean)
+
+    # Ajouter aussi les titres précis Gemini directement
+    # (ils ont déjà été cherchés en web, on les valide aussi sur TMDB)
+    for t in extraction.get("titres_possibles", []):
+        t_clean = str(t).lstrip("?").strip()
+        if not t_clean or _has_cjk(t_clean):
+            continue
+        is_precise = (
+            re.search(r'(?<=[a-z])[A-Z]', t_clean)
+            or re.search(r'[,&:\d\-]', t_clean)
+            or (len(t_clean.split()) >= 2
+                and any(w[0].isupper() for w in t_clean.split()[1:] if w))
+        )
+        if is_precise and t_clean.lower() not in seen_titles:
+            seen_titles.add(t_clean.lower())
+            candidate_titles.append(t_clean)
 
     if not candidate_titles:
         print("🌐 Web search → aucun titre extrait des snippets", flush=True)
@@ -426,11 +448,11 @@ async def web_search_fallback(
     tmdb_candidates: list[dict] = []
     seen_ids: set = set()
 
-    # Détecter la langue probable du contenu pour TMDB
     transcript_lang = extraction.get("langue_originale") or None
     if not transcript_lang:
-        # Inférer depuis les kanji
-        combined = (ocr_text or "") + " ".join(str(t) for t in extraction.get("titres_possibles", []))
+        combined = (ocr_text or "") + " ".join(
+            str(t) for t in extraction.get("titres_possibles", [])
+        )
         if _has_cjk(combined) and _JP_PATTERN.search(combined):
             transcript_lang = "ja"
         elif _has_cjk(combined):
@@ -438,18 +460,18 @@ async def web_search_fallback(
         elif _has_korean(combined):
             transcript_lang = "ko"
 
-    for titre in candidate_titles[:8]:  # max 8 titres à valider
+    for titre in candidate_titles[:8]:
         try:
             results = await search_multi_lang(
                 titre,
                 transcript_lang=transcript_lang,
                 browser_lang=browser_lang,
             )
-            for item in results[:3]:  # top 3 par titre
+            for item in results[:3]:
                 item_id = item.get("id")
                 if item_id and item_id not in seen_ids:
                     seen_ids.add(item_id)
-                    item["_web_search_origin"] = titre  # traçabilité
+                    item["_web_search_origin"] = titre
                     tmdb_candidates.append(item)
         except Exception as e:
             print(f"⚠️ TMDB validation KO pour '{titre[:30]}': {e}", flush=True)
@@ -484,7 +506,6 @@ def should_trigger_web_fallback(
       - Score rerank < 50
       - Candidats TMDB vides
       - OCR ou titres Gemini contiennent des kanji/CJK non exploités
-        (signe que TMDB n'a pas su chercher dans la bonne langue)
     """
     if not candidates:
         print("🌐 Trigger web fallback: aucun candidat TMDB", flush=True)
@@ -494,7 +515,6 @@ def should_trigger_web_fallback(
         print(f"🌐 Trigger web fallback: score faible ({score})", flush=True)
         return True
 
-    # Kanji dans l'OCR ou les titres Gemini → TMDB probablement mal interrogé
     combined_cjk = (ocr_text or "") + " ".join(
         str(t) for t in extraction.get("titres_possibles", [])
     )
