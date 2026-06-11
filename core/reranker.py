@@ -3,9 +3,12 @@ core/reranker.py — Sélection du meilleur candidat TMDB.
 
 Cascade anti-coût :
   1. Score direct    → titre extrait == candidat (0 API)
+                       score >= 80 : retour immédiat
+                       score < 80  : confirmation LLM (faux positif suspect)
   2. Groq Llama      → reranking LLM texte, gratuit
   3. Gemini Flash    → fallback si Groq KO ou score < 40
-  4. Heuristique     → popularité TMDB (0 API)
+  4. Match direct suspect → fallback si LLM KO
+  5. Heuristique     → popularité TMDB (0 API)
 """
 
 import json
@@ -45,27 +48,51 @@ def _direct_match(extraction: dict, candidates: list) -> dict | None:
         for t in extraction.get("titres_possibles", [])
         if t and not str(t).startswith("?")
     ]
-    annee = str(extraction.get("annee_estimee") or "")
+    annee       = str(extraction.get("annee_estimee") or "")
+    description = (extraction.get("description_courte") or "").lower()
 
     for c in candidates:
         c_title = _normalize(c.get("title") or c.get("name") or "")
-        if not c_title:
+        if not c_title or c_title not in titres:
             continue
-        if c_title in titres:
-            c_year = (c.get("release_date") or c.get("first_air_date") or "")[:4]
-            score  = 90 if (annee and annee == c_year) else 85
-            print(
-                f"✅ Rerank direct — {c.get('title') or c.get('name')} "
-                f"(score={score})",
-                flush=True
-            )
-            return {
-                "id":             c["id"],
-                "meilleur_titre": c.get("title") or c.get("name") or "Inconnu",
-                "score":          score,
-                "raison":         "correspondance directe titre",
-                "media_type":     c.get("media_type", "movie"),
-            }
+
+        c_year     = (c.get("release_date") or c.get("first_air_date") or "")[:4]
+        c_overview = (c.get("overview") or "").lower()
+
+        score = 90 if (annee and annee == c_year) else 85
+
+        if description and c_overview:
+            desc_keywords = [
+                w for w in re.findall(r'\b\w{5,}\b', description)
+                if w not in {
+                    "femme", "homme", "enfant", "scène", "personnage",
+                    "monde", "après", "avant", "contre", "depuis",
+                }
+            ]
+            if desc_keywords:
+                matches    = sum(1 for kw in desc_keywords if kw in c_overview)
+                match_ratio = matches / len(desc_keywords)
+                if match_ratio < 0.15 and len(desc_keywords) >= 3:
+                    print(
+                        f"⚠️ Match direct '{c_title}' suspect "
+                        f"(cohérence desc/synopsis={match_ratio:.0%}) "
+                        f"→ score abaissé à 45",
+                        flush=True
+                    )
+                    score = 45
+
+        print(
+            f"✅ Rerank direct — {c.get('title') or c.get('name')} "
+            f"(score={score})",
+            flush=True
+        )
+        return {
+            "id":             c["id"],
+            "meilleur_titre": c.get("title") or c.get("name") or "Inconnu",
+            "score":          score,
+            "raison":         "correspondance directe titre",
+            "media_type":     c.get("media_type", "movie"),
+        }
     return None
 
 
@@ -318,9 +345,17 @@ async def rerank(extraction: dict, candidates: list) -> dict:
         }
 
     # ── 0. Correspondance directe (0 API) ────────────────────────
-    result = _direct_match(extraction, candidates)
-    if result:
-        return result
+    direct_result = _direct_match(extraction, candidates)
+    if direct_result and direct_result.get("score", 0) >= 80:
+        # Score élevé = pas de faux positif détecté → retour immédiat
+        return direct_result
+    if direct_result:
+        # Score abaissé = faux positif suspect → confirmation LLM
+        print(
+            f"⚠️ Match direct score bas ({direct_result['score']}) "
+            f"→ confirmation LLM requise",
+            flush=True
+        )
 
     # ── 1. Groq Llama ─────────────────────────────────────────────
     groq_result = await _rerank_groq(extraction, candidates)
@@ -360,5 +395,14 @@ async def rerank(extraction: dict, candidates: list) -> dict:
     if groq_result:
         return groq_result
 
-    # ── 3. Heuristique popularité (0 API) ─────────────────────────
+    # ── 3. Match direct suspect (fallback si LLM tous KO) ────────
+    if direct_result:
+        print(
+            f"⚠️ LLM tous KO → utilisation match direct suspect "
+            f"({direct_result['meilleur_titre']}, score={direct_result['score']})",
+            flush=True
+        )
+        return direct_result
+
+    # ── 4. Heuristique popularité (0 API) ─────────────────────────
     return _best_by_popularity(candidates)

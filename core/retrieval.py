@@ -295,6 +295,14 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
         if acteurs:
             queries.append(f"{titre} {acteurs[0]}")
 
+    # ── Niveau 1c : titres incertains précis + "series" ──────────
+    # Pour les titres qui ressemblent à des épisodes de série anthologique
+    # (Love Death Robots, Black Mirror, etc.) → chercher aussi la série
+    for titre in titres_incertains_precis:
+        if len(titre.split()) >= 3:  # titre d'épisode souvent long
+            queries.append(f"{titre} series")
+            queries.append(f"{titre} episode")
+
     # ── Niveau 2 : acteurs ───────────────────────────────────────
     if acteurs:
         queries.append(f"{acteurs[0]} {genre} {annee}".strip())
@@ -444,6 +452,19 @@ async def run_cascade_search(
         if t and not str(t).startswith("?")
     }
 
+    titres_precis = {
+        str(t)[1:].strip()
+        for t in extraction.get("titres_possibles", [])
+        if str(t).startswith("?")
+        and (
+            re.search(r'(?<=[a-z])[A-Z]|[,&:\d\-]', str(t)[1:])
+            or (
+                len(str(t)[1:].split()) >= 2
+                and any(w[0].isupper() for w in str(t)[1:].split()[1:] if w)
+            )
+        )
+    }
+
     seen_ids:   set  = set()
     candidates: list = []
 
@@ -490,13 +511,16 @@ async def run_cascade_search(
             print(f"⚡ Early stop : titre certain '{query}' trouvé", flush=True)
             break
 
+        if query in titres_precis and len(candidates) >= 5:
+            print(f"⚡ Early stop : titre précis '{query}' trouvé", flush=True)
+            break
+
     candidates.sort(key=lambda x: x.get("popularity", 0), reverse=True)
     print(
         f"📋 Cascade terminée → {len(candidates)} candidats uniques",
         flush=True
     )
     return candidates[:max_candidates]
-
 
 # ════════════════════════════════════════════════════════════════
 # BUILD CANDIDATES FROM ACTORS
