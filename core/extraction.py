@@ -14,6 +14,10 @@ Fix v6 :
   - _try_parse_partial_json : récupère les champs utiles d'un JSON tronqué
   - Quand MAX_TOKENS détecté, tente le parse partiel avant de fallback
   - Si partiel contient titres/acteurs → utilisé directement sans appel Lite
+
+Fix v7 :
+  - is_ai_generated : détection contenu généré par IA (Sora, Runway, etc.)
+  - Normalisé dans _call_gemini, _extract_gemini_url_direct et _minimal_fallback
 """
 import json
 import os
@@ -79,6 +83,7 @@ def _try_parse_partial_json(text: str) -> dict | None:
         "langue_originale":   r'"langue_originale"\s*:\s*"([^"]*)"',
         "annee_estimee":      r'"annee_estimee"\s*:\s*(\d+|null)',
         "description_courte": r'"description_courte"\s*:\s*"([^"]*)"',
+        "is_ai_generated":    r'"is_ai_generated"\s*:\s*(true|false)',
     }
 
     array_fields = {
@@ -96,6 +101,8 @@ def _try_parse_partial_json(text: str) -> dict | None:
                 result[field] = json.loads(raw)
             elif field == "annee_estimee":
                 result[field] = None if raw == "null" else int(raw)
+            elif field == "is_ai_generated":
+                result[field] = raw == "true"
             else:
                 result[field] = raw
         except Exception:
@@ -116,6 +123,7 @@ def _minimal_fallback(source: str) -> dict:
         "annee_estimee":      None,
         "langue_originale":   "",
         "indices_visuels":    [],
+        "is_ai_generated":    False,
         "source":             source,
     }
 
@@ -147,6 +155,34 @@ def _normalize_acteurs_certitude(data: dict, default_certitude: int = 50) -> dic
     ]
 
     data["acteurs_certitude"] = certitudes
+    return data
+
+
+def _normalize_all_fields(data: dict, default_certitude: int = 50) -> dict:
+    """
+    Normalise tous les champs du dict retourné par Gemini :
+    - setdefault pour les champs manquants
+    - aligne acteurs_certitude avec acteurs
+    - force is_ai_generated en booléen
+    """
+    data.setdefault("titres_possibles",   [])
+    data.setdefault("acteurs",            [])
+    data.setdefault("acteurs_certitude",  [])
+    data.setdefault("personnages",        [])
+    data.setdefault("objets_importants",  [])
+    data.setdefault("description_courte", "")
+    data.setdefault("genre_apparent",     "")
+    data.setdefault("annee_estimee",      None)
+    data.setdefault("langue_originale",   "")
+    data.setdefault("indices_visuels",    [])
+    data.setdefault("is_ai_generated",    False)
+
+    # Forcer les types
+    data["is_ai_generated"] = bool(data.get("is_ai_generated", False))
+
+    # Aligner certitudes
+    data = _normalize_acteurs_certitude(data, default_certitude)
+
     return data
 
 
@@ -274,7 +310,7 @@ async def _call_gemini(
             print(f"⚠️ Gemini ({model_name}) : réponse vide", flush=True)
             return None
 
-        # ── Tentative parse normal ────────────────────────────────
+        # ── Parse normal (pas de troncature) ─────────────────────
         if finish_reason != "MAX_TOKENS":
             clean = _clean_json_fences(text)
             try:
@@ -286,6 +322,7 @@ async def _call_gemini(
                 )
                 print(f"   Texte reçu : {text[:200]}", flush=True)
                 return None
+
         else:
             # ── MAX_TOKENS : parse partiel ────────────────────────
             print(
@@ -293,11 +330,14 @@ async def _call_gemini(
                 f"— tentative parse partiel",
                 flush=True
             )
-            # Essai 1 : parse normal quand même (parfois le JSON est complet)
+            # Essai 1 : le JSON est peut-être complet malgré MAX_TOKENS
             clean = _clean_json_fences(text)
             try:
                 data = json.loads(clean)
-                print(f"✅ JSON complet malgré MAX_TOKENS ({model_name})", flush=True)
+                print(
+                    f"✅ JSON complet malgré MAX_TOKENS ({model_name})",
+                    flush=True
+                )
             except json.JSONDecodeError:
                 # Essai 2 : parse partiel champ par champ
                 partial = _try_parse_partial_json(text)
@@ -307,7 +347,8 @@ async def _call_gemini(
                     print(
                         f"✅ Parse partiel ({model_name}) — "
                         f"titres={partial.get('titres_possibles')}, "
-                        f"acteurs={partial.get('acteurs')}",
+                        f"acteurs={partial.get('acteurs')}, "
+                        f"ai={partial.get('is_ai_generated', False)}",
                         flush=True
                     )
                     data = partial
@@ -319,34 +360,24 @@ async def _call_gemini(
                     )
                     return None
 
-        # ── Normalisation des champs ──────────────────────────────
+        # ── Normalisation complète ────────────────────────────────
         data["source"] = "gemini_vision"
-        data.setdefault("titres_possibles",   [])
-        data.setdefault("acteurs",            [])
-        data.setdefault("acteurs_certitude",  [])
-        data.setdefault("personnages",        [])
-        data.setdefault("objets_importants",  [])
-        data.setdefault("description_courte", "")
-        data.setdefault("genre_apparent",     "")
-        data.setdefault("annee_estimee",      None)
-        data.setdefault("langue_originale",   "")
-        data.setdefault("indices_visuels",    [])
-
-        data = _normalize_acteurs_certitude(data, default_certitude=50)
+        data = _normalize_all_fields(data, default_certitude=50)
 
         acteurs    = data.get("acteurs", [])
         certitudes = data.get("acteurs_certitude", [])
         titres     = data.get("titres_possibles", [])
+        is_ai      = data.get("is_ai_generated", False)
 
         print(
             f"✅ Gemini OK ({model_name}, {len(text)} chars) — "
-            f"acteurs={list(zip(acteurs, certitudes))}, titres={titres}",
+            f"titres={titres}, "
+            f"acteurs={list(zip(acteurs, certitudes))}, "
+            f"is_ai={is_ai}",
             flush=True
         )
         print(
-            f"🔍 titres={titres}, "
-            f"acteurs={acteurs}, certitudes={certitudes}, "
-            f"indices={data.get('indices_visuels')}, "
+            f"🔍 indices={data.get('indices_visuels')}, "
             f"desc={str(data.get('description_courte', ''))[:100]}",
             flush=True
         )
@@ -356,6 +387,12 @@ async def _call_gemini(
                 f"ℹ️  Gemini ({model_name}) : aucun acteur reconnu — "
                 f"frames={len([p for p in payload['contents'][0]['parts'] if 'inline_data' in p])}, "
                 f"transcript={len([p for p in payload['contents'][0]['parts'] if 'text' in p and len(p.get('text','')) > 100])} blocs texte",
+                flush=True
+            )
+
+        if is_ai:
+            print(
+                f"🤖 Gemini ({model_name}) : contenu généré par IA détecté",
                 flush=True
             )
 
@@ -394,6 +431,7 @@ async def _extract_gemini_url_direct(video_url: str) -> dict | None:
             "IMPORTANT pour les acteurs : ne liste un acteur QUE si tu le reconnais "
             "formellement avec une certitude ≥ 70%. Si le visage n'est pas clairement "
             "visible ou si tu n'es pas certain, laisse acteurs=[] et acteurs_certitude=[]. "
+            "Détecte aussi si le contenu est généré par IA (is_ai_generated). "
             "Pour YouTube : utilise aussi les sous-titres automatiques si disponibles.)"
         ),
     )
@@ -451,29 +489,28 @@ async def _extract_gemini_url_direct(video_url: str) -> dict | None:
         data = json.loads(text)
 
         data["source"] = "gemini_url_direct"
-        data.setdefault("titres_possibles",   [])
-        data.setdefault("acteurs",            [])
-        data.setdefault("acteurs_certitude",  [])
-        data.setdefault("personnages",        [])
-        data.setdefault("objets_importants",  [])
-        data.setdefault("description_courte", "")
-        data.setdefault("genre_apparent",     "")
-        data.setdefault("annee_estimee",      None)
-        data.setdefault("langue_originale",   "")
-        data.setdefault("indices_visuels",    [])
 
-        # Source fiable → seuil plus généreux (75 par défaut)
-        data = _normalize_acteurs_certitude(data, default_certitude=75)
+        # Source fiable → seuil certitude plus généreux (75 par défaut)
+        data = _normalize_all_fields(data, default_certitude=75)
 
         acteurs    = data.get("acteurs", [])
         certitudes = data.get("acteurs_certitude", [])
+        is_ai      = data.get("is_ai_generated", False)
 
         print(
             f"✅ Gemini direct OK ({platform_tag}) — "
             f"titres={data.get('titres_possibles')}, "
-            f"acteurs={list(zip(acteurs, certitudes))}",
+            f"acteurs={list(zip(acteurs, certitudes))}, "
+            f"is_ai={is_ai}",
             flush=True
         )
+
+        if is_ai:
+            print(
+                f"🤖 Gemini direct : contenu généré par IA détecté",
+                flush=True
+            )
+
         return data
 
     except httpx.HTTPStatusError as e:
@@ -549,8 +586,9 @@ async def _extract_gemini_vision(
                 "aussi visuellement. "
                 "RAPPEL : pour les acteurs, certitude ≥ 70% obligatoire. "
                 "Si doute → acteurs=[] acteurs_certitude=[]. "
-                "Si tu vois des caractères non-latins (japonais, coréen, chinois, arabe...) "
-                "sur une bannière ou générique, transcris-les EXACTEMENT dans titres_possibles. "
+                "Évalue aussi is_ai_generated (2+ signaux IA → true). "
+                "Si tu vois des caractères non-latins sur une bannière ou générique, "
+                "transcris-les EXACTEMENT dans titres_possibles. "
                 "Réponds UNIQUEMENT en JSON valide sur une seule ligne."
             )
         })

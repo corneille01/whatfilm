@@ -7,6 +7,8 @@ import base64
 import time
 import asyncio
 import re
+from core import extraction
+from core import extraction
 from routes_filming import router as filming_router
 from typing import Optional
 from contextlib import asynccontextmanager
@@ -683,7 +685,20 @@ async def process_analysis(
         content_hit = get_cache_by_content(transcript, ocr_text, lang)
         if content_hit:
             set_cache(url, content_hit, transcript=transcript, ocr_text=ocr_text)
-            return {"status": "cached", **content_hit}
+            return {"status": "cached", **content_hit},
+        
+    if extraction.get("is_ai_generated"):
+        print("🤖 Contenu IA détecté → not_found enrichi", flush=True)
+        ai_result = {
+        "status":  "not_found",
+        "code":    "ai_generated",
+        "message": "Cette vidéo semble générée par intelligence artificielle "
+                   "(Sora, Runway, Midjourney...). "
+                   "Aucun film réel correspondant.",
+        "is_ai_generated": True,
+        }
+        set_cache(url, ai_result, transcript=transcript or "", ocr_text=ocr_text or "")
+        return ai_result
 
     # ── 2. Extraction multimodale ────────────────────────────────
     if prefetched_extraction is not None:
@@ -770,6 +785,23 @@ async def process_analysis(
         f"navigateur={browser_lang}, interface={lang}",
         flush=True
     )
+
+    # ── 3c. Détection contenu généré par IA ─────────────────────
+    if extraction.get("is_ai_generated"):
+        print("🤖 Contenu généré par IA détecté → retour immédiat", flush=True)
+        ai_result = {
+            "status":          "not_found",
+            "code":            "ai_generated",
+            "message":         (
+                "Cette vidéo semble générée par intelligence artificielle "
+                "(Sora, Runway, Midjourney, Pika...). "
+                "Aucun film réel correspondant n'existe."
+            ),
+            "is_ai_generated": True,
+            "search_google":   f"https://www.google.com/search?q=AI+generated+video+{url[:50]}",
+        }
+        set_cache(url, ai_result, transcript=transcript or "", ocr_text=ocr_text or "")
+        return ai_result
 
     # ── 4. Cache niveau titre ────────────────────────────────────
     for titre_candidat in extraction.get("titres_possibles", []):

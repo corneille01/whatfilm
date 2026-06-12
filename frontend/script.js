@@ -402,6 +402,48 @@ function cacherErreur(){const el=document.getElementById("error-message");el.cla
 function toast(msg,dur=3000){const t=document.getElementById("toast");if(!t)return;t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),dur);}
 
 function afficherErreurRiche(data){
+  // ── Contenu généré par IA ────────────────────────────────────
+  if (data.code === "ai_generated" || data.is_ai_generated) {
+    document.getElementById("loading-overlay").classList.remove("active");
+    stopGame();
+    document.getElementById("genre-grid").style.display = "block";
+    document.getElementById("page-film-detail").style.display = "none";
+    document.getElementById("hero").style.display = "none";
+    document.getElementById("filtres-bar").style.display = "none";
+    document.getElementById("genre-title").innerText = "";
+    document.getElementById("movie-cards").innerHTML = `
+      <div style="grid-column:1/-1;display:flex;flex-direction:column;
+                  align-items:center;justify-content:center;text-align:center;
+                  padding:48px 24px;max-width:520px;margin:0 auto;gap:16px;">
+        <div style="font-size:4rem;line-height:1">🤖</div>
+        <h3 style="color:var(--text);font-size:1.3rem;margin:0">
+          Contenu généré par IA
+        </h3>
+        <p style="color:var(--muted);font-size:.9rem;margin:0;line-height:1.7">
+          Cette vidéo semble avoir été créée par une intelligence artificielle
+          <br><span style="color:var(--primary);font-size:.8rem">
+            Sora · Runway · Midjourney · Pika · Kling · Gen-2
+          </span>
+        </p>
+        <p style="color:var(--muted);font-size:.82rem;margin:0">
+          Aucun film réel ne correspond à ce clip.
+        </p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:8px">
+          <button class="btn-stream" onclick="retourAccueil()">
+            <i class="fas fa-home"></i> Accueil
+          </button>
+          <button class="btn-stream" onclick="document.getElementById('input_global').value='';document.getElementById('input_global').focus();">
+            <i class="fas fa-search"></i> Nouvelle recherche
+          </button>
+        </div>
+      </div>`;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return; // ← sortir avant le reste de la fonction
+  }
+
+  // ── Suite du code existant inchangé ─────────────────────────
+  const d = dict[currentLang] || dict.fr;
+  const code = data.code || "unexpected";
   const d=dict[currentLang]||dict.fr;
   const code=data.code||"unexpected";
   const msg=data.message||tErr(code);

@@ -52,6 +52,28 @@ chinois, arabes ou autres scripts non-latins dans les images :
 → Ces caractères sur une bannière, affiche ou générique SONT probablement le titre.
 
 ════════════════════════════════════════════════
+ÉTAPE 1b — DÉTECTION CONTENU GÉNÉRÉ PAR IA
+════════════════════════════════════════════════
+Avant d'identifier le film, évalue si la vidéo a été générée par une IA
+(Sora, Runway, Midjourney Video, Pika, Kling, Gen-2, etc.).
+
+Signaux d'un contenu généré par IA :
+- Mains avec nombre de doigts anormal (6 doigts, doigts fusionnés, manquants)
+- Texte visible dans la scène flou, illisible, incohérent ou non-sens
+- Mouvements de caméra irréels ou physique impossible (objets qui flottent, gravité anormale)
+- Style visuel hyper-lisse, "plastique", sans grain de film, trop parfait
+- Visages qui changent subtilement ou se déforment entre les frames
+- Arrière-plans qui se déforment, se répètent ou ont des incohérences spatiales
+- Eau, fumée, feu, cheveux avec comportement non-naturel
+- Transitions de lumière irréalistes ou shadows incohérentes
+- Personnages qui "glissent" plutôt que de marcher normalement
+- Textures qui se répètent ou tessèlent de façon évidente
+
+Règle : si tu détectes 2 signaux ou plus → is_ai_generated=true
+        si 0 ou 1 signal seulement → is_ai_generated=false
+        En cas de doute → false (mieux vaut rater un contenu IA que bloquer un vrai film)
+
+════════════════════════════════════════════════
 ÉTAPE 2 — ANALYSE TRANSCRIPTION
 ════════════════════════════════════════════════
 Lis la transcription en entier :
@@ -81,8 +103,6 @@ n'est encore identifié :
 → Si tu as une piste, fournis le titre en japonais ET en romaji dans "titres_possibles"
   avec "?" (ex: ["?Rashomon", "?羅生門"]).
 → Même logique pour les contenus coréens (K-drama, film coréen), chinois, etc.
-→ Un homme en kimono qui attrape une flèche dans un jardin japonais = probable film
-  de samouraï ou drama historique japonais → cherche lequel.
 
 ════════════════════════════════════════════════
 ÉTAPE 4 — CROISEMENT VISION + TRANSCRIPTION
@@ -99,7 +119,6 @@ RÈGLES STRICTES
    - Titre explicite (vu ou cité) → sans préfixe
    - Titre reconnu visuellement ou par synopsis → préfixé "?" (ex: "?Les Intouchables")
    - Pour les titres japonais/coréens/chinois : donne les deux formes si possible
-     (ex: ["?Rashomon", "?羅生門"] ou ["?Oldboy", "?올드보이"])
    - JAMAIS inventer un titre inexistant
    - Si rien de certain, laisser []
 
@@ -110,7 +129,7 @@ RÈGLES STRICTES
    Séries anthologiques connues : Love Death + Robots, Black Mirror, Electric Dreams,
    Tales from the Loop, Amazing Stories, The Twilight Zone, Inside No. 9,
    Midnight Mass, Cabinet of Curiosities, Guillermo del Toro's Cabinet of Curiosities,
-   Room 104, Creepshow, Shudder anthology series.
+   Room 104, Creepshow.
    Exemples :
    → Tu reconnais "Automated Customer Service" (Love Death & Robots S3E1) :
      titres_possibles = ["Love, Death & Robots", "?Automated Customer Service"]
@@ -131,41 +150,39 @@ RÈGLES STRICTES
    - JAMAIS deviner depuis un profil de dos, flou, partiellement visible
    - JAMAIS inférer depuis le style du film, le genre, la nationalité
    - JAMAIS "compléter" avec un acteur probable si non certain à 70%+
-   - JAMAIS lister un acteur parce qu'il "ressemble" à quelqu'un
    - Si doute → acteurs=[] et acteurs_certitude=[]
-   - Un acteur incertain détruit la recherche → vaut MOINS que zéro
 
    Format : "Prénom Nom"
    Exemple correct :
      acteurs=["Brad Pitt", "Angelina Jolie"]
      acteurs_certitude=[95, 72]
-   Exemple si incertain :
-     acteurs=[]
-     acteurs_certitude=[]
 
 3. "personnages" : noms de personnages vus à l'écran ou cités dans les dialogues/commentaires.
 
 4. "objets_importants" : objets/véhicules/logos iconiques.
-   Ex: ["DeLorean", "Batmobile", "sabre laser", "logo Netflix", "maillot PSG"]
+   Ex: ["DeLorean", "Batmobile", "sabre laser", "logo BBC", "logo Netflix"]
 
 5. "description_courte" : 1-2 phrases MAX, ultra-concis, sur l'action principale visible.
-   Exemple : "Homme en kimono attrape une flèche au vol dans un jardin japonais."
-   PAS de phrases longues. PAS de répétition. MAX 100 caractères.
+   MAX 100 caractères. PAS de répétition.
 
 6. "genre_apparent" : film-action|film-comédie|film-horreur|film-drame|film-thriller|film-romance|film-animation|série|série-animation|anime|documentaire|documentaire-série
 
-7. "annee_estimee" : visible dans l'OCR/transcription, ou estimable visuellement (style image, costumes).
+7. "annee_estimee" : visible dans l'OCR/transcription, ou estimable visuellement.
 
 8. "langue_originale" : langue principale de la transcription (fr|en|es|de|ja|ko|zh|ar|pt|it|ru)
 
-9. "indices_visuels" : détails visuels distinctifs non couverts ailleurs. MAX 5 éléments courts.
-   Ex: ["kimono homme", "jardin japonais", "bannière rouge kanji", "flèche arc"]
+9. "indices_visuels" : détails visuels distinctifs. MAX 5 éléments courts.
+
+10. "is_ai_generated" : true si 2+ signaux IA détectés, false sinon.
+    Signaux : doigts anormaux, texte incohérent, physique impossible, style plastique,
+    visages qui se déforment, arrière-plans incohérents, mouvements non-naturels.
+    En cas de doute → false.
 
 NE JAMAIS inventer. Un champ vide vaut mieux qu'une donnée fausse.
 Sois ULTRA-CONCIS sur tous les champs texte pour éviter la troncature JSON.
 
 Réponds UNIQUEMENT avec ce JSON valide sur une seule ligne, sans markdown ni explication :
-{{"titres_possibles":[],"acteurs":[],"acteurs_certitude":[],"personnages":[],"objets_importants":[],"description_courte":"","genre_apparent":"","annee_estimee":null,"langue_originale":"","indices_visuels":[]}}"""
+{{"titres_possibles":[],"acteurs":[],"acteurs_certitude":[],"personnages":[],"objets_importants":[],"description_courte":"","genre_apparent":"","annee_estimee":null,"langue_originale":"","indices_visuels":[],"is_ai_generated":false}}"""
 
 
 RERANK_PROMPT = """Tu es un expert en identification de films et séries TV du monde entier.

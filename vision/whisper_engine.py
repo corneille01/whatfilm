@@ -149,18 +149,18 @@ async def transcribe_assemblyai(audio_path: str) -> str:
                 if status == "completed":
                     text = (poll.json().get("text") or "").strip()
                     if text:
-                        print(f"✅ AssemblyAI OK ({len(text)} chars)", flush=True)
+                        print(f" AssemblyAI OK ({len(text)} chars)", flush=True)
                     return text
                 if status == "error":
                     print(
-                        f"⚠️ AssemblyAI error: {poll.json().get('error')}",
+                        f" AssemblyAI error: {poll.json().get('error')}",
                         flush=True
                     )
                     return ""
 
         return ""
     except Exception as e:
-        print(f"⚠️ AssemblyAI KO: {str(e)[:120]}", flush=True)
+        print(f" AssemblyAI KO: {str(e)[:120]}", flush=True)
         return ""
 
 
@@ -243,7 +243,7 @@ async def transcribe_gladia(audio_path: str) -> str:
             submit.raise_for_status()
             result_url = submit.json().get("result_url", "")
             if not result_url:
-                print("⚠️ Gladia submit KO: pas de result_url", flush=True)
+                print(" Gladia submit KO: pas de result_url", flush=True)
                 return ""
 
             # Polling (max 20 tentatives × 4s = 80s)
@@ -267,19 +267,19 @@ async def transcribe_gladia(audio_path: str) -> str:
                         u.get("text", "") for u in utterances
                     ).strip()
                     if text:
-                        print(f"✅ Gladia OK ({len(text)} chars)", flush=True)
+                        print(f" Gladia OK ({len(text)} chars)", flush=True)
                     return text
 
                 if status == "error":
                     print(
-                        f"⚠️ Gladia error: {data.get('error_message', 'unknown')}",
+                        f" Gladia error: {data.get('error_message', 'unknown')}",
                         flush=True
                     )
                     return ""
 
         return ""
     except Exception as e:
-        print(f"⚠️ Gladia KO: {str(e)[:120]}", flush=True)
+        print(f" Gladia KO: {str(e)[:120]}", flush=True)
         return ""
 
 
@@ -305,35 +305,35 @@ def transcribe(audio_path: str, enabled: bool = True) -> str:
     loop = asyncio.get_event_loop()
 
     # ── 1. Groq Whisper ──────────────────────────────────────────
-    print("🎙️ Essai Groq...", flush=True)
+    print(" Essai Groq...", flush=True)
     text = transcribe_groq(audio_path)
     if text:
         return text
 
     # ── 2. Deepgram ──────────────────────────────────────────────
     if DEEPGRAM_API_KEY:
-        print("🎙️ Essai Deepgram...", flush=True)
+        print(" Essai Deepgram...", flush=True)
         text = loop.run_until_complete(transcribe_deepgram(audio_path))
         if text:
             return text
 
     # ── 3. AssemblyAI ────────────────────────────────────────────
     if ASSEMBLYAI_API_KEY:
-        print("🎙️ Essai AssemblyAI...", flush=True)
+        print(" Essai AssemblyAI...", flush=True)
         text = loop.run_until_complete(transcribe_assemblyai(audio_path))
         if text:
             return text
 
     # ── 4. Gladia ────────────────────────────────────────────────
     if GLADIA_API_KEY:
-        print("🎙️ Essai Gladia...", flush=True)
+        print(" Essai Gladia...", flush=True)
         text = loop.run_until_complete(transcribe_gladia(audio_path))
         if text:
             return text
 
     # ── 5. OpenAI Whisper (payant, dernier recours) ───────────────
     if OPENAI_API_KEY:
-        print("🎙️ Essai OpenAI Whisper (payant)...", flush=True)
+        print(" Essai OpenAI Whisper (payant)...", flush=True)
         text = loop.run_until_complete(transcribe_openai(audio_path))
         if text:
             return text
