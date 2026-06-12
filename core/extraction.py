@@ -6,29 +6,22 @@ Cascade :
   2. Gemini 2.5 Flash Lite   → fallback si Flash tronque
   3. Retour minimal si tout échoue
 
-Fix v3 :
-  - maxOutputTokens 2048 → 3000 (réduit encore les troncatures avec 6 frames)
-  - OCR automatique sur les frames via Gemini (extrait le texte visible à l'écran
-    avant l'appel principal, notamment les caractères JP/KO/ZH/AR)
-  - Lite utilisé uniquement en fallback, pas en égal
-  - Log explicite quand acteurs vides
-
-Fix v4 :
-  - _extract_gemini_youtube : analyse URL YouTube directement via Gemini file_data
-    (pas de téléchargement, pas de frames, pas de Whisper)
+Fix v5 :
+  - acteurs_certitude : nouveau champ JSON retourné par Gemini
+    permettant de filtrer les hallucinations d'acteurs
+  - Normalisation acteurs_certitude dans _call_gemini et _extract_gemini_url_direct
 """
 import json
 import os
+import re
 import base64
 import httpx
-import re
 
 from core.prompts import EXTRACTION_PROMPT
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 print(f"🔑 GEMINI_API_KEY présente: {bool(GEMINI_API_KEY)}", flush=True)
 
-# Flash d'abord, Lite en fallback seulement
 GEMINI_URLS = [
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
@@ -42,6 +35,7 @@ MAX_OCR_CHARS        = 3000
 # ════════════════════════════════════════════════════════════════
 # UTILITAIRES
 # ════════════════════════════════════════════════════════════════
+
 def _clean_json_fences(text: str) -> str:
     text = text.strip()
     if "```" in text:
@@ -66,6 +60,7 @@ def _minimal_fallback(source: str) -> dict:
     return {
         "titres_possibles":   [],
         "acteurs":            [],
+        "acteurs_certitude":  [],
         "personnages":        [],
         "objets_importants":  [],
         "description_courte": "",
@@ -85,9 +80,36 @@ def _encode_image(path: str) -> str | None:
         return None
 
 
+def _normalize_acteurs_certitude(data: dict, default_certitude: int = 50) -> dict:
+    """
+    Aligne acteurs_certitude avec acteurs.
+    Si Gemini oublie le champ ou retourne une liste de mauvaise taille,
+    on complète avec default_certitude.
+    """
+    acteurs    = data.get("acteurs", []) or []
+    certitudes = data.get("acteurs_certitude", []) or []
+
+    # Compléter si trop court
+    while len(certitudes) < len(acteurs):
+        certitudes.append(default_certitude)
+
+    # Tronquer si trop long
+    certitudes = certitudes[:len(acteurs)]
+
+    # S'assurer que ce sont des entiers
+    certitudes = [
+        int(c) if isinstance(c, (int, float)) else default_certitude
+        for c in certitudes
+    ]
+
+    data["acteurs_certitude"] = certitudes
+    return data
+
+
 # ════════════════════════════════════════════════════════════════
 # OCR AUTOMATIQUE SUR LES FRAMES
 # ════════════════════════════════════════════════════════════════
+
 async def _ocr_frames(frames: list) -> str:
     """
     Passe les frames à Gemini Flash Lite pour extraire tout texte visible.
@@ -161,6 +183,7 @@ async def _ocr_frames(frames: list) -> str:
 # ════════════════════════════════════════════════════════════════
 # APPEL GEMINI — paramétrable par modèle
 # ════════════════════════════════════════════════════════════════
+
 async def _call_gemini(
     url: str,
     parts: list,
@@ -220,9 +243,11 @@ async def _call_gemini(
             print(f"   Texte reçu : {text[:200]}", flush=True)
             return None
 
+        # Normaliser les champs manquants
         data["source"] = "gemini_vision"
         data.setdefault("titres_possibles",   [])
         data.setdefault("acteurs",            [])
+        data.setdefault("acteurs_certitude",  [])
         data.setdefault("personnages",        [])
         data.setdefault("objets_importants",  [])
         data.setdefault("description_courte", "")
@@ -231,16 +256,21 @@ async def _call_gemini(
         data.setdefault("langue_originale",   "")
         data.setdefault("indices_visuels",    [])
 
-        acteurs = data.get("acteurs", [])
-        titres  = data.get("titres_possibles", [])
+        # Normaliser acteurs_certitude (aligner avec acteurs, compléter à 50)
+        data = _normalize_acteurs_certitude(data, default_certitude=50)
+
+        acteurs    = data.get("acteurs", [])
+        certitudes = data.get("acteurs_certitude", [])
+        titres     = data.get("titres_possibles", [])
+
         print(
             f"✅ Gemini OK ({model_name}, {len(text)} chars) — "
-            f"acteurs={acteurs}, titres={titres}",
+            f"acteurs={list(zip(acteurs, certitudes))}, titres={titres}",
             flush=True
         )
         print(
             f"🔍 titres={titres}, "
-            f"acteurs={acteurs}, "
+            f"acteurs={acteurs}, certitudes={certitudes}, "
             f"indices={data.get('indices_visuels')}, "
             f"desc={str(data.get('description_courte', ''))[:100]}",
             flush=True
@@ -262,28 +292,18 @@ async def _call_gemini(
 
 
 # ════════════════════════════════════════════════════════════════
-# EXTRACTION YOUTUBE DIRECTE (sans téléchargement)
-# ════════════════════════════════════════════════════════════════
-# ════════════════════════════════════════════════════════════════
-# EXTRACTION DIRECTE VIA URL (sans téléchargement)
-# Gemini supporte nativement : YouTube (Shorts, longs, lives),
-# et peut fetcher les URLs publiques d'autres plateformes.
+# EXTRACTION YOUTUBE/URL DIRECTE (sans téléchargement)
 # ════════════════════════════════════════════════════════════════
 
-# Plateformes où Gemini accepte le file_uri YouTube natif
 _YOUTUBE_DOMAINS = re.compile(r"youtube\.com|youtu\.be", re.IGNORECASE)
+
 
 async def _extract_gemini_url_direct(video_url: str) -> dict | None:
     """
     Envoie une URL vidéo directement à Gemini sans téléchargement.
-
-    - YouTube (Shorts, vidéos longues, playlists, lives) : Gemini accède
-      nativement via file_data file_uri.
-    - Autres plateformes publiques : même mécanisme, Gemini tente de fetcher.
-      Fonctionne pour Instagram Reels publics, Facebook Watch, Dailymotion,
-      Vimeo, Reddit video, Twitter/X, Bilibili.
-      Échoue silencieusement si la plateforme bloque → retourne None
-      → le caller doit fallback sur le pipeline download.
+    Gemini supporte nativement YouTube via file_data file_uri.
+    Pour les autres plateformes publiques, tente de fetcher l'URL.
+    Retourne None si la plateforme bloque → le caller fait fallback download.
     """
     if not GEMINI_API_KEY:
         return None
@@ -296,6 +316,9 @@ async def _extract_gemini_url_direct(video_url: str) -> dict | None:
             "(Analyse cette vidéo directement. "
             "Extrais tous les dialogues audibles, textes visibles à l'écran, "
             "noms d'acteurs reconnaissables, et tout titre apparent. "
+            "IMPORTANT pour les acteurs : ne liste un acteur QUE si tu le reconnais "
+            "formellement avec une certitude ≥ 70%. Si le visage n'est pas clairement "
+            "visible ou si tu n'es pas certain, laisse acteurs=[] et acteurs_certitude=[]. "
             "Pour YouTube : utilise aussi les sous-titres automatiques si disponibles.)"
         ),
     )
@@ -338,7 +361,6 @@ async def _extract_gemini_url_direct(video_url: str) -> dict | None:
             print(f"⚠️ Gemini direct bloqué ({finish}): {video_url[:50]}", flush=True)
             return None
 
-        # INVALID_ARGUMENT ou erreur HTTP 400 = plateforme non supportée par Gemini
         text = (
             candidate
             .get("content", {})
@@ -356,6 +378,7 @@ async def _extract_gemini_url_direct(video_url: str) -> dict | None:
         data["source"] = "gemini_url_direct"
         data.setdefault("titres_possibles",   [])
         data.setdefault("acteurs",            [])
+        data.setdefault("acteurs_certitude",  [])
         data.setdefault("personnages",        [])
         data.setdefault("objets_importants",  [])
         data.setdefault("description_courte", "")
@@ -364,16 +387,22 @@ async def _extract_gemini_url_direct(video_url: str) -> dict | None:
         data.setdefault("langue_originale",   "")
         data.setdefault("indices_visuels",    [])
 
+        # Source fiable → seuil plus généreux (75 au lieu de 50)
+        # Gemini a vu la vidéo entière avec audio
+        data = _normalize_acteurs_certitude(data, default_certitude=75)
+
+        acteurs    = data.get("acteurs", [])
+        certitudes = data.get("acteurs_certitude", [])
+
         print(
             f"✅ Gemini direct OK ({platform_tag}) — "
             f"titres={data.get('titres_possibles')}, "
-            f"acteurs={data.get('acteurs')}",
+            f"acteurs={list(zip(acteurs, certitudes))}",
             flush=True
         )
         return data
 
     except httpx.HTTPStatusError as e:
-        # 400 = URL non supportée par Gemini (Instagram privé, plateforme bloquée...)
         print(
             f"⚠️ Gemini direct HTTP {e.response.status_code} "
             f"pour {video_url[:50]} → fallback pipeline",
@@ -388,13 +417,15 @@ async def _extract_gemini_url_direct(video_url: str) -> dict | None:
         return None
 
 
-# Garde la fonction YouTube pour compatibilité avec les imports existants
+# Alias pour compatibilité avec les imports existants dans app.py
 async def _extract_gemini_youtube(youtube_url: str) -> dict | None:
     return await _extract_gemini_url_direct(youtube_url)
+
 
 # ════════════════════════════════════════════════════════════════
 # EXTRACTION PRINCIPALE (frames + OCR + transcript)
 # ════════════════════════════════════════════════════════════════
+
 async def _extract_gemini_vision(
     frames: list,
     ocr_text: str,
@@ -442,6 +473,8 @@ async def _extract_gemini_vision(
                 "cherche si un nom correspondant est mentionné dans la transcription. "
                 "Si la transcription cite un titre ou un nom propre, vérifie si tu le vois "
                 "aussi visuellement. "
+                "RAPPEL : pour les acteurs, certitude ≥ 70% obligatoire. "
+                "Si doute → acteurs=[] acteurs_certitude=[]. "
                 "Si tu vois des caractères non-latins (japonais, coréen, chinois, arabe...) "
                 "sur une bannière ou générique, transcris-les EXACTEMENT dans titres_possibles. "
                 "Réponds UNIQUEMENT en JSON valide sur une seule ligne."
@@ -483,6 +516,7 @@ async def _extract_gemini_vision(
 # ════════════════════════════════════════════════════════════════
 # POINT D'ENTRÉE PRINCIPAL
 # ════════════════════════════════════════════════════════════════
+
 async def multimodal_extract(frames, ocr_text, transcript):
     ocr_text   = (ocr_text   or "").strip()
     transcript = (transcript or "").strip()

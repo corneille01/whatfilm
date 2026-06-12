@@ -116,10 +116,32 @@ RÈGLES STRICTES
      titres_possibles = ["Love, Death & Robots", "?Automated Customer Service"]
    → Tu reconnais "San Junipero" (Black Mirror S3E4) :
      titres_possibles = ["Black Mirror", "?San Junipero"]
-   → Tu reconnais un épisode de Twilight Zone :
-     titres_possibles = ["The Twilight Zone", "?<titre épisode>"]
 
-2. "acteurs" : Format "Prénom Nom". Uniquement si reconnu sur une image OU cité explicitement.
+2. "acteurs" et "acteurs_certitude" — RÈGLE ABSOLUE ANTI-HALLUCINATION :
+   Un acteur ne doit être listé QUE si tu le reconnais avec une certitude ≥ 70%.
+
+   Pour chaque acteur listé dans "acteurs", tu DOIS fournir un score de certitude
+   dans "acteurs_certitude" (même index, même ordre) :
+   - 90-100 : visage net, bien éclairé, reconnaissable sans AUCUN doute
+   - 70-89  : reconnaissable mais angle ou éclairage imparfait
+   - 50-69  : ressemblance forte mais incertain → NE PAS lister
+   - <50    : simple impression → NE PAS lister
+
+   INTERDICTIONS ABSOLUES :
+   - JAMAIS deviner depuis un profil de dos, flou, partiellement visible
+   - JAMAIS inférer depuis le style du film, le genre, la nationalité
+   - JAMAIS "compléter" avec un acteur probable si non certain à 70%+
+   - JAMAIS lister un acteur parce qu'il "ressemble" à quelqu'un
+   - Si doute → acteurs=[] et acteurs_certitude=[]
+   - Un acteur incertain détruit la recherche → vaut MOINS que zéro
+
+   Format : "Prénom Nom"
+   Exemple correct :
+     acteurs=["Brad Pitt", "Angelina Jolie"]
+     acteurs_certitude=[95, 72]
+   Exemple si incertain :
+     acteurs=[]
+     acteurs_certitude=[]
 
 3. "personnages" : noms de personnages vus à l'écran ou cités dans les dialogues/commentaires.
 
@@ -143,7 +165,7 @@ NE JAMAIS inventer. Un champ vide vaut mieux qu'une donnée fausse.
 Sois ULTRA-CONCIS sur tous les champs texte pour éviter la troncature JSON.
 
 Réponds UNIQUEMENT avec ce JSON valide sur une seule ligne, sans markdown ni explication :
-{{"titres_possibles":[],"acteurs":[],"personnages":[],"objets_importants":[],"description_courte":"","genre_apparent":"","annee_estimee":null,"langue_originale":"","indices_visuels":[]}}"""
+{{"titres_possibles":[],"acteurs":[],"acteurs_certitude":[],"personnages":[],"objets_importants":[],"description_courte":"","genre_apparent":"","annee_estimee":null,"langue_originale":"","indices_visuels":[]}}"""
 
 
 RERANK_PROMPT = """Tu es un expert en identification de films et séries TV du monde entier.

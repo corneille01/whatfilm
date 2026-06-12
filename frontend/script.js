@@ -14,6 +14,27 @@ async function safeFetch(url, options = {}) {
 
 // ════ ÉTAT GLOBAL ════
 let currentLang = "fr";
+// Détection langue navigateur (ex: "fr-FR" → "fr", "en-US" → "en-US")
+function detectBrowserLang() {
+  const nav = navigator.language || navigator.userLanguage || "fr";
+  const code = nav.toLowerCase();
+  if (code.startsWith("en-gb")) return "en-GB";
+  if (code.startsWith("en"))    return "en-US";
+  if (code.startsWith("fr"))    return "fr";
+  if (code.startsWith("es"))    return "es";
+  if (code.startsWith("de"))    return "de";
+  if (code.startsWith("zh"))    return "zh";
+  return "fr"; // fallback
+}
+
+// Code court pour le backend (fr, en, es, de, zh)
+function getBrowserLangShort() {
+  const m = {
+    "en-US": "en", "en-GB": "en",
+    "fr": "fr", "es": "es", "de": "de", "zh": "zh"
+  };
+  return m[detectBrowserLang()] || "fr";
+}
 let lastGrid = null;
 let currentPage = 1;
 let currentGenreName = "";
@@ -511,7 +532,7 @@ async function analyserVideo(lien){
   let progInterval=setInterval(()=>{if(progress<88){progress+=Math.random()*8+3;if(progress>88)progress=88;if(progressBar)progressBar.style.width=progress+"%";if(percentLabel)percentLabel.textContent=Math.round(progress)+"%";}},900);
   analysisAbortController=new AbortController();const signal=analysisAbortController.signal;
   try{
-    const res=await fetch("/analyser",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:lien,lang:getTMDBLang()}),signal});
+    const res=await fetch("/analyser",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:lien,lang:getTMDBLang(),browser_lang: getBrowserLangShort()}),signal});
     if(!res.ok)throw new Error(`http_${res.status}`);
     let data;try{data=await res.json();}catch(e){throw new Error("json_parse");}
     if(data.status==="error"){clearInterval(progInterval);_adFinished=true;document.getElementById('ad-modal').style.display='none';clearInterval(_adCountdownInterval);overlay.classList.remove("active");stopGame();afficherErreurRiche(data);return;}
@@ -519,7 +540,7 @@ async function analyserVideo(lien){
       clearInterval(progInterval);
       const skipWhisper=data.skip_whisper===true;
       const[ocrText,transcript]=await Promise.allSettled([data.frames_base64?.length?runLocalOCR(data.frames_base64):Promise.resolve(""),(!skipWhisper&&data.audio_base64)?runLocalWhisper(data.audio_base64):Promise.resolve("")]);
-      const continueRes=await fetch("/analyser_continue",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:data.session_id,ocr_text:ocrText.status==="fulfilled"?ocrText.value:"",transcript:transcript.status==="fulfilled"?transcript.value:""}),signal});
+      const continueRes=await fetch("/analyser_continue",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:data.session_id,ocr_text:ocrText.status==="fulfilled"?ocrText.value:"",transcript:transcript.status==="fulfilled"?transcript.value:""}),browser_lang: getBrowserLangShort(),signal});
       let finalData;try{finalData=await continueRes.json();}catch(e){throw new Error("json_parse");}_afficherResultatFinal(finalData);return;
     }
     if(data.status==="processing"&&data.session_id){clearInterval(progInterval);const finalResult=await pollAnalysisStatus(data.session_id,signal);_afficherResultatFinal(finalResult);return;}

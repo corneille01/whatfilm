@@ -565,11 +565,63 @@ async def build_candidates_from_actors(
     extraction: dict,
     lang: str = "fr",
 ) -> list:
-    acteurs = extraction.get("acteurs", []) or []
+    """
+    Construit des candidats TMDB à partir des acteurs reconnus.
+
+    Filtre anti-hallucination :
+    - Utilise acteurs_certitude (auto-évaluation Gemini) pour rejeter
+      les acteurs dont la certitude est sous le seuil.
+    - Seuil 75 pour frames TikTok (source gemini_vision)
+    - Seuil 60 pour source fiable (gemini_url_direct, vidéo entière)
+    - credits[:30] → évite de rater les séries moins populaires
+    - filtre genre/année désactivé pour les genres génériques
+    """
+    acteurs    = extraction.get("acteurs",           []) or []
+    certitudes = extraction.get("acteurs_certitude", []) or []
+    source     = extraction.get("source",            "")
+
     if not acteurs:
         return []
 
-    acteurs = acteurs[:3]
+    # ── Seuil de certitude selon la source ───────────────────────
+    # Source fiable = Gemini a analysé la vidéo entière (YouTube, URL directe)
+    # → moins d'hallucinations → seuil plus bas
+    SOURCE_FIABLE = {"gemini_youtube_direct", "gemini_url_direct"}
+    seuil = 60 if source in SOURCE_FIABLE else 75
+
+    # Compléter les certitudes manquantes avec valeur conservative
+    default = 75 if source in SOURCE_FIABLE else 50
+    while len(certitudes) < len(acteurs):
+        certitudes.append(default)
+    certitudes = certitudes[:len(acteurs)]
+
+    # ── Filtre par certitude ──────────────────────────────────────
+    acteurs_valides = []
+    for acteur, certitude in zip(acteurs, certitudes):
+        certitude = int(certitude) if isinstance(certitude, (int, float)) else default
+        if certitude >= seuil:
+            acteurs_valides.append(acteur)
+            print(
+                f"✅ Acteur accepté: '{acteur}' "
+                f"(certitude={certitude}>={seuil}, source={source!r})",
+                flush=True
+            )
+        else:
+            print(
+                f"⚠️ Acteur rejeté — hallucination probable: '{acteur}' "
+                f"(certitude={certitude}<{seuil}, source={source!r})",
+                flush=True
+            )
+
+    if not acteurs_valides:
+        print(
+            f"⚠️ Aucun acteur fiable → skip recherche par acteurs. "
+            f"Acteurs originaux: {list(zip(acteurs, certitudes))}",
+            flush=True
+        )
+        return []
+
+    acteurs = acteurs_valides[:3]
     all_credits: list[list[dict]] = []
 
     for nom in acteurs:
@@ -642,8 +694,6 @@ async def build_candidates_from_actors(
 
     print(f"✅ Candidats via acteurs: {len(merged[:20])}", flush=True)
     return merged[:20]
-
-
 # ════════════════════════════════════════════════════════════════
 # HELPERS PRIVÉS
 # ════════════════════════════════════════════════════════════════

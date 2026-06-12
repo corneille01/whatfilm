@@ -711,6 +711,7 @@ async def process_analysis(
             extraction["detected_script"] = detected_script
         extraction["_transcript_raw"] = transcript or ""
 
+    # ── 3. Langue de la transcription ────────────────────────────
     transcript_lang = extraction.get("langue_originale") or None
     if not transcript_lang and detected_script != "latin":
         _script_to_lang = {
@@ -722,13 +723,55 @@ async def process_analysis(
         }
         transcript_lang = _script_to_lang.get(detected_script)
 
+    # ── 3b. Correction transcript_lang si titres en langue non-anglaise ──
+    # Gemini retourne parfois langue_originale="en" pour des films non-anglais
+    # quand la transcription contient des mots ambigus.
+    # Si browser_lang est une langue latine ET les titres Gemini contiennent
+    # des marqueurs de cette langue → forcer transcript_lang = browser_lang.
+    _LANG_MARKERS: dict[str, set[str]] = {
+        "fr": {"le", "la", "les", "des", "du", "une", "de", "et", "en",
+               "dans", "sur", "avec", "pour", "par", "au", "aux",
+               "peuple", "abysses", "nuit", "jour", "maison", "femme",
+               "homme", "enfant", "monde", "ville", "guerre", "amour"},
+        "es": {"el", "la", "los", "las", "del", "una", "de", "en",
+               "con", "por", "para", "que", "es", "un", "al"},
+        "de": {"der", "die", "das", "des", "dem", "den", "ein", "eine",
+               "und", "von", "mit", "auf", "für", "ist", "im"},
+        "it": {"il", "la", "lo", "gli", "le", "dei", "del", "della",
+               "una", "di", "in", "con", "per", "che", "si"},
+        "pt": {"o", "a", "os", "as", "do", "da", "dos", "das",
+               "um", "uma", "de", "em", "com", "por", "para"},
+    }
+
+    if (
+        transcript_lang in ("en", None)
+        and browser_lang in _LANG_MARKERS
+    ):
+        titres = extraction.get("titres_possibles", [])
+        desc   = (extraction.get("description_courte") or "").lower()
+        titres_text = " ".join(str(t).lstrip("?") for t in titres).lower()
+        all_text    = f"{titres_text} {desc}"
+        words       = set(re.findall(r'\b\w+\b', all_text))
+        markers     = _LANG_MARKERS[browser_lang]
+
+        # Seuil : au moins 2 marqueurs de la langue du navigateur dans les titres/desc
+        matched = words & markers
+        if len(matched) >= 2:
+            print(
+                f"🌍 Titres/desc en '{browser_lang}' détectés "
+                f"(marqueurs: {matched}) malgré transcript_lang={transcript_lang!r} "
+                f"→ forcer transcript_lang='{browser_lang}'",
+                flush=True
+            )
+            transcript_lang = browser_lang
+
     print(
         f"🌍 Langues — transcription={transcript_lang}, "
         f"navigateur={browser_lang}, interface={lang}",
         flush=True
     )
 
-    # ── 3. Cache niveau titre ────────────────────────────────────
+    # ── 4. Cache niveau titre ────────────────────────────────────
     for titre_candidat in extraction.get("titres_possibles", []):
         if str(titre_candidat).startswith("?"):
             continue
@@ -741,7 +784,7 @@ async def process_analysis(
     candidates = []
     result     = None
 
-    # ── 4. Recherche via acteurs ─────────────────────────────────
+    # ── 5. Recherche via acteurs ─────────────────────────────────
     actor_candidates = await build_candidates_from_actors(
         extraction, lang=transcript_lang or browser_lang or lang
     )
@@ -763,7 +806,7 @@ async def process_analysis(
                 flush=True
             )
 
-    # ── 5. Fallback : cascade TMDB multi-langue ──────────────────
+    # ── 6. Fallback : cascade TMDB multi-langue ──────────────────
     if not result:
         candidates = await run_cascade_search(
             extraction,
@@ -780,7 +823,7 @@ async def process_analysis(
                     "media_type":     candidates[0].get("media_type", "movie"),
                 }
 
-    # ── 5b. Wikidata fallback ─────────────────────────────────────
+    # ── 6b. Wikidata fallback ─────────────────────────────────────
     current_score = result.get("score", 0) if result else 0
     if should_trigger_wikidata(current_score, extraction, ocr_text or ""):
         print("🌐 Déclenchement Wikidata fallback...", flush=True)
@@ -808,7 +851,7 @@ async def process_analysis(
                 candidates    = merged_wd
                 current_score = wd_result.get("score", 0)
 
-    # ── 5c. Web search fallback ───────────────────────────────────
+    # ── 6c. Web search fallback ───────────────────────────────────
     if should_trigger_web_fallback(current_score, candidates, extraction, ocr_text or ""):
         print("🌐 Déclenchement web search fallback...", flush=True)
         web_candidates = await web_search_fallback(
@@ -856,7 +899,7 @@ async def process_analysis(
             "media_type":     candidates[0].get("media_type", "movie"),
         }
 
-    # ── 6. Score de confiance ────────────────────────────────────
+    # ── 7. Score de confiance ────────────────────────────────────
     confidence = result.get("score", 0)
 
     if confidence >= 30 and result.get("id"):
@@ -878,7 +921,7 @@ async def process_analysis(
         set_cache(url, low_conf, transcript=transcript or "", ocr_text=ocr_text or "")
         return low_conf
 
-    # ── 7. Détails TMDB ──────────────────────────────────────────
+    # ── 8. Détails TMDB ──────────────────────────────────────────
     movie_id       = result["id"]
     effective_type = result.get("media_type", "movie")
 
@@ -978,6 +1021,9 @@ async def process_analysis(
         set_cache(url, final, transcript=transcript or "", ocr_text=ocr_text or "")
 
     return final
+
+
+
 # ════════════════════════════════════════════════════════════════
 # ROUTES PUBLIQUES
 # ════════════════════════════════════════════════════════════════
