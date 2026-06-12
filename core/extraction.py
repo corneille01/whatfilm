@@ -8,8 +8,12 @@ Cascade :
 
 Fix v5 :
   - acteurs_certitude : nouveau champ JSON retourné par Gemini
-    permettant de filtrer les hallucinations d'acteurs
   - Normalisation acteurs_certitude dans _call_gemini et _extract_gemini_url_direct
+
+Fix v6 :
+  - _try_parse_partial_json : récupère les champs utiles d'un JSON tronqué
+  - Quand MAX_TOKENS détecté, tente le parse partiel avant de fallback
+  - Si partiel contient titres/acteurs → utilisé directement sans appel Lite
 """
 import json
 import os
@@ -56,6 +60,50 @@ def _clean_json_fences(text: str) -> str:
     return text
 
 
+def _try_parse_partial_json(text: str) -> dict | None:
+    """
+    Tente d'extraire les champs déjà complets d'un JSON tronqué (MAX_TOKENS).
+    Stratégie : regex champ par champ sur le texte brut.
+    Retourne un dict partiel ou None si rien d'utile trouvé.
+    """
+    result = {}
+
+    patterns = {
+        "titres_possibles":   r'"titres_possibles"\s*:\s*(\[[^\]]*\])',
+        "acteurs":            r'"acteurs"\s*:\s*(\[[^\]]*\])',
+        "acteurs_certitude":  r'"acteurs_certitude"\s*:\s*(\[[^\]]*\])',
+        "personnages":        r'"personnages"\s*:\s*(\[[^\]]*\])',
+        "objets_importants":  r'"objets_importants"\s*:\s*(\[[^\]]*\])',
+        "indices_visuels":    r'"indices_visuels"\s*:\s*(\[[^\]]*\])',
+        "genre_apparent":     r'"genre_apparent"\s*:\s*"([^"]*)"',
+        "langue_originale":   r'"langue_originale"\s*:\s*"([^"]*)"',
+        "annee_estimee":      r'"annee_estimee"\s*:\s*(\d+|null)',
+        "description_courte": r'"description_courte"\s*:\s*"([^"]*)"',
+    }
+
+    array_fields = {
+        "titres_possibles", "acteurs", "acteurs_certitude",
+        "personnages", "objets_importants", "indices_visuels",
+    }
+
+    for field, pattern in patterns.items():
+        m = re.search(pattern, text)
+        if not m:
+            continue
+        raw = m.group(1)
+        try:
+            if field in array_fields:
+                result[field] = json.loads(raw)
+            elif field == "annee_estimee":
+                result[field] = None if raw == "null" else int(raw)
+            else:
+                result[field] = raw
+        except Exception:
+            pass
+
+    return result if result else None
+
+
 def _minimal_fallback(source: str) -> dict:
     return {
         "titres_possibles":   [],
@@ -89,14 +137,10 @@ def _normalize_acteurs_certitude(data: dict, default_certitude: int = 50) -> dic
     acteurs    = data.get("acteurs", []) or []
     certitudes = data.get("acteurs_certitude", []) or []
 
-    # Compléter si trop court
     while len(certitudes) < len(acteurs):
         certitudes.append(default_certitude)
 
-    # Tronquer si trop long
     certitudes = certitudes[:len(acteurs)]
-
-    # S'assurer que ce sont des entiers
     certitudes = [
         int(c) if isinstance(c, (int, float)) else default_certitude
         for c in certitudes
@@ -191,6 +235,7 @@ async def _call_gemini(
 ) -> dict | None:
     """
     Appel générique Gemini. Retourne le dict parsé ou None.
+    En cas de MAX_TOKENS, tente un parse partiel avant de retourner None.
     """
     model_name = url.split("/models/")[1].split(":")[0]
 
@@ -218,10 +263,6 @@ async def _call_gemini(
             print(f"⚠️ Gemini ({model_name}) bloqué : {finish_reason}", flush=True)
             return None
 
-        if finish_reason == "MAX_TOKENS":
-            print(f"⚠️ Gemini ({model_name}) : réponse tronquée (MAX_TOKENS) "
-                  f"— tentative de parse partiel", flush=True)
-
         text = (
             candidate
             .get("content", {})
@@ -233,17 +274,52 @@ async def _call_gemini(
             print(f"⚠️ Gemini ({model_name}) : réponse vide", flush=True)
             return None
 
-        text = _clean_json_fences(text)
+        # ── Tentative parse normal ────────────────────────────────
+        if finish_reason != "MAX_TOKENS":
+            clean = _clean_json_fences(text)
+            try:
+                data = json.loads(clean)
+            except json.JSONDecodeError as e:
+                print(
+                    f"⚠️ Gemini ({model_name}) JSON invalide : {str(e)[:80]}",
+                    flush=True
+                )
+                print(f"   Texte reçu : {text[:200]}", flush=True)
+                return None
+        else:
+            # ── MAX_TOKENS : parse partiel ────────────────────────
+            print(
+                f"⚠️ Gemini ({model_name}) : réponse tronquée (MAX_TOKENS) "
+                f"— tentative parse partiel",
+                flush=True
+            )
+            # Essai 1 : parse normal quand même (parfois le JSON est complet)
+            clean = _clean_json_fences(text)
+            try:
+                data = json.loads(clean)
+                print(f"✅ JSON complet malgré MAX_TOKENS ({model_name})", flush=True)
+            except json.JSONDecodeError:
+                # Essai 2 : parse partiel champ par champ
+                partial = _try_parse_partial_json(text)
+                if partial and (
+                    partial.get("titres_possibles") or partial.get("acteurs")
+                ):
+                    print(
+                        f"✅ Parse partiel ({model_name}) — "
+                        f"titres={partial.get('titres_possibles')}, "
+                        f"acteurs={partial.get('acteurs')}",
+                        flush=True
+                    )
+                    data = partial
+                else:
+                    print(
+                        f"⚠️ Parse partiel ({model_name}) : rien d'utile "
+                        f"→ fallback modèle suivant",
+                        flush=True
+                    )
+                    return None
 
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError as e:
-            print(f"⚠️ Gemini ({model_name}) JSON invalide : {str(e)[:80]}",
-                  flush=True)
-            print(f"   Texte reçu : {text[:200]}", flush=True)
-            return None
-
-        # Normaliser les champs manquants
+        # ── Normalisation des champs ──────────────────────────────
         data["source"] = "gemini_vision"
         data.setdefault("titres_possibles",   [])
         data.setdefault("acteurs",            [])
@@ -256,7 +332,6 @@ async def _call_gemini(
         data.setdefault("langue_originale",   "")
         data.setdefault("indices_visuels",    [])
 
-        # Normaliser acteurs_certitude (aligner avec acteurs, compléter à 50)
         data = _normalize_acteurs_certitude(data, default_certitude=50)
 
         acteurs    = data.get("acteurs", [])
@@ -303,7 +378,7 @@ async def _extract_gemini_url_direct(video_url: str) -> dict | None:
     Envoie une URL vidéo directement à Gemini sans téléchargement.
     Gemini supporte nativement YouTube via file_data file_uri.
     Pour les autres plateformes publiques, tente de fetcher l'URL.
-    Retourne None si la plateforme bloque → le caller fait fallback download.
+    Retourne None si la plateforme bloque → fallback download.
     """
     if not GEMINI_API_KEY:
         return None
@@ -387,8 +462,7 @@ async def _extract_gemini_url_direct(video_url: str) -> dict | None:
         data.setdefault("langue_originale",   "")
         data.setdefault("indices_visuels",    [])
 
-        # Source fiable → seuil plus généreux (75 au lieu de 50)
-        # Gemini a vu la vidéo entière avec audio
+        # Source fiable → seuil plus généreux (75 par défaut)
         data = _normalize_acteurs_certitude(data, default_certitude=75)
 
         acteurs    = data.get("acteurs", [])

@@ -279,32 +279,41 @@ async def _rerank_gemini(extraction: dict, candidates: list) -> dict | None:
         ),
     )
 
+    # Forcer le JSON dans le contenu user (system_instruction ignoré parfois)
+    forced_prompt = (
+        "INSTRUCTION ABSOLUE : réponds UNIQUEMENT avec un objet JSON minifié "
+        "sur UNE SEULE LIGNE. AUCUN texte avant ou après. AUCUN markdown. "
+        "Format exact : "
+        '{"id":123,"meilleur_titre":"Titre","score":75,"raison":"courte"}\n\n'
+        + prompt
+    )
+
     text = None
     try:
         async with httpx.AsyncClient(timeout=25) as client:
             resp = await client.post(
                 f"{GEMINI_URL}?key={GEMINI_API_KEY}",
                 json={
-    "contents": [
-        {
-            "role": "user",
-            "parts": [{
-                "text": (
-                    "INSTRUCTION ABSOLUE : réponds UNIQUEMENT avec un objet JSON "
-                    "minifié sur une seule ligne. AUCUN texte avant ou après. "
-                    "Format exact : "
-                    '{"id":123,"meilleur_titre":"Titre","score":75,"raison":"courte"}\n\n'
-                    + prompt
-                )
-            }]
-        }
-    ],
-    "generationConfig": {
-        "temperature":      0.0,
-        "maxOutputTokens":  150,
-        "responseMimeType": "application/json",
-    },
-},
+                    "system_instruction": {
+                        "parts": [{
+                            "text": (
+                                "Tu es un expert en cinéma et séries TV du monde entier. "
+                                "Réponds UNIQUEMENT avec un objet JSON minifié sur une seule ligne. "
+                                "AUCUN texte avant ou après le JSON. AUCUN markdown. "
+                                "Format exact attendu : "
+                                '{"id":123,"meilleur_titre":"Titre","score":75,"raison":"courte"}'
+                            )
+                        }]
+                    },
+                    "contents": [
+                        {"role": "user", "parts": [{"text": forced_prompt}]}
+                    ],
+                    "generationConfig": {
+                        "temperature":      0.0,
+                        "maxOutputTokens":  150,
+                        "responseMimeType": "application/json",
+                    },
+                },
             )
             resp.raise_for_status()
 
@@ -335,6 +344,7 @@ async def _rerank_gemini(extraction: dict, candidates: list) -> dict | None:
     except Exception as e:
         print(f"⚠️ Rerank Gemini KO: {str(e)[:120]}", flush=True)
         return None
+
 # ════════════════════════════════════════════════════════════════
 # POINT D'ENTRÉE PRINCIPAL
 # ════════════════════════════════════════════════════════════════
