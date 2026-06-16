@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes"
     />
-    <title>🎬 SHETTER — Trouve le film d'un TikTok ou Reel en secondes</title>
+    <title>Trouver le film d'un TikTok, Reel ou Short — Pelify</title>
     <meta
       name="description"
       content="Colle un lien TikTok, Instagram Reels ou YouTube Shorts et notre IA identifie le film instantanément. Gratuit, disponible en 5 langues. Le Shazam des films vidéos."
@@ -16,6 +16,11 @@
       content="trouver film tiktok, identifier film reel, quel film dans cette vidéo, movie finder bot, shazam pour films, find movie from tiktok, which movie is this, film identifier instagram, reconnaître film video, anime identifier, series identifier tiktok"
     />
     <meta name="author" content="Pelify" />
+    <meta name="theme-color" content="#0d0d14" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎬%3C/text%3E%3C/svg%3E"
+    />
     <meta
       name="robots"
       content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"
@@ -56,7 +61,11 @@
     />
     <meta
       name="twitter:description"
-      content="Paste a TikTok or Reel link — AI identifies the movie in seconds. Free. Works worldwide."
+      content="Paste a TikTok or Reel link — We identify the movie in seconds. Free. Works worldwide."
+    />
+    <meta
+      name="description"
+      content="Colle un lien TikTok, Reel ou YouTube Shorts : Nous identifions le film ou l'animée en secondes et te dit où le voir en streaming. Gratuit, 5 langues."
     />
     <meta
       name="twitter:image"
@@ -114,6 +123,21 @@
             "inLanguage": ["fr", "en", "es", "de", "zh"]
           },
           {
+            "@type": "WebSite",
+            "@id": "https://pelify.app/#website",
+            "url": "https://pelify.app/",
+            "name": "Pelify",
+            "inLanguage": "fr",
+            "potentialAction": {
+              "@type": "SearchAction",
+              "target": {
+                "@type": "EntryPoint",
+                "urlTemplate": "https://pelify.app/?q={search_term_string}"
+              },
+              "query-input": "required name=search_term_string"
+            }
+          },
+          {
             "@type": "Organization",
             "@id": "https://pelify.app/#org",
             "name": "Pelify",
@@ -142,13 +166,19 @@
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
     /></noscript>
     <!-- Bibliothèques locales -->
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"
+      defer
+    ></script>
     <!-- Ant Path pour tracés animés isochrone -->
     <script
       src="https://unpkg.com/leaflet-ant-path@1.3.0/dist/leaflet-ant-path.js"
       defer
     ></script>
-    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"
+      defer
+    ></script>
     <script type="module">
       import {
         pipeline,

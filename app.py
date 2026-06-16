@@ -1221,15 +1221,39 @@ async def get_cache_stats():
 @app.get("/sitemap.xml")
 async def sitemap():
     base = "https://pelify.app"
-    urls = [f"{base}/", f"{base}/fr", f"{base}/en",
-            f"{base}/es", f"{base}/de", f"{base}/zh"]
-    xml  = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    genres = ["horror","action","comedy","science-fiction","romance",
+              "animation","thriller","drama","crime","documentary","fantasy","family"]
+    providers = ["netflix","amazon","disney","apple","paramount","hulu"]
+    langs = ["fr","en","es","de","zh"]
+
+    urls = [f"{base}/"]
+    urls += [f"{base}/{l}" for l in langs]
+    urls += [f"{base}/genre/{g}" for g in genres]
+    urls += [f"{base}/plateforme/{p}" for p in providers]
+    urls += [f"{base}/series", f"{base}/lieux-de-tournage"]
+
+    try:
+        cat = getattr(filming_catalogue, "_CATALOGUE", None) \
+              or getattr(filming_catalogue, "CATALOGUE", None) or []
+        seen = set()
+        for film in cat:
+            fid = film.get("tmdb_id")
+            if not fid or fid in seen:
+                continue
+            seen.add(fid)
+            slug = re.sub(r"[^a-z0-9]+", "-", (film.get("title") or "").lower()).strip("-")
+            urls.append(f"{base}/film/{fid}" + (f"/{slug}" if slug else ""))
+            if len(seen) >= 5000:
+                break
+    except Exception as e:
+        print(f"⚠️ sitemap films: {e}", flush=True)
+
+    xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
     xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
     for u in urls:
         xml += f"  <url><loc>{u}</loc></url>\n"
     xml += "</urlset>"
-    return HTMLResponse(content=xml, media_type="application/xml")
-
+    return Response(content=xml, media_type="application/xml")
 @app.get("/robots.txt")
 async def robots():
     return PlainTextResponse(
@@ -1244,6 +1268,32 @@ async def index():
 @app.get("/health")
 async def health():
     return Response(status_code=200)
+
+
+
+@app.get("/genre/{genre_name}")
+async def page_genre(genre_name: str):
+    return FileResponse("frontend/index.html")
+
+@app.get("/plateforme/{provider_key}")
+async def page_plateforme(provider_key: str):
+    return FileResponse("frontend/index.html")
+
+@app.get("/film/{film_id}")
+async def page_film(film_id: int):
+    return FileResponse("frontend/index.html")
+
+@app.get("/film/{film_id}/{slug}")
+async def page_film_slug(film_id: int, slug: str):
+    return FileResponse("frontend/index.html")
+
+@app.get("/series")
+async def page_series():
+    return FileResponse("frontend/index.html")
+
+@app.get("/lieux-de-tournage")
+async def page_lieux():
+    return FileResponse("frontend/index.html")
 
 @app.get("/{lang}")
 async def page_multilingue(lang: str):

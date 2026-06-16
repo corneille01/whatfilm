@@ -322,7 +322,7 @@ const STREAMING_META = {
 };
 const STREAMING_LINKS = {
   Netflix:"https://www.netflix.com/search?q=",
- "Amazon Prime Video":"https://www.amazon.fr/gp/video/search?tag=pelify-21&phrase=",
+ "Amazon Prime Video":"https://www.amazon.fr/s?i=instant-video&tag=pelify-21&k=",
   "Disney+":"https://www.disneyplus.com/search/",
   "Apple TV+":"https://tv.apple.com/search?term=",
   "Canal+":"https://www.canalplus.com/recherche/",
@@ -390,26 +390,26 @@ function genererNav(){
   const nav=document.getElementById("genre-nav");
   const g=dict[currentLang]?.genres||dict.fr.genres;
   const ld=dict[currentLang]||dict.fr;
-  nav.innerHTML=`
-    <a class="btn-genre" onclick="chargerGenre('horror')"><i class="fas fa-ghost"></i> ${g.horror}</a>
-    <a class="btn-genre" onclick="chargerGenre('action')"><i class="fas fa-fire"></i> ${g.action}</a>
-    <a class="btn-genre" onclick="chargerGenre('comedy')"><i class="fas fa-laugh"></i> ${g.comedy}</a>
-    <a class="btn-genre" onclick="chargerGenre('science-fiction')"><i class="fas fa-robot"></i> ${g.scifi}</a>
-    <a class="btn-genre" onclick="chargerGenre('romance')"><i class="fas fa-heart"></i> ${g.romance}</a>
-    <a class="btn-genre" onclick="chargerGenre('animation')"><i class="fas fa-dragon"></i> ${g.animation}</a>
-    <a class="btn-genre" onclick="chargerGenre('thriller')"><i class="fas fa-eye"></i> ${g.thriller}</a>
-    <a class="btn-genre" onclick="chargerGenre('drama')"><i class="fas fa-theater-masks"></i> ${g.drama}</a>
-    <a class="btn-genre series" onclick="chargerSeries()"><i class="fas fa-tv"></i> ${g.series}</a>
-    <a class="btn-genre trending" onclick="chargerTrending()"><i class="fas fa-bolt"></i> ${g.trending}</a>
-    <a class="btn-genre filming" id="btn-genre-filming" onclick="chargerLieuxDeTournage()"><i class="fas fa-map-marker-alt"></i> ${ld.filming_btn||"📍 Lieux de tournage"}</a>`;
+nav.innerHTML=`
+    <a class="btn-genre" href="/genre/horror" onclick="chargerGenre('horror');return false;"><i class="fas fa-ghost"></i> ${g.horror}</a>
+    <a class="btn-genre" href="/genre/action" onclick="chargerGenre('action');return false;"><i class="fas fa-fire"></i> ${g.action}</a>
+    <a class="btn-genre" href="/genre/comedy" onclick="chargerGenre('comedy');return false;"><i class="fas fa-laugh"></i> ${g.comedy}</a>
+    <a class="btn-genre" href="/genre/science-fiction" onclick="chargerGenre('science-fiction');return false;"><i class="fas fa-robot"></i> ${g.scifi}</a>
+    <a class="btn-genre" href="/genre/romance" onclick="chargerGenre('romance');return false;"><i class="fas fa-heart"></i> ${g.romance}</a>
+    <a class="btn-genre" href="/genre/animation" onclick="chargerGenre('animation');return false;"><i class="fas fa-dragon"></i> ${g.animation}</a>
+    <a class="btn-genre" href="/genre/thriller" onclick="chargerGenre('thriller');return false;"><i class="fas fa-eye"></i> ${g.thriller}</a>
+    <a class="btn-genre" href="/genre/drama" onclick="chargerGenre('drama');return false;"><i class="fas fa-theater-masks"></i> ${g.drama}</a>
+    <a class="btn-genre series" href="/series" onclick="chargerSeries();return false;"><i class="fas fa-tv"></i> ${g.series}</a>
+    <a class="btn-genre trending" href="/" onclick="chargerTrending();return false;"><i class="fas fa-bolt"></i> ${g.trending}</a>
+    <a class="btn-genre filming" id="btn-genre-filming" href="/lieux-de-tournage" onclick="chargerLieuxDeTournage();return false;"><i class="fas fa-map-marker-alt"></i> ${ld.filming_btn||"📍 Lieux de tournage"}</a>`;
   const platNav=document.getElementById("platform-nav");
   platNav.innerHTML=`
-    <button class="btn-platform" onclick="chargerParPlateforme('netflix')" style="border-color:#e50914"><span class="plat-dot" style="background:#e50914"></span> Netflix</button>
-    <button class="btn-platform" onclick="chargerParPlateforme('amazon')" style="border-color:#00a8e0"><span class="plat-dot" style="background:#00a8e0"></span> Prime Video</button>
-    <button class="btn-platform" onclick="chargerParPlateforme('disney')" style="border-color:#113ccf"><span class="plat-dot" style="background:#113ccf"></span> Disney+</button>
-    <button class="btn-platform" onclick="chargerParPlateforme('apple')" style="border-color:#a2aaad"><span class="plat-dot" style="background:#a2aaad"></span> Apple TV+</button>
-    <button class="btn-platform" onclick="chargerParPlateforme('paramount')" style="border-color:#0064ff"><span class="plat-dot" style="background:#0064ff"></span> Paramount+</button>
-    <button class="btn-platform" onclick="chargerParPlateforme('hulu')" style="border-color:#1ce783"><span class="plat-dot" style="background:#1ce783"></span> Hulu</button>`;
+    <a class="btn-platform" href="/plateforme/netflix" onclick="chargerParPlateforme('netflix');return false;" style="border-color:#e50914"><span class="plat-dot" style="background:#e50914"></span> Netflix</a>
+    <a class="btn-platform" href="/plateforme/amazon" onclick="chargerParPlateforme('amazon');return false;" style="border-color:#00a8e0"><span class="plat-dot" style="background:#00a8e0"></span> Prime Video</a>
+    <a class="btn-platform" href="/plateforme/disney" onclick="chargerParPlateforme('disney');return false;" style="border-color:#113ccf"><span class="plat-dot" style="background:#113ccf"></span> Disney+</a>
+    <a class="btn-platform" href="/plateforme/apple" onclick="chargerParPlateforme('apple');return false;" style="border-color:#a2aaad"><span class="plat-dot" style="background:#a2aaad"></span> Apple TV+</a>
+    <a class="btn-platform" href="/plateforme/paramount" onclick="chargerParPlateforme('paramount');return false;" style="border-color:#0064ff"><span class="plat-dot" style="background:#0064ff"></span> Paramount+</a>
+    <a class="btn-platform" href="/plateforme/hulu" onclick="chargerParPlateforme('hulu');return false;" style="border-color:#1ce783"><span class="plat-dot" style="background:#1ce783"></span> Hulu</a>`;
 }
 function changerLangueManuellement(){
   const newLang=document.getElementById("lang-selector").value;
@@ -1634,12 +1634,12 @@ function afficherDetailFilm(data){
 }, 400);
   const streamEl=document.getElementById("streaming_section");
    if(_forceAmazonOnly){
-    const url=`https://www.amazon.fr/gp/video/search?phrase=${encodeURIComponent(data.title||"")}&tag=pelify-21`;
+    const url=`https://www.amazon.fr/s?k=${encodeURIComponent(data.title||"")}&i=instant-video&tag=pelify-21`;
     streamEl.innerHTML=`<h3><i class="fas fa-satellite-dish"></i> ${t("streaming_title")}</h3><div class="streaming-buttons"><a href="${url}" target="_blank" rel="sponsored noopener" class="btn-stream affiliate" style="border-color:#00a8e040"><i class="fas fa-play-circle" style="color:#00a8e0"></i> Amazon Prime Video</a></div>`;
   } else {
     const streamList=data.streaming||[],streamLogos=data.streaming_logos||[];
     if(streamList.length>0){const btns=streamList.map((name,i)=>{const base=STREAMING_LINKS[name]||"https://www.google.com/search?q=";const url=base+encodeURIComponent(data.title||"");const meta=STREAMING_META[name]||{color:"#fff",logo:""};const logoPath=streamLogos[i]?.logo_path;const logoSrc=logoPath?`https://image.tmdb.org/t/p/w45${logoPath}`:meta.logo||"";const aff=name.includes("Amazon")||name.includes("Apple");const logoHtml=logoSrc?`<img src="${logoSrc}" class="plat-logo" alt="${name}" onerror="this.style.display='none'">`:` <i class="fas fa-play-circle" style="color:${meta.color}"></i>`;return `<a href="${url}" target="_blank" rel="noopener" class="btn-stream ${aff?"affiliate":""}" style="border-color:${meta.color}40">${logoHtml} ${name}</a>`;}).join("");streamEl.innerHTML=`<h3><i class="fas fa-satellite-dish"></i> ${t("streaming_title")}</h3><div class="streaming-buttons">${btns}</div>`;}
-    else{streamEl.innerHTML=`<h3><i class="fas fa-satellite-dish"></i> Streaming</h3><p style="color:var(--muted);font-size:.85rem">${t("no_streaming_country")}</p><div class="streaming-buttons" style="margin-top:8px"><a href="https://www.amazon.fr/gp/video/search?phrase=${encodeURIComponent(data.title||"")}&tag=pelify-21" target="_blank" rel="sponsored noopener" class="btn-stream affiliate" style="border-color:#00a8e040"><i class="fas fa-search" style="color:#00a8e0"></i> Amazon Prime</a><a href="https://www.google.com/search?q=${encodeURIComponent((data.title||"")+" streaming")}" target="_blank" class="btn-stream"><i class="fab fa-google"></i> Google</a></div>`;}
+    else{streamEl.innerHTML=`<h3><i class="fas fa-satellite-dish"></i> Streaming</h3><p style="color:var(--muted);font-size:.85rem">${t("no_streaming_country")}</p><div class="streaming-buttons" style="margin-top:8px"><a href="https://www.amazon.fr/s?k=${encodeURIComponent(data.title||"")}&i=instant-video&tag=pelify-21" target="_blank" rel="sponsored noopener" class="btn-stream affiliate" style="border-color:#00a8e040"><i class="fas fa-search" style="color:#00a8e0"></i> Amazon Prime</a><a href="https://www.google.com/search?q=${encodeURIComponent((data.title||"")+" streaming")}" target="_blank" class="btn-stream"><i class="fab fa-google"></i> Google</a></div>`;}
   }
  
   const seasonsEl=document.getElementById("seasons_section");
@@ -1770,9 +1770,26 @@ function escapeHtml(str){if(!str)return"";return String(str).replace(/&/g,"&amp;
 // ════ INIT ════
 window.addEventListener("scroll",()=>{document.getElementById("back-top")?.classList.toggle("visible",window.scrollY>400);});
 
+
+function routerInit(){
+  const p = decodeURIComponent(location.pathname);
+  let m;
+  if ((m = p.match(/^\/genre\/([^\/]+)/)))      { chargerGenre(m[1]); return true; }
+  if ((m = p.match(/^\/plateforme\/([^\/]+)/))) { chargerParPlateforme(m[1]); return true; }
+  if ((m = p.match(/^\/film\/(\d+)/)))          { afficherDetails(parseInt(m[1]),"movie"); return true; }
+  if (p === "/series")                           { chargerSeries(); return true; }
+  if (p === "/lieux-de-tournage")                { chargerLieuxDeTournage(); return true; }
+  return false;
+}
+
+
+
+
 window.onload=()=>{
   initLang();
-  chargerTrending().then(()=>{document.getElementById("hero").style.display="block";document.getElementById("genre-nav").style.display="flex";});
+ if (!routerInit()) {
+    chargerTrending().then(()=>{document.getElementById("hero").style.display="block";document.getElementById("genre-nav").style.display="flex";});
+  }
   document.addEventListener("keydown",e=>{if(e.code==="Space"&&document.getElementById("loading-overlay")?.classList.contains("active")){e.preventDefault();gameJump();}});
 
   const gc=document.getElementById("game-canvas");
