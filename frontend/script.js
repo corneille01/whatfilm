@@ -12,6 +12,7 @@ async function safeFetch(url, options = {}) {
     return res.json();
 }
 
+
 // ════ ÉTAT GLOBAL ════
 let currentLang = "fr";
 // Détection langue navigateur (ex: "fr-FR" → "fr", "en-US" → "en-US")
@@ -44,6 +45,7 @@ let currentMovieId = null;
 let currentMediaType = "movie";
 let analysisAbortController = null;
 let navStack = [];
+let _forceAmazonOnly = false;
 
 // ════ ÉTAT GLOBAL FILMING ════
 let _filmingMap = null;
@@ -107,6 +109,7 @@ const dict = {
     err_file_too_large:"File too large. Try a shorter video.",
     err_video_blocked:"Video blocked for copyright reasons.",
     err_unsupported:"Unsupported platform or format.",
+    step1:"Paste a TikTok, Reel or Short link",step2:"AI analyses the video",step3:"Get the movie in seconds",cta:"Identify",hero_hint:"👆 Tap a card for details, streaming and similar movies.",
     genres:{horror:"Horror",action:"Action",comedy:"Comedy",scifi:"Sci-Fi",trending:"🔥 Trending",romance:"Romance",animation:"Animation",thriller:"Thriller",drama:"Drama",crime:"Crime",documentary:"Documentary",fantasy:"Fantasy",series:"📺 TV Series",family:"Family"}
   },
   "en-GB": {
@@ -145,6 +148,7 @@ const dict = {
     err_file_too_large:"File too large. Try a shorter video.",
     err_video_blocked:"Video blocked for copyright reasons.",
     err_unsupported:"Unsupported platform or format.",
+    step1:"Paste a TikTok, Reel or Short link",step2:"AI analyses the video",step3:"Get the movie in seconds",cta:"Identify",hero_hint:"👆 Tap a card for details, streaming and similar movies.",
     genres:{horror:"Horror",action:"Action",comedy:"Comedy",scifi:"Sci-Fi",trending:"🔥 Trending",romance:"Romance",animation:"Animation",thriller:"Thriller",drama:"Drama",crime:"Crime",documentary:"Documentary",fantasy:"Fantasy",series:"📺 TV Series",family:"Family"}
   },
   fr: {
@@ -183,6 +187,7 @@ const dict = {
     err_file_too_large:"Fichier trop volumineux. Essayez une vidéo plus courte.",
     err_video_blocked:"Vidéo bloquée pour droits d'auteur.",
     err_unsupported:"Plateforme ou format non supporté.",
+    step1:"Colle un lien TikTok, Reel ou Short",step2:"L'IA analyse la vidéo",step3:"Découvre le film en secondes",cta:"Identifier",hero_hint:"👆 Clique sur une carte pour voir les détails, le streaming et les films similaires.",
     genres:{horror:"Horreur",action:"Action",comedy:"Comédie",scifi:"Sci-Fi",trending:"🔥 Tendances",romance:"Romance",animation:"Animation",thriller:"Thriller",drama:"Drame",crime:"Crime",documentary:"Documentaire",fantasy:"Fantastique",series:"📺 Séries TV",family:"Famille"}
   },
   es: {
@@ -221,6 +226,7 @@ const dict = {
     err_file_too_large:"Archivo demasiado grande. Prueba con un video más corto.",
     err_video_blocked:"Video bloqueado por derechos de autor.",
     err_unsupported:"Plataforma o formato no compatible.",
+    step1:"Pega un enlace de TikTok o Reel",step2:"La IA analiza el vídeo",step3:"Descubre la película en segundos",cta:"Identificar",hero_hint:"👆 Toca una tarjeta para ver detalles, streaming y películas similares.",
     genres:{horror:"Terror",action:"Acción",comedy:"Comedia",scifi:"Ciencia Ficción",trending:"🔥 Tendencias",romance:"Romance",animation:"Animación",thriller:"Thriller",drama:"Drama",crime:"Crimen",documentary:"Documental",fantasy:"Fantasía",series:"📺 Series TV",family:"Familia"}
   },
   de: {
@@ -259,6 +265,7 @@ const dict = {
     err_file_too_large:"Datei zu groß. Versuche ein kürzeres Video.",
     err_video_blocked:"Video aus urheberrechtlichen Gründen gesperrt.",
     err_unsupported:"Nicht unterstützte Plattform oder Format.",
+    step1:"Füge einen TikTok- oder Reel-Link ein",step2:"Die KI analysiert das Video",step3:"Entdecke den Film in Sekunden",cta:"Identifizieren",hero_hint:"👆 Tippe auf eine Karte für Details, Streaming und ähnliche Filme.",
     genres:{horror:"Horror",action:"Action",comedy:"Komödie",scifi:"Science-Fiction",trending:"🔥 Trends",romance:"Romantik",animation:"Animation",thriller:"Thriller",drama:"Drama",crime:"Krimi",documentary:"Dokumentarfilm",fantasy:"Fantasy",series:"📺 TV-Serien",family:"Familie"}
   },
   zh: {
@@ -297,9 +304,13 @@ const dict = {
     err_file_too_large:"文件太大。请尝试较短的视频。",
     err_video_blocked:"视频因版权原因被屏蔽。",
     err_unsupported:"不支持的平台或格式。",
+    step1:"粘贴 TikTok 或 Reel 链接",step2:"AI 分析视频",step3:"几秒内找到电影",cta:"识别",hero_hint:"👆 点击卡片查看详情、播放平台和相似电影。",
     genres:{horror:"恐怖",action:"动作",comedy:"喜剧",scifi:"科幻",trending:"🔥 热门",romance:"爱情",animation:"动画",thriller:"惊悚",drama:"剧情",crime:"犯罪",documentary:"纪录片",fantasy:"奇幻",series:"📺 电视剧",family:"家庭"}
   }
 };
+
+
+
 
 // ════ CONFIG STREAMING ════
 const STREAMING_META = {
@@ -311,7 +322,7 @@ const STREAMING_META = {
 };
 const STREAMING_LINKS = {
   Netflix:"https://www.netflix.com/search?q=",
-  "Amazon Prime Video":"https://www.amazon.fr/gp/video/search?phrase=",
+ "Amazon Prime Video":"https://www.amazon.fr/gp/video/search?tag=pelify-21&phrase=",
   "Disney+":"https://www.disneyplus.com/search/",
   "Apple TV+":"https://tv.apple.com/search?term=",
   "Canal+":"https://www.canalplus.com/recherche/",
@@ -321,6 +332,25 @@ const STREAMING_LINKS = {
   Mubi:"https://mubi.com/search/",
   Hulu:"https://www.hulu.com/search?query="
 };
+// ════ CONFIG AFFILIATION ════
+const AFFILIATE_CONFIG = {
+  deliveroo:    { base: "https://deliveroo.fr",            aff_param: "" },
+  ubereats:     { base: "https://www.ubereats.com",        aff_param: "" },
+  doordash:     { base: "https://www.doordash.com",        aff_param: "" },
+  lieferando:   { base: "https://www.lieferando.de",       aff_param: "" },
+  glovo:        { base: "https://glovoapp.com",            aff_param: "" },
+  amazon_prime: { base: "https://www.amazon.fr/amazonprime", aff_param: "?tag=pelify-21" }, // → "?tag=TON_TAG-21" quand accepté
+};
+
+function getFoodLink(lang) {
+  const cfg = AFFILIATE_CONFIG;
+  if (lang === "fr")    return `${cfg.ubereats.base}${cfg.ubereats.aff_param}`;
+  if (lang === "en-GB") return `${cfg.deliveroo.base}${cfg.deliveroo.aff_param}`;
+  if (lang === "en-US") return `${cfg.doordash.base}${cfg.doordash.aff_param}`;
+  if (lang === "de")    return `${cfg.lieferando.base}${cfg.lieferando.aff_param}`;
+  if (lang === "es")    return `${cfg.glovo.base}${cfg.glovo.aff_param}`;
+  return `${cfg.ubereats.base}`;
+}
 
 // ════ UTILITAIRES LANGUE ════
 function getLangCode(){const m={"en-US":"en-US","en-GB":"en-GB",fr:"fr-FR",es:"es-ES",de:"de-DE",zh:"zh-CN"};return m[currentLang]||"fr-FR";}
@@ -346,6 +376,8 @@ function applyLang(){
   const ld=dict[currentLang]||dict.fr;
   document.querySelectorAll("[data-i18n]").forEach(el=>{const k=el.getAttribute("data-i18n");if(ld[k])el.textContent=ld[k];});
   const inp=document.getElementById("input_global");if(inp)inp.placeholder=ld.placeholder||"";
+  const heroInp=document.getElementById("hero-search-input");
+  if(heroInp)heroInp.placeholder=ld.placeholder||"";
   const optMap={pop:"sort_pop",note_desc:"sort_top",note_asc:"sort_asc",recent:"sort_new",ancien:"sort_old"};
   document.querySelectorAll("#filtre-tri option").forEach(opt=>{const k=optMap[opt.value];if(k&&ld[k])opt.textContent=ld[k];});
   const selNote=document.querySelector("#filtre-note option");if(selNote)selNote.textContent="⭐ "+(ld.min_score||"Note min");
@@ -444,8 +476,6 @@ function afficherErreurRiche(data){
   // ── Suite du code existant inchangé ─────────────────────────
   const d = dict[currentLang] || dict.fr;
   const code = data.code || "unexpected";
-  const d=dict[currentLang]||dict.fr;
-  const code=data.code||"unexpected";
   const msg=data.message||tErr(code);
   const searchQ=encodeURIComponent(document.getElementById("input_global").value.trim()||"");
   document.getElementById("loading-overlay").classList.remove("active");
@@ -472,6 +502,7 @@ function _hideAllPages(){
   });
 }
 function retourAccueil(){
+  _forceAmazonOnly = false;
   cacherErreur();_hideAllPages();
   document.getElementById("hero").style.display="block";
   document.getElementById("genre-nav").style.display="flex";
@@ -486,6 +517,7 @@ function hideHero(){document.getElementById("hero").style.display="none";documen
 
 // ════ RECHERCHE GLOBALE ════
 async function gererRechercheGlobal(){
+  _forceAmazonOnly = false;
   const input=document.getElementById("input_global").value.trim();
   if(!input)return;
   cacherErreur();
@@ -499,6 +531,15 @@ async function gererRechercheGlobal(){
     try{const data=await safeFetch(`/rechercher?query=${encodeURIComponent(input)}&lang=${getTMDBLang()}`);if(data.status==="error"){afficherErreur(data.message||t("err_generic"));return;}afficherResultatsRecherche(data,input);}
     catch(e){afficherErreur(t("err_generic")+" — "+e.message);}
   }
+}
+
+function rechercheHero(){
+  const el=document.getElementById("hero-search-input");
+  if(!el)return;
+  const v=el.value.trim();
+  if(!v)return;
+  document.getElementById("input_global").value=v;  // source unique
+  gererRechercheGlobal();
 }
 
 // ════ ANNULER ANALYSE ════
@@ -574,7 +615,7 @@ async function analyserVideo(lien){
   let progInterval=setInterval(()=>{if(progress<88){progress+=Math.random()*8+3;if(progress>88)progress=88;if(progressBar)progressBar.style.width=progress+"%";if(percentLabel)percentLabel.textContent=Math.round(progress)+"%";}},900);
   analysisAbortController=new AbortController();const signal=analysisAbortController.signal;
   try{
-    const res=await fetch("/analyser",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:lien,lang:getTMDBLang(),browser_lang: getBrowserLangShort()}),signal});
+   const res=await fetch("/analyser",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:lien,lang:getTMDBLang(),browser_lang:getBrowserLangShort()}),signal});
     if(!res.ok)throw new Error(`http_${res.status}`);
     let data;try{data=await res.json();}catch(e){throw new Error("json_parse");}
     if(data.status==="error"){clearInterval(progInterval);_adFinished=true;document.getElementById('ad-modal').style.display='none';clearInterval(_adCountdownInterval);overlay.classList.remove("active");stopGame();afficherErreurRiche(data);return;}
@@ -582,7 +623,7 @@ async function analyserVideo(lien){
       clearInterval(progInterval);
       const skipWhisper=data.skip_whisper===true;
       const[ocrText,transcript]=await Promise.allSettled([data.frames_base64?.length?runLocalOCR(data.frames_base64):Promise.resolve(""),(!skipWhisper&&data.audio_base64)?runLocalWhisper(data.audio_base64):Promise.resolve("")]);
-      const continueRes=await fetch("/analyser_continue",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:data.session_id,ocr_text:ocrText.status==="fulfilled"?ocrText.value:"",transcript:transcript.status==="fulfilled"?transcript.value:""}),browser_lang: getBrowserLangShort(),signal});
+      const continueRes=await fetch("/analyser_continue",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:data.session_id,ocr_text:ocrText.status==="fulfilled"?ocrText.value:"",transcript:transcript.status==="fulfilled"?transcript.value:"",browser_lang:getBrowserLangShort()}),signal});
       let finalData;try{finalData=await continueRes.json();}catch(e){throw new Error("json_parse");}_afficherResultatFinal(finalData);return;
     }
     if(data.status==="processing"&&data.session_id){clearInterval(progInterval);const finalResult=await pollAnalysisStatus(data.session_id,signal);_afficherResultatFinal(finalResult);return;}
@@ -595,7 +636,7 @@ async function analyserVideo(lien){
     else afficherErreurRiche({code:"unexpected",message:t("err_generic")});
   }
 }
-async function pollAnalysisStatus(sessionId,signal,maxRetries=60){
+async function pollAnalysisStatus(sessionId,signal,maxRetries=80){
   const progressBar=document.getElementById("prog-fill"),percentLabel=document.getElementById("prog-percent");let lastProgress=88;
   for(let i=0;i<maxRetries;i++){
     if(signal.aborted)throw new DOMException("Aborted","AbortError");
@@ -616,6 +657,7 @@ function base64ToBlob(base64,mimeType){const byteChars=atob(base64);const byteAr
 
 // ════ GENRES ════
 async function chargerGenre(genreName,page=1,mediaType="movie"){
+  _forceAmazonOnly = false;
   hideHero();cacherErreur();currentGenreName=genreName;currentPage=page;
   const cacheKey=`genre_${genreName}_${page}_${getTMDBLang()}`;const cached=getCached(cacheKey);
   document.querySelectorAll(".btn-genre").forEach(b=>b.classList.remove("active"));
@@ -631,6 +673,7 @@ async function chargerGenre(genreName,page=1,mediaType="movie"){
   catch(e){afficherVideGrid(`<i class="fas fa-wifi"></i> ${t("err_generic")}`);}
 }
 async function chargerSeries(page=1){
+  _forceAmazonOnly = false;
   hideHero();cacherErreur();currentGenreName="series";currentPage=page;
   document.querySelectorAll(".btn-genre").forEach(b=>b.classList.remove("active"));
   document.querySelector(".btn-genre.series")?.classList.add("active");
@@ -645,6 +688,7 @@ async function chargerSeries(page=1){
   catch(e){afficherVideGrid(t("err_generic"));}
 }
 async function chargerTrending(){
+  _forceAmazonOnly = false;
   hideHero();cacherErreur();currentGenreName="trending";
   const cacheKey=`trending_${getTMDBLang()}`;const cached=getCached(cacheKey);
   document.querySelectorAll(".btn-genre").forEach(b=>b.classList.remove("active"));
@@ -660,10 +704,13 @@ async function chargerTrending(){
   try{const data=await safeFetch(`/trending?lang=${getTMDBLang()}`);if(data.status==="success"){setCache(cacheKey,data.results);renderCards(data.results,"trending",1,1);}else afficherVideGrid(data.message||"Impossible de charger les tendances.");}
   catch(e){afficherVideGrid(t("err_generic"));}
 }
+
+
 async function chargerParPlateforme(platformKey){
   hideHero();cacherErreur();
   const nameMap={netflix:"NETFLIX",amazon:"PRIME VIDEO",disney:"DISNEY+",apple:"APPLE TV+",paramount:"PARAMOUNT+",hulu:"HULU"};
   currentGenreName=platformKey;
+  _forceAmazonOnly = (platformKey === "amazon");
   document.getElementById("page-film-detail").style.display="none";
   document.getElementById("filming-page").style.display="none";
   document.getElementById("genre-grid").style.display="block";
@@ -672,9 +719,14 @@ async function chargerParPlateforme(platformKey){
   document.querySelectorAll(".btn-platform").forEach(b=>b.classList.remove("active"));
   event?.currentTarget?.classList.add("active");
   lastGrid=platformKey;navStack=[];
-  try{const data=await safeFetch(`/trending?lang=${getTMDBLang()}`);if(data.status==="success")renderCards(data.results,platformKey,1,1);else afficherVideGrid(data.message||"Aucun résultat.");}
-  catch(e){afficherVideGrid(t("err_generic"));}
+  try{
+    const data=await safeFetch(`/discover-provider/${platformKey}?lang=${getTMDBLang()}&page=1`);
+    if(data.status==="success"&&data.results?.length)renderCards(data.results,platformKey,1,data.total_pages||1);
+    else afficherVideGrid(data.message||"Aucun résultat.");
+  }catch(e){afficherVideGrid(t("err_generic"));}
 }
+
+
 function afficherVideGrid(msg){document.getElementById("filtres-bar").style.display="none";document.getElementById("movie-cards").innerHTML=`<p style="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px">${msg}</p>`;}
 
 // ════ RENDER CARDS ════
@@ -754,6 +806,7 @@ function _clearTempLayers() {
 }
 
 async function chargerLieuxDeTournage(page=1){
+  _forceAmazonOnly = false;
   hideHero();cacherErreur();currentGenreName="filming";_filmingCurrentPage=page;
   document.getElementById("genre-grid").style.display="none";
   document.getElementById("page-film-detail").style.display="none";
@@ -1115,7 +1168,7 @@ function _updateFilmingMapMarkers(films){
             <button class="fmap-popup-btn btn-osm-action" data-type="transport" data-lat="${loc.lat}" data-lng="${loc.lng}">🚆 Transports</button>
             <button class="fmap-popup-btn btn-osm-action" data-type="isochrone" data-lat="${loc.lat}" data-lng="${loc.lng}">🚶 15 min</button>
           </div>
-          <a href="https://www.booking.com/searchresults.html?ss=${bookQ}&aid=SHADOWFRAME"
+          <a href="https://www.booking.com/searchresults.html?ss=${bookQ}&aid=Pelify"
              target="_blank" rel="sponsored noopener"
              class="fmap-popup-btn fmap-popup-booking"
              style="margin-top:6px;display:inline-flex;">🛏 Booking.com</a>
@@ -1217,7 +1270,7 @@ function _createFilmLocationMarker(loc,filmTitle,tmdbId,mediaType){
         <button class="fmap-popup-btn btn-osm-action" data-type="transport" data-lat="${loc.lat}" data-lng="${loc.lng}">🚆 Transports</button>
         <button class="fmap-popup-btn btn-osm-action" data-type="isochrone" data-lat="${loc.lat}" data-lng="${loc.lng}">🚶 15 min</button>
       </div>
-      <a href="https://www.booking.com/searchresults.html?ss=${bookQ}&aid=SHADOWFRAME"
+      <a href="https://www.booking.com/searchresults.html?ss=${bookQ}&aid=Pelify"
          target="_blank" rel="sponsored noopener"
          class="fmap-popup-btn fmap-popup-booking"
          style="margin-top:6px;display:inline-flex;">
@@ -1311,7 +1364,7 @@ function _applyAutoPOIs(elements, originLat, originLng) {
     _tempMapLayers.push(line);
 
     let bookLink = type==="hotel"
-      ? `<a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(name)}&aid=SHADOWFRAME" target="_blank" rel="sponsored noopener" class="fmap-popup-btn fmap-popup-booking" style="margin-top:5px;display:inline-flex;font-size:.62rem"><i class="fas fa-bed"></i> Booking</a>`
+      ? `<a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(name)}&aid=Pelify" target="_blank" rel="sponsored noopener" class="fmap-popup-btn fmap-popup-booking" style="margin-top:5px;display:inline-flex;font-size:.62rem"><i class="fas fa-bed"></i> Booking</a>`
       : "";
 
     marker.bindPopup(`<div class="fmap-popup-small" style="min-width:130px"><span style="font-size:.58rem;color:${color};text-transform:uppercase;font-weight:700">${type}</span><strong style="display:block;font-size:.8rem;margin:2px 0;color:var(--text)">${escapeHtml(name)}</strong><span style="font-size:.68rem;color:var(--muted)">~${dist}m</span>${bookLink}</div>`);
@@ -1383,7 +1436,7 @@ function _applyManualPOIs(elements,type,lat,lng,layer,color,icn){
     const dist=Math.round(_haversineM(lat,lng,el.lat,el.lon));
     const icon=L.divIcon({html:`<div style="background:#0d0d14;border:2px solid ${color};color:${color};width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.5)"><i class="fas ${icn}" style="font-size:10px"></i></div>`,className:"",iconSize:[26,26],iconAnchor:[13,13]});
     const marker=L.marker([el.lat,el.lon],{icon});
-    let bookLink=type==="hotel"?`<a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(name)}&aid=SHADOWFRAME" target="_blank" rel="sponsored noopener" class="fmap-popup-btn fmap-popup-booking" style="margin-top:5px;display:inline-flex;font-size:.62rem"><i class="fas fa-bed"></i> Booking</a>`:"";
+    let bookLink=type==="hotel"?`<a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(name)}&aid=Pelify" target="_blank" rel="sponsored noopener" class="fmap-popup-btn fmap-popup-booking" style="margin-top:5px;display:inline-flex;font-size:.62rem"><i class="fas fa-bed"></i> Booking</a>`:"";
     marker.bindPopup(`<div class="fmap-popup-small"><span style="font-size:.65rem;color:${color};text-transform:uppercase;font-weight:700">${type}</span><strong style="display:block;margin-top:2px;font-size:.85rem;color:var(--text)">${escapeHtml(name)}</strong><span style="font-size:.7rem;color:var(--muted)">~${dist}m</span>${bookLink}</div>`);
     layer.addLayer(marker);
   });
@@ -1427,7 +1480,7 @@ function _addMarkerToLayer(el,type,layer){
   const phone=tags.phone?`<div style="margin-top:4px;font-size:.75rem"><i class="fas fa-phone"></i> <a href="tel:${tags.phone}" style="color:${color}">${tags.phone}</a></div>`:"";
   const website=tags.website?`<div style="margin-top:4px;font-size:.75rem"><i class="fas fa-globe"></i> <a href="${tags.website}" target="_blank" style="color:${color}">Site web</a></div>`:"";
   let bookLink="";
-  if(type==="hotel"){const bookUrl=`https://www.booking.com/searchresults.html?ss=${encodeURIComponent(name)}&aid=SHADOWFRAME`;bookLink=`<div style="margin-top:8px"><a href="${bookUrl}" target="_blank" rel="sponsored noopener" class="fmap-popup-btn fmap-popup-booking"><i class="fas fa-bed"></i> Réserver</a></div>`;}
+  if(type==="hotel"){const bookUrl=`https://www.booking.com/searchresults.html?ss=${encodeURIComponent(name)}&aid=Pelify`;bookLink=`<div style="margin-top:8px"><a href="${bookUrl}" target="_blank" rel="sponsored noopener" class="fmap-popup-btn fmap-popup-booking"><i class="fas fa-bed"></i> Réserver</a></div>`;}
   marker.bindPopup(`<div class="fmap-popup-small"><span style="font-size:.65rem;color:${color};text-transform:uppercase;font-weight:700">${type}</span><strong style="display:block;margin-top:2px;font-size:.85rem">${escapeHtml(name)}</strong>${phone}${website}${bookLink}</div>`);
   layer.addLayer(marker);
 }
@@ -1566,11 +1619,29 @@ function afficherDetailFilm(data){
   const synEl=document.getElementById("synopsis_film");
   if(data.scene_description){synEl.innerHTML=`<div style="background:rgba(0,255,204,.06);border-left:3px solid var(--primary);padding:10px 14px;border-radius:0 8px 8px 0;margin-bottom:14px;font-size:.82rem;color:var(--muted)"><span style="color:var(--primary);font-weight:600;font-size:.73rem;text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:6px"><i class="fas fa-film"></i> ${t("scene_identified")}</span>${data.scene_description}</div><span style="font-size:.73rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:8px">Synopsis</span>${data.synopsis||t("no_synopsis")}`;}
   else synEl.textContent=data.synopsis||t("no_synopsis");
-  setTimeout(()=>document.getElementById("food-partner").classList.add("visible"),400);
+  setTimeout(()=>{
+  const foodPartner = document.getElementById("food-partner");
+  if (foodPartner) {
+    foodPartner.classList.add("visible");
+    // Mettre à jour le lien du bouton de commande avec le bon partenaire selon la langue
+    const foodBtn = foodPartner.querySelector("a.btn-stream, a.food-btn, a");
+    if (foodBtn) {
+      foodBtn.href = getFoodLink(currentLang);
+      foodBtn.target = "_blank";
+      foodBtn.rel = "sponsored noopener";
+    }
+  }
+}, 400);
   const streamEl=document.getElementById("streaming_section");
-  const streamList=data.streaming||[],streamLogos=data.streaming_logos||[];
-  if(streamList.length>0){const btns=streamList.map((name,i)=>{const base=STREAMING_LINKS[name]||"https://www.google.com/search?q=";const url=base+encodeURIComponent(data.title||"");const meta=STREAMING_META[name]||{color:"#fff",logo:""};const logoPath=streamLogos[i]?.logo_path;const logoSrc=logoPath?`https://image.tmdb.org/t/p/w45${logoPath}`:meta.logo||"";const aff=name.includes("Amazon")||name.includes("Apple");const logoHtml=logoSrc?`<img src="${logoSrc}" class="plat-logo" alt="${name}" onerror="this.style.display='none'">`:` <i class="fas fa-play-circle" style="color:${meta.color}"></i>`;return `<a href="${url}" target="_blank" rel="noopener" class="btn-stream ${aff?"affiliate":""}" style="border-color:${meta.color}40">${logoHtml} ${name}</a>`;}).join("");streamEl.innerHTML=`<h3><i class="fas fa-satellite-dish"></i> ${t("streaming_title")}</h3><div class="streaming-buttons">${btns}</div>`;}
-  else{streamEl.innerHTML=`<h3><i class="fas fa-satellite-dish"></i> Streaming</h3><p style="color:var(--muted);font-size:.85rem">${t("no_streaming_country")}</p><div class="streaming-buttons" style="margin-top:8px"><a href="https://www.amazon.fr/gp/video/search?phrase=${encodeURIComponent(data.title||"")}" target="_blank" class="btn-stream affiliate" style="border-color:#00a8e040"><i class="fas fa-search" style="color:#00a8e0"></i> Amazon Prime</a><a href="https://www.google.com/search?q=${encodeURIComponent((data.title||"")+" streaming")}" target="_blank" class="btn-stream"><i class="fab fa-google"></i> Google</a></div>`;}
+   if(_forceAmazonOnly){
+    const url=`https://www.amazon.fr/gp/video/search?phrase=${encodeURIComponent(data.title||"")}&tag=pelify-21`;
+    streamEl.innerHTML=`<h3><i class="fas fa-satellite-dish"></i> ${t("streaming_title")}</h3><div class="streaming-buttons"><a href="${url}" target="_blank" rel="sponsored noopener" class="btn-stream affiliate" style="border-color:#00a8e040"><i class="fas fa-play-circle" style="color:#00a8e0"></i> Amazon Prime Video</a></div>`;
+  } else {
+    const streamList=data.streaming||[],streamLogos=data.streaming_logos||[];
+    if(streamList.length>0){const btns=streamList.map((name,i)=>{const base=STREAMING_LINKS[name]||"https://www.google.com/search?q=";const url=base+encodeURIComponent(data.title||"");const meta=STREAMING_META[name]||{color:"#fff",logo:""};const logoPath=streamLogos[i]?.logo_path;const logoSrc=logoPath?`https://image.tmdb.org/t/p/w45${logoPath}`:meta.logo||"";const aff=name.includes("Amazon")||name.includes("Apple");const logoHtml=logoSrc?`<img src="${logoSrc}" class="plat-logo" alt="${name}" onerror="this.style.display='none'">`:` <i class="fas fa-play-circle" style="color:${meta.color}"></i>`;return `<a href="${url}" target="_blank" rel="noopener" class="btn-stream ${aff?"affiliate":""}" style="border-color:${meta.color}40">${logoHtml} ${name}</a>`;}).join("");streamEl.innerHTML=`<h3><i class="fas fa-satellite-dish"></i> ${t("streaming_title")}</h3><div class="streaming-buttons">${btns}</div>`;}
+    else{streamEl.innerHTML=`<h3><i class="fas fa-satellite-dish"></i> Streaming</h3><p style="color:var(--muted);font-size:.85rem">${t("no_streaming_country")}</p><div class="streaming-buttons" style="margin-top:8px"><a href="https://www.amazon.fr/gp/video/search?phrase=${encodeURIComponent(data.title||"")}&tag=pelify-21" target="_blank" rel="sponsored noopener" class="btn-stream affiliate" style="border-color:#00a8e040"><i class="fas fa-search" style="color:#00a8e0"></i> Amazon Prime</a><a href="https://www.google.com/search?q=${encodeURIComponent((data.title||"")+" streaming")}" target="_blank" class="btn-stream"><i class="fab fa-google"></i> Google</a></div>`;}
+  }
+ 
   const seasonsEl=document.getElementById("seasons_section");
   if(data.is_series&&data.seasons&&data.seasons.length>0){const seasons=data.seasons.filter(s=>s.season_number>0||s.episode_count>0);const seasonCards=seasons.map(s=>{const poster=s.poster_path?`https://image.tmdb.org/t/p/w154${s.poster_path}`:"";const airYear=s.air_date?s.air_date.split("-")[0]:"";const posterHtml=poster?`<img class="season-poster" src="${poster}" alt="${s.name||""}" loading="lazy">`:`<div style="width:48px;height:72px;background:var(--card2);border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.2rem">🎬</div>`;return `<div class="season-card" id="season-${s.season_number}"><div class="season-header" onclick="toggleSaison(${data.tmdb_id},${s.season_number})">${posterHtml}<div class="season-info"><div class="season-name">${s.name||t("seasons_title")+" "+s.season_number}</div><div class="season-meta">${s.episode_count||0} ${t("episodes_title")}${airYear?" · "+airYear:""}</div></div><i class="fas fa-chevron-down season-chevron"></i></div><div class="episodes-list" id="episodes-${s.season_number}"><div class="episodes-loading"><i class="fas fa-circle-notch fa-spin"></i> ${t("loading_episodes")}</div></div></div>`;}).join("");seasonsEl.innerHTML=`<h3><i class="fas fa-layer-group"></i> ${t("seasons_title")}</h3>${seasonCards}`;}else seasonsEl.innerHTML="";
   const castEl=document.getElementById("cast_section");
@@ -1655,7 +1726,7 @@ function afficherLocationsWikidata(container,locations){
   const withGPS=allLocs.filter(l=>l.lat!==null&&l.lat!==undefined);
   const locItems=allLocs.map(loc=>{const hasCoord=loc.lat!==null&&loc.lat!==undefined;const mapsUrl=hasCoord?`https://www.google.com/maps?q=${loc.lat},${loc.lng}`:`https://www.google.com/maps/search/${encodeURIComponent(loc.name)}`;const wdUrl=loc.wikidata_id?`https://www.wikidata.org/wiki/${loc.wikidata_id}`:null;return `<div class="location-chip"><a href="${mapsUrl}" target="_blank" rel="noopener" class="loc-maps-link" title="Voir sur Google Maps"><i class="fas fa-map-marker-alt" style="color:var(--primary)"></i> ${escapeHtml(loc.name)}${hasCoord?'<i class="fas fa-external-link-alt" style="font-size:.6rem;opacity:.5"></i>':""}</a>${wdUrl?`<a href="${wdUrl}" target="_blank" rel="noopener" class="loc-wd-link" title="Wikidata"><i class="fab fa-wikipedia-w"></i></a>`:""}</div>`;}).join("");
   let mapHtml="";if(withGPS.length>0)mapHtml=`<div id="filming-map" class="filming-map-container" style="height:220px;border-radius:12px;overflow:hidden;margin-bottom:16px;border:1px solid var(--border)"><div id="filming-map-inner" style="width:100%;height:100%"></div></div>`;
-  container.innerHTML=`<div class="locations-section-inner"><h3><i class="fas fa-map-marked-alt"></i> ${locLabel("title")} <span class="loc-count">${allLocs.length}</span></h3>${mapHtml}<div class="location-chips">${locItems}</div>${withGPS.length>0?`<p class="loc-affiliate"><i class="fas fa-bed"></i><a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(withGPS[0].name)}&aid=SHADOWFRAME" target="_blank" rel="sponsored noopener" class="loc-booking-link">Trouver un hôtel près du lieu de tournage →</a></p>`:""}<p class="wd-source"><i class="fab fa-wikipedia-w"></i> ${locLabel("source")}</p></div>`;
+  container.innerHTML=`<div class="locations-section-inner"><h3><i class="fas fa-map-marked-alt"></i> ${locLabel("title")} <span class="loc-count">${allLocs.length}</span></h3>${mapHtml}<div class="location-chips">${locItems}</div>${withGPS.length>0?`<p class="loc-affiliate"><i class="fas fa-bed"></i><a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(withGPS[0].name)}&aid=Pelify" target="_blank" rel="sponsored noopener" class="loc-booking-link">Trouver un hôtel près du lieu de tournage →</a></p>`:""}<p class="wd-source"><i class="fab fa-wikipedia-w"></i> ${locLabel("source")}</p></div>`;
   if(withGPS.length>0&&typeof L!=="undefined")initFilmingMap(withGPS);
   else if(withGPS.length>0)_ensureLeafletFull(()=>initFilmingMap(withGPS));
 }
@@ -1668,7 +1739,7 @@ function initFilmingMap(locations){
     L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",{attribution:'© OpenStreetMap © CARTO',subdomains:'abcd',maxZoom:19}).addTo(map);
     const icon=L.divIcon({className:"",html:`<div style="background:var(--primary,#00ffcc);width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #000;box-shadow:0 2px 8px rgba(0,255,204,.4)"></div>`,iconSize:[28,28],iconAnchor:[14,28]});
     const bounds=[];
-    locations.forEach(loc=>{const marker=L.marker([loc.lat,loc.lng],{icon}).addTo(map);marker.on('contextmenu',e=>{const coords=`${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;navigator.clipboard.writeText(coords).then(()=>toast(`📍 Coordonnées copiées : ${coords}`));});marker.bindPopup(`<strong>${loc.name}</strong><br><a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(loc.name)}&aid=SHADOWFRAME" target="_blank" style="color:#00ffcc;font-size:.8rem">🛏 Hôtels →</a> · <a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank" style="color:#00ffcc;font-size:.8rem">Maps →</a>`);bounds.push([loc.lat,loc.lng]);});
+    locations.forEach(loc=>{const marker=L.marker([loc.lat,loc.lng],{icon}).addTo(map);marker.on('contextmenu',e=>{const coords=`${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;navigator.clipboard.writeText(coords).then(()=>toast(`📍 Coordonnées copiées : ${coords}`));});marker.bindPopup(`<strong>${loc.name}</strong><br><a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(loc.name)}&aid=Pelify" target="_blank" style="color:#00ffcc;font-size:.8rem">🛏 Hôtels →</a> · <a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank" style="color:#00ffcc;font-size:.8rem">Maps →</a>`);bounds.push([loc.lat,loc.lng]);});
     if(bounds.length===1)map.setView(center,12);else map.fitBounds(bounds,{padding:[30,30]});
   }catch(e){console.warn("Leaflet map KO:",e);}
 }

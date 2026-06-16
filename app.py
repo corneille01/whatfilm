@@ -8,7 +8,6 @@ import time
 import asyncio
 import re
 from core import extraction
-from core import extraction
 from routes_filming import router as filming_router
 from typing import Optional
 from contextlib import asynccontextmanager
@@ -36,11 +35,12 @@ from data.tmdb import (
     get_movie_details, get_tv_details,
     discover_by_genre, get_trending, get_season_details,
 )
+
 from data.fake_detector import detect_fake
 from core.reranker import rerank
 from storage.cache import (
     get_cache, get_cache_by_content, get_cache_by_film,
-    get_cache_by_title, set_cache, purge_expired, cache_stats,
+    get_cache_by_title, set_cache, purge_expired, cache_stats, cache_get_generic, cache_set_generic, 
 )
 
 
@@ -202,16 +202,16 @@ async def lifespan(app: FastAPI):
         if purged:
             print(f"🧹 Cache empoisonné purgé: {purged} entrée(s) video_private", flush=True)
     except Exception as e:
-        print(f"⚠️ Purge cache démarrage: {e}", flush=True)
+        print(f" Purge cache démarrage: {e}", flush=True)
 
     asyncio.create_task(cleanup_sessions())
     asyncio.create_task(purge_cache_loop())
     asyncio.create_task(filming_catalogue.ensure_catalogue_loaded())
     start_loading()
-    print("✅ ShadowFrame démarré", flush=True)
+    print(" Pelify démarré", flush=True)
     yield
 
-app = FastAPI(title="ShadowFrame", lifespan=lifespan)
+app = FastAPI(title="Pelify", lifespan=lifespan)
 app.include_router(filming_router)
 from poi_proxy import router as poi_router
 app.include_router(poi_router)
@@ -684,21 +684,11 @@ async def process_analysis(
     if transcript or ocr_text:
         content_hit = get_cache_by_content(transcript, ocr_text, lang)
         if content_hit:
-            set_cache(url, content_hit, transcript=transcript, ocr_text=ocr_text)
-            return {"status": "cached", **content_hit},
+                set_cache(url, content_hit, transcript=transcript, ocr_text=ocr_text)
+           
+                return {"status": "cached", **content_hit}
         
-    if extraction.get("is_ai_generated"):
-        print("🤖 Contenu IA détecté → not_found enrichi", flush=True)
-        ai_result = {
-        "status":  "not_found",
-        "code":    "ai_generated",
-        "message": "Cette vidéo semble générée par intelligence artificielle "
-                   "(Sora, Runway, Midjourney...). "
-                   "Aucun film réel correspondant.",
-        "is_ai_generated": True,
-        }
-        set_cache(url, ai_result, transcript=transcript or "", ocr_text=ocr_text or "")
-        return ai_result
+    
 
     # ── 2. Extraction multimodale ────────────────────────────────
     if prefetched_extraction is not None:
@@ -1059,27 +1049,24 @@ async def process_analysis(
 # ════════════════════════════════════════════════════════════════
 # ROUTES PUBLIQUES
 # ════════════════════════════════════════════════════════════════
-_trending_cache:      dict = {}
-_trending_cache_time: dict = {}
-CACHE_DURATION:       int  = 300
+
 
 @app.get("/trending")
 async def trending(lang: str = "fr", type: str = "movie"):
-    cache_key = f"{lang}_{type}"
-    now = time.time()
-    if (cache_key in _trending_cache
-            and (now - _trending_cache_time.get(cache_key, 0)) < CACHE_DURATION):
-        return _trending_cache[cache_key]
+    cache_key = f"trending:{lang}:{type}"
+    cached = cache_get_generic(cache_key)
+    if cached:
+        return cached
     try:
         results = await get_trending(lang, media_type=type)
         if not results:
             return {"status": "error", "message": "Aucun résultat disponible."}
         response = {"status": "success", "results": results}
-        _trending_cache[cache_key]      = response
-        _trending_cache_time[cache_key] = now
+        cache_set_generic(cache_key, response, ttl=21600)  # 6 h
         return response
     except Exception:
         return {"status": "error", "message": "Impossible de charger les tendances."}
+
 
 @app.get("/discover/{genre_name}")
 async def discover(genre_name: str, lang: str = "fr", page: int = 1, type: str = "movie"):
@@ -1093,11 +1080,59 @@ async def discover(genre_name: str, lang: str = "fr", page: int = 1, type: str =
     genre_id = GENRE_MAP.get(genre_name.lower())
     if not genre_id:
         return {"status": "error", "message": f"Genre '{genre_name}' introuvable."}
+
+    cache_key = f"discover:{genre_name.lower()}:{lang}:{type}:{page}"
+    cached = cache_get_generic(cache_key)           # ← plus de await
+    if cached:
+        return cached
     try:
         data = await discover_by_genre(genre_id, lang, page, media_type=type)
-        return {"status": "success", **data}
+        response = {"status": "success", **data}
+        cache_set_generic(cache_key, response, ttl=21600)   # ← plus de await
+        return response
     except Exception:
         return {"status": "error", "message": "Erreur lors du chargement du genre."}
+
+
+
+
+# Mapping langue → région (réutilisé pour les providers)
+_LANG_TO_REGION = {
+    "fr": "FR", "en": "US", "es": "ES", "de": "DE", "zh": "CN",
+}
+
+# Provider IDs TMDB (identiques dans la plupart des régions)
+_PROVIDER_IDS = {
+    "amazon":   9,    # Amazon Prime Video
+    "netflix":  8,
+    "disney":   337,
+    "apple":    350,
+    "paramount": 531,
+    "hulu":     15,
+}
+
+@app.get("/discover-provider/{provider_key}")
+async def discover_provider(provider_key: str, lang: str = "fr", page: int = 1):
+    provider_id = _PROVIDER_IDS.get(provider_key.lower())
+    if not provider_id:
+        return {"status": "error", "message": f"Plateforme '{provider_key}' inconnue."}
+
+    region = _LANG_TO_REGION.get(lang, "US")
+    cache_key = f"provider:{provider_key.lower()}:{lang}:{page}"
+
+    cached = cache_get_generic(cache_key)
+    if cached:
+        return cached
+
+    try:
+        from data.tmdb import discover_by_provider
+        data = await discover_by_provider(provider_id, region, lang, page)
+        response = {"status": "success", **data}
+        cache_set_generic(cache_key, response, ttl=21600)  # 6 h
+        return response
+    except Exception as e:
+        print(f"❌ /discover-provider: {e}", flush=True)
+        return {"status": "error", "message": "Erreur lors du chargement de la plateforme."}
 
 # ════════════════════════════════════════════════════════════════
 # ROUTE : Lieux de tournage
@@ -1139,14 +1174,21 @@ async def get_locations(movie_id: int, type: str = "movie"):
 
 @app.get("/movie/{movie_id}")
 async def get_movie(movie_id: int, lang: str = "fr", type: str = "movie"):
+    cache_key = f"movie:{type}:{movie_id}:{lang}"
+    cached = cache_get_generic(cache_key)           # ← plus de await
+    if cached:
+        return cached
     try:
-        return (
+        data = (
             await get_tv_details(movie_id, lang)
             if type == "tv"
             else await get_movie_details(movie_id, lang)
         )
+        cache_set_generic(cache_key, data, ttl=86400)   # ← plus de await
+        return data
     except Exception:
         return {"status": "error", "message": "Fiche film introuvable."}
+
 
 @app.get("/tv/{series_id}/season/{season_number}")
 async def get_season(series_id: int, season_number: int, lang: str = "fr"):
@@ -1178,7 +1220,7 @@ async def get_cache_stats():
 
 @app.get("/sitemap.xml")
 async def sitemap():
-    base = "https://quelfilm.app"
+    base = "https://pelify.app"
     urls = [f"{base}/", f"{base}/fr", f"{base}/en",
             f"{base}/es", f"{base}/de", f"{base}/zh"]
     xml  = '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -1192,7 +1234,7 @@ async def sitemap():
 async def robots():
     return PlainTextResponse(
         "User-agent: *\nAllow: /\n"
-        "Sitemap: https://quelfilm.app/sitemap.xml\n"
+        "Sitemap: https://pelify.app/sitemap.xml\n"
     )
 
 @app.get("/")

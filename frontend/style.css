@@ -1807,6 +1807,99 @@ body {
 .fmap-popup-small { padding: 10px 12px; min-width: 150px; }
 .fmap-popup-small strong { color: var(--text); font-size: .85rem; }
 
+
+
+
+
+
+
+/* ════════ HERO CENTRÉ (style Spotify) ════════ */
+#hero { padding: 40px 20px 24px; text-align: center; }
+.hero-inner {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+/* Titre un peu plus contenu pour laisser la vedette à la barre */
+#hero h1 {
+  font-size: clamp(2.4rem, 6vw, 4.5rem);
+  margin-bottom: 0;
+}
+#hero .tagline { margin-bottom: 2px; }
+
+/* Étapes */
+.hero-steps {
+  display: flex; align-items: center; justify-content: center;
+  gap: 10px; flex-wrap: wrap;
+}
+.hero-step {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid var(--border);
+  border-radius: 50px;
+  padding: 6px 14px;
+  font-size: .8rem; color: var(--text);
+}
+.hero-step-num {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--primary); color: #000;
+  font-weight: 700; font-size: .72rem;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.hero-step-arrow { color: var(--muted); font-size: .7rem; }
+
+/* Barre de recherche centrale */
+.hero-search-wrap {
+  width: 100%; max-width: 620px;
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(255,255,255,.06);
+  border: 1.5px solid var(--border);
+  border-radius: 50px;
+  padding: 6px 6px 6px 18px;
+  transition: border-color .2s, box-shadow .2s;
+}
+.hero-search-wrap:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px rgba(0,255,204,.12);
+}
+.hero-search-icon { color: var(--muted); font-size: .95rem; flex-shrink: 0; }
+.hero-search-wrap input {
+  flex: 1; min-width: 0;
+  background: transparent; border: none; outline: none;
+  color: var(--text);
+  font-family: "DM Sans", sans-serif;
+  font-size: 1rem; padding: 11px 0;
+}
+.hero-search-wrap input::placeholder { color: var(--muted); }
+.hero-search-btn {
+  flex-shrink: 0;
+  background: var(--primary); color: #000;
+  border: none; border-radius: 50px;
+  padding: 11px 20px;
+  font-family: "DM Sans", sans-serif;
+  font-weight: 700; font-size: .9rem;
+  cursor: pointer; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background .2s, transform .1s;
+}
+.hero-search-btn:hover { background: #00e6b8; transform: scale(1.03); }
+.hero-hint { color: var(--muted); font-size: .8rem; margin-top: 2px; }
+
+/* ── Mobile ── */
+@media (max-width: 560px) {
+  #hero { padding: 28px 14px 18px; }
+  .hero-inner { gap: 13px; }
+  .hero-step-arrow { display: none; }       /* étapes s'empilent proprement */
+  .hero-step { font-size: .73rem; padding: 5px 11px; }
+  .hero-search-wrap { padding-left: 14px; }
+  .hero-search-btn { padding: 10px 14px; font-size: .82rem; }
+  .hero-search-btn span { display: none; }   /* garde juste l'éclair  sur petit écran */
+  .hero-search-wrap input { font-size: .92rem; }
+}
 /* ── Responsive — Mobile First ───────────────────────────────────────────── */
 
 @media (max-width: 768px) {

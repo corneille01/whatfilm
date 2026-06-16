@@ -406,6 +406,26 @@ async def get_trending(lang: str = "fr", media_type: str = "movie") -> list:
         return resp.json().get("results", [])
 
 
+async def discover_by_provider(provider_id: int, region: str, lang: str, page: int = 1):
+    lang_map = {"fr": "fr-FR", "en": "en-US", "es": "es-ES", "de": "de-DE", "zh": "zh-CN"}
+    params = {
+        "api_key": API_KEY,
+        "language": lang_map.get(lang, "fr-FR"),
+        "with_watch_providers": provider_id,
+        "watch_region": region,
+        "sort_by": "popularity.desc",
+        "page": page,
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(f"{BASE_URL}/discover/movie", params=params)
+        r.raise_for_status()
+        data = r.json()
+    return {
+        "results": data.get("results", []),
+        "total_pages": min(data.get("total_pages", 1), 500),
+        "page": data.get("page", 1),
+    }
+
 async def get_season_details(
     series_id: int,
     season_number: int,

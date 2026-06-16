@@ -220,3 +220,14 @@ def delete_cache(url: str) -> bool:
         except Exception:
             pass
     return deleted
+
+# ════════════════════════════════════════════════════════════════
+# CACHE GÉNÉRIQUE (catalogue : trending, discover, fiches…)
+# Réutilise Redis + fallback RAM. Clés libres, TTL obligatoire.
+# ════════════════════════════════════════════════════════════════
+def cache_get_generic(key: str):
+    return _rget(key) or _ramget(key)
+
+def cache_set_generic(key: str, data, ttl: int) -> None:
+    _rset(key, data, ttl)
+    _ramset(key, data, ttl)
