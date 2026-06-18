@@ -1633,7 +1633,19 @@ function afficherNotFound(data){
   document.getElementById("titre_film").innerText=t("not_found_title");
   document.getElementById("synopsis_film").innerText=data.message||"";
   const titreHtml=data.titre_gemini?`<p style="color:var(--muted);font-size:.85rem;margin-bottom:16px;">Titre potentiel IA : <strong style="color:var(--text)">${data.titre_gemini}</strong></p>`:"";
-  document.getElementById("streaming_section").innerHTML=`${titreHtml}<h3 style="margin-bottom:12px"><i class="fas fa-search"></i> ${t("searching")}</h3><div class="streaming-buttons" style="margin-top:10px;">${data.search_youtube?`<a href="${data.search_youtube}" target="_blank" rel="noopener" class="btn-stream"><i class="fab fa-youtube"></i> YouTube</a>`:""}${data.search_google?`<a href="${data.search_google}" target="_blank" rel="noopener" class="btn-stream"><i class="fab fa-google"></i> Google</a>`:""}${data.search_tmdb?`<a href="${data.search_tmdb}" target="_blank" rel="noopener" class="btn-stream"><i class="fas fa-film"></i> TMDB</a>`:""}</div>`;
+ document.getElementById("streaming_section").innerHTML = `
+  ${titreHtml}
+  <h3 style="margin-bottom:12px">
+    <i class="fas fa-search"></i> ${t("searching")}
+  </h3>
+  <div class="streaming-buttons" style="margin-top:10px;">
+    ${data.search_youtube ? `
+      <a href="${data.search_youtube}" target="_blank" rel="noopener" class="btn-stream">
+        <i class="fab fa-youtube"></i> YouTube
+      </a>` : ""}
+    
+  </div>
+`;
   window.scrollTo({top:0,behavior:"smooth"});
 }
 
@@ -1706,12 +1718,17 @@ function afficherDetailFilm(data){
    if(_forceAmazonOnly){
     const url=`https://www.amazon.fr/s?k=${encodeURIComponent(data.title||"")}&i=instant-video&tag=pelify-21`;
     streamEl.innerHTML=`<h3><i class="fas fa-satellite-dish"></i> ${t("streaming_title")}</h3><div class="streaming-buttons"><a href="${url}" target="_blank" rel="sponsored noopener" class="btn-stream affiliate" style="border-color:#00a8e040"><i class="fas fa-play-circle" style="color:#00a8e0"></i> Amazon Prime Video</a></div>`;
-  } else {
-    const streamList=data.streaming||[],streamLogos=data.streaming_logos||[];
-    if(streamList.length>0){const btns=streamList.map((name,i)=>{const base=STREAMING_LINKS[name]||"https://www.google.com/search?q=";const url=base+encodeURIComponent(data.title||"");const meta=STREAMING_META[name]||{color:"#fff",logo:""};const logoPath=streamLogos[i]?.logo_path;const logoSrc=logoPath?`https://image.tmdb.org/t/p/w45${logoPath}`:meta.logo||"";const aff=name.includes("Amazon")||name.includes("Apple");const logoHtml=logoSrc?`<img src="${logoSrc}" class="plat-logo" alt="${name}" onerror="this.style.display='none'">`:` <i class="fas fa-play-circle" style="color:${meta.color}"></i>`;return `<a href="${url}" target="_blank" rel="noopener" class="btn-stream ${aff?"affiliate":""}" style="border-color:${meta.color}40">${logoHtml} ${name}</a>`;}).join("");streamEl.innerHTML=`<h3><i class="fas fa-satellite-dish"></i> ${t("streaming_title")}</h3><div class="streaming-buttons">${btns}</div>`;}
-    else{streamEl.innerHTML=`<h3><i class="fas fa-satellite-dish"></i> Streaming</h3><p style="color:var(--muted);font-size:.85rem">${t("no_streaming_country")}</p><div class="streaming-buttons" style="margin-top:8px"><a href="https://www.amazon.fr/s?k=${encodeURIComponent(data.title||"")}&i=instant-video&tag=pelify-21" target="_blank" rel="sponsored noopener" class="btn-stream affiliate" style="border-color:#00a8e040"><i class="fas fa-search" style="color:#00a8e0"></i> Amazon Prime</a><a href="https://www.google.com/search?q=${encodeURIComponent((data.title||"")+" streaming")}" target="_blank" class="btn-stream"><i class="fab fa-google"></i> Google</a></div>`;}
-  }
- 
+  } else{
+  streamEl.innerHTML=`
+    <h3><i class="fas fa-satellite-dish"></i> Streaming</h3>
+    <p style="color:var(--muted);font-size:.85rem">${t("no_streaming_country")}</p>
+    <div class="streaming-buttons" style="margin-top:8px">
+      <a href="https://www.amazon.fr/s?k=${encodeURIComponent(data.title||"")}&i=instant-video&tag=pelify-21" target="_blank" rel="sponsored noopener" class="btn-stream affiliate" style="border-color:#00a8e040">
+        <i class="fas fa-search" style="color:#00a8e0"></i> Amazon Prime
+      </a>
+    </div>
+  `;
+}
   const seasonsEl=document.getElementById("seasons_section");
   if(data.is_series&&data.seasons&&data.seasons.length>0){const seasons=data.seasons.filter(s=>s.season_number>0||s.episode_count>0);const seasonCards=seasons.map(s=>{const poster=s.poster_path?`https://image.tmdb.org/t/p/w154${s.poster_path}`:"";const airYear=s.air_date?s.air_date.split("-")[0]:"";const posterHtml=poster?`<img class="season-poster" src="${poster}" alt="${s.name||""}" loading="lazy">`:`<div style="width:48px;height:72px;background:var(--card2);border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.2rem">🎬</div>`;return `<div class="season-card" id="season-${s.season_number}"><div class="season-header" onclick="toggleSaison(${data.tmdb_id},${s.season_number})">${posterHtml}<div class="season-info"><div class="season-name">${s.name||t("seasons_title")+" "+s.season_number}</div><div class="season-meta">${s.episode_count||0} ${t("episodes_title")}${airYear?" · "+airYear:""}</div></div><i class="fas fa-chevron-down season-chevron"></i></div><div class="episodes-list" id="episodes-${s.season_number}"><div class="episodes-loading"><i class="fas fa-circle-notch fa-spin"></i> ${t("loading_episodes")}</div></div></div>`;}).join("");seasonsEl.innerHTML=`<h3><i class="fas fa-layer-group"></i> ${t("seasons_title")}</h3>${seasonCards}`;}else seasonsEl.innerHTML="";
   const castEl=document.getElementById("cast_section");

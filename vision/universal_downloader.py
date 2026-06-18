@@ -189,23 +189,21 @@ async def _download_tiktok_api(url: str, output_path: str) -> Dict[str, Any]:
 # TikTok
 # ══════════════════════════════════════════════════════════════
 
-async def _download_tiktok_playwright_subprocess(url: str) -> Dict[str, Any]:
+async def _download_tiktok_playwright_subprocess(url: str, output_path: str) -> Dict[str, Any]:
     worker_path = os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "playwright_worker.py"
     )
     try:
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, worker_path, url,
+            sys.executable, worker_path, url, output_path,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
-            return {
-                "ok": False, "code": "playwright_subprocess_error",
-                "message": f"Worker Playwright a échoué (exit {proc.returncode}): "
-                           f"{stderr.decode()[:200]}",
-            }
+            return {"ok": False, "code": "playwright_subprocess_error",
+                    "message": f"Worker Playwright a échoué (exit {proc.returncode}): "
+                               f"{stderr.decode()[:200]}"}
         return json.loads(stdout.decode())
     except FileNotFoundError:
         return {"ok": False, "code": "playwright_worker_missing",
@@ -214,9 +212,7 @@ async def _download_tiktok_playwright_subprocess(url: str) -> Dict[str, Any]:
         return {"ok": False, "code": "playwright_worker_output",
                 "message": "Réponse JSON invalide du worker Playwright"}
     except Exception as e:
-        return {"ok": False, "code": "playwright_subprocess_error",
-                "message": str(e)[:200]}
-
+        return {"ok": False, "code": "playwright_subprocess_error", "message": str(e)[:200]}
 
 async def _download_tiktok_playwright_direct(url: str) -> Dict[str, Any]:
     try:
@@ -228,63 +224,50 @@ async def _download_tiktok_playwright_direct(url: str) -> Dict[str, Any]:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             context = await browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Linux; Android 10; Pixel 3) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/90.0.4430.91 Mobile Safari/537.36"
-                )
+                user_agent=("Mozilla/5.0 (Linux; Android 10; Pixel 3) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/124.0.0.0 Mobile Safari/537.36")
             )
             page = await context.new_page()
-            await page.route(
-                "**/*",
-                lambda route: route.abort()
-                if route.request.resource_type in ("image", "font", "stylesheet")
-                else route.continue_(),
-            )
+            await page.route("**/*", lambda route: route.abort()
+                             if route.request.resource_type in ("image", "font", "stylesheet")
+                             else route.continue_())
             await page.goto(url, wait_until="domcontentloaded", timeout=25000)
-            await page.wait_for_timeout(3000)
+            await page.wait_for_timeout(2500)
 
-            video_url = None
-            try:
-                el = await page.query_selector("video")
-                if el:
-                    video_url = await el.get_attribute("src")
-            except Exception:
-                pass
-
-            if not video_url:
-                try:
-                    meta = await page.query_selector('meta[property="og:video"]')
-                    if meta:
-                        video_url = await meta.get_attribute("content")
-                except Exception:
-                    pass
-
-            if not video_url:
-                try:
-                    data = await page.evaluate(
-                        "() => window.__UNIVERSAL_DATA__ "
-                        "|| window.__NEXT_DATA__ || window.__DATA__"
-                    )
-                    if isinstance(data, dict):
-                        for val in data.values():
-                            if isinstance(val, str) and val.startswith("http") \
-                                    and ".mp4" in val:
-                                video_url = val
-                                break
-                except Exception:
-                    pass
+            video_url = await page.evaluate("""() => {
+                const grab = (root) => {
+                    let found = null;
+                    const walk = (o) => {
+                        if (found || !o || typeof o !== 'object') return;
+                        for (const k in o) {
+                            const v = o[k];
+                            if ((k === 'playAddr' || k === 'downloadAddr')
+                                && typeof v === 'string' && v.startsWith('http')) {
+                                found = v; return;
+                            }
+                            if (v && typeof v === 'object') walk(v);
+                        }
+                    };
+                    walk(root);
+                    return found;
+                };
+                const el = document.getElementById('__UNIVERSAL_DATA_FOR_REHYDRATION__');
+                if (el) { try { const u = grab(JSON.parse(el.textContent)); if (u) return u; } catch(e){} }
+                const og = document.querySelector('meta[property="og:video"]');
+                if (og && og.content) return og.content;
+                const v = document.querySelector('video');
+                if (v && v.src && v.src.startsWith('http')) return v.src;
+                return null;
+            }""")
 
             await browser.close()
-
             if video_url:
                 return {"ok": True, "direct_url": video_url}
             return {"ok": False, "code": "no_video_found",
                     "message": "Impossible d'extraire l'URL vidéo avec Playwright"}
     except Exception as e:
         return {"ok": False, "code": "playwright_error", "message": str(e)[:200]}
-
-
 # ══════════════════════════════════════════════════════════════
 # Téléchargement URL directe
 # ══════════════════════════════════════════════════════════════
@@ -332,9 +315,10 @@ async def download_video(url: str, output_path: str, platform: str = "unknown") 
       2. yt-dlp direct en fallback ultime
 
     Cascade TikTok :
-      1. playwright_worker.py (subprocess isolé sur Render)
+      1. API publique tikwm
+      2. playwright_worker.py (subprocess isolé sur Render)
          ou Playwright direct (local)
-      2. yt-dlp
+      3. yt-dlp
 
     Autres plateformes :
       → yt-dlp directement
@@ -359,7 +343,6 @@ async def download_video(url: str, output_path: str, platform: str = "unknown") 
         return await _download_with_ytdlp(url, output_path)
 
     # ── TikTok ───────────────────────────────────────────────────
-   
     if platform == "tiktok":
         # 1) API publique tikwm (la plus fiable, contourne les 404 CDN)
         api_result = await _download_tiktok_api(url, output_path)
@@ -367,19 +350,23 @@ async def download_video(url: str, output_path: str, platform: str = "unknown") 
             return api_result
         print(f"⚠️ tikwm KO ({api_result.get('code')}) → Playwright", flush=True)
 
-        # 2) Playwright (extraction de l'URL dans la page)
+        # 2) Playwright (vrai navigateur)
         if IS_RENDER:
-            pw = await _download_tiktok_playwright_subprocess(url)
+            pw = await _download_tiktok_playwright_subprocess(url, output_path)
         else:
             pw = await _download_tiktok_playwright_direct(url)
-        if pw and pw.get("ok") and pw.get("direct_url"):
-            dl = await _download_via_direct_url(
-                pw["direct_url"], output_path, referer="https://www.tiktok.com/")
-            if dl["ok"]:
-                return dl
+        if pw and pw.get("ok"):
+            if pw.get("downloaded") and os.path.exists(output_path):
+                return {"ok": True}                      # worker a déjà écrit le fichier
+            if pw.get("direct_url"):
+                dl = await _download_via_direct_url(
+                    pw["direct_url"], output_path, referer="https://www.tiktok.com/")
+                if dl["ok"]:
+                    return dl
         print("⚠️ Playwright KO → yt-dlp", flush=True)
 
         # 3) yt-dlp (dernier recours)
         return await _download_with_ytdlp(url, output_path)
+
     # ── Autres plateformes ───────────────────────────────────────
     return await _download_with_ytdlp(url, output_path)

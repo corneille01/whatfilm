@@ -124,6 +124,7 @@ async def _resolve_short_url(url: str) -> str:
 # CONSTANTES
 # ════════════════════════════════════════════════════════════════
 MAX_VIDEO_SECONDS = 120
+GEMINI_MAX_SECONDS = 60   # durée max envoyée à Gemini (coût + vitesse)
 MAX_FILE_SIZE_MB  = 50
 
 # ── RATE LIMITING ────────────────────────────────────────────────
@@ -270,7 +271,7 @@ async def _process_local_file(
     """
     Fichier vidéo LOCAL (téléchargé OU uploadé) :
       1) conversion codec + validation durée
-      2) Gemini sur la vidéo ENTIÈRE (Files API) → si concluant : terminé
+      2) Gemini sur la vidéo (tronquée à GEMINI_MAX_SECONDS) → si concluant : terminé
       3) sinon : audio + frames + transcription → process_analysis
       4) si aucune frame : transcription_needed (fallback client)
     Retourne True si un fallback client est en attente (ne pas nettoyer les fichiers).
@@ -298,6 +299,7 @@ async def _process_local_file(
         except Exception as e:
             print(f"⚠️ Probe/convert: {e}", flush=True)
 
+    duration = 0.0
     try:
         dur = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -312,11 +314,26 @@ async def _process_local_file(
     except Exception:
         pass
 
-    # 2) Gemini sur la vidéo ENTIÈRE
-    print("🎬 Gemini sur la vidéo entière (fichier)...", flush=True)
+    # 2) Gemini sur la vidéo (tronquée à GEMINI_MAX_SECONDS pour le coût + la vitesse)
+    gemini_path = video_path
+    if duration > GEMINI_MAX_SECONDS:
+        try:
+            trimmed = video_path.replace(".mp4", f"_g{GEMINI_MAX_SECONDS}.mp4")
+            subprocess.run(
+                ["ffmpeg", "-i", video_path, "-t", str(GEMINI_MAX_SECONDS),
+                 "-c", "copy", "-y", trimmed],
+                capture_output=True, timeout=30)
+            if os.path.exists(trimmed) and os.path.getsize(trimmed) > 1000:
+                gemini_path = trimmed
+                print(f"✂️ Tronquée à {GEMINI_MAX_SECONDS}s pour Gemini "
+                      f"(vidéo de {duration:.0f}s)", flush=True)
+        except Exception as e:
+            print(f"⚠️ Troncature KO: {e} → vidéo entière", flush=True)
+
+    print("🎬 Gemini sur la vidéo (fichier)...", flush=True)
     try:
         from core.extraction import _extract_gemini_video_file
-        file_ext = await _extract_gemini_video_file(video_path)
+        file_ext = await _extract_gemini_video_file(gemini_path)
         if _extraction_is_useful(file_ext):
             print("✅ Gemini fichier concluant → pas de frames", flush=True)
             result = await process_analysis(
@@ -328,6 +345,12 @@ async def _process_local_file(
         print("⚠️ Gemini fichier non concluant → frames + transcription", flush=True)
     except Exception as e:
         print(f"⚠️ Gemini fichier KO: {e} → frames", flush=True)
+    finally:
+        if gemini_path != video_path and os.path.exists(gemini_path):
+            try:
+                os.remove(gemini_path)
+            except Exception:
+                pass
 
     # 3) Audio
     try:
@@ -392,6 +415,10 @@ async def _process_local_file(
     session["result"] = {"status": "transcription_needed", "session_id": fallback_sid,
                          "frames_base64": [], "audio_base64": audio_b64}
     return True
+
+
+
+
 
 
 async def _run_download_and_analyse(session_id, url, platform, lang, browser_lang):
