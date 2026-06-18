@@ -24,3 +24,4 @@ assemblyai
 pytubefix
 httpx>=0.27.0
 ddgs>=0.1.0
+-U yt-dlp

@@ -245,6 +245,18 @@
     <link rel="stylesheet" href="/frontend/style.css" />
   </head>
   <body>
+    <input
+      type="file"
+      id="video-upload-input"
+      accept="video/*"
+      style="display: none"
+      onchange="
+        if (this.files[0]) {
+          analyserVideoUpload(this.files[0]);
+          this.value = '';
+        }
+      "
+    />
     <!-- HEADER -->
     <header id="main-header">
       <div class="logo" onclick="retourAccueil()">🎬 Pelify</div>
@@ -259,6 +271,14 @@
           onkeydown="if (event.key === 'Enter') gererRechercheGlobal();"
         />
         <div class="search-btns">
+          <button
+            class="btn-search"
+            onclick="document.getElementById('video-upload-input').click()"
+            title="Uploader une vidéo"
+            aria-label="Uploader une vidéo"
+          >
+            <i class="fas fa-paperclip"></i>
+          </button>
           <button
             class="btn-search-clear"
             id="btn-clear"
@@ -365,24 +385,13 @@
             aria-label="Rechercher"
             onkeydown="if (event.key === 'Enter') rechercheHero();"
           />
+          <div class="hero-search-wrap">
+            <button class="hero-search-btn" onclick="document.getElementById('video-upload-input').click()"
+        title="Uploader une vidéo" aria-label="Uploader une vidéo" style="flex:0 0 auto">
+  <i class="fas fa-paperclip"></i>
+</button>
           <button class="hero-search-btn" onclick="rechercheHero()">
             <i class="fas fa-bolt"></i> <span data-i18n="cta">Identifier</span>
-          </button>
-        </div>
-        <div style="margin-top: 10px; text-align: center">
-          <input
-            type="file"
-            id="video-upload-input"
-            accept="video/*"
-            style="display: none"
-            onchange="if (this.files[0]) analyserVideoUpload(this.files[0]);"
-          />
-          <button
-            class="hero-search-btn"
-            style="background: transparent; border: 1px solid var(--border)"
-            onclick="document.getElementById('video-upload-input').click()"
-          >
-            <i class="fas fa-upload"></i> Ou uploader une vidéo
           </button>
         </div>
 
