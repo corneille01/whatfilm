@@ -1999,3 +1999,31 @@ body {
   from { opacity: 0; transform: translateY(16px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+
+.seo-intent {
+  max-width: 900px;
+  margin: 60px auto;
+  padding: 20px;
+  color: var(--text);
+  opacity: 0.85;
+}
+
+.seo-intent h2 {
+  font-size: 1.4rem;
+  margin-bottom: 12px;
+}
+
+.seo-intent p {
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.seo-intent ul {
+  margin-top: 12px;
+  padding-left: 18px;
+}
+
+.seo-intent li {
+  margin-bottom: 6px;
+}
