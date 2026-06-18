@@ -13,7 +13,7 @@ from typing import Optional
 from contextlib import asynccontextmanager
 from collections import defaultdict
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -251,283 +251,201 @@ class ContinueRequest(BaseModel):
     transcript:   str = ""
     browser_lang: str = "fr"
 
+
+def _extraction_is_useful(ext) -> bool:
+    """Gemini a-t-il reconnu quelque chose d'exploitable ?"""
+    if not ext:
+        return False
+    if ext.get("is_ai_generated"):
+        return True
+    return bool(ext.get("titres_possibles") or ext.get("acteurs"))
+
 # ════════════════════════════════════════════════════════════════
 # TÂCHE DE FOND : download + analyse complète
 # ════════════════════════════════════════════════════════════════
-async def _run_download_and_analyse(
-    session_id: str,
-    url: str,
-    platform: str,
-    lang: str,
-    browser_lang: str,
-):
+async def _process_local_file(
+    session: dict, video_path: str, audio_path: str, frame_dir: str,
+    url_label: str, lang: str, browser_lang: str,
+) -> bool:
+    """
+    Fichier vidéo LOCAL (téléchargé OU uploadé) :
+      1) conversion codec + validation durée
+      2) Gemini sur la vidéo ENTIÈRE (Files API) → si concluant : terminé
+      3) sinon : audio + frames + transcription → process_analysis
+      4) si aucune frame : transcription_needed (fallback client)
+    Retourne True si un fallback client est en attente (ne pas nettoyer les fichiers).
+    """
+    audio_exists = False
+    session["status"] = "processing"
+
+    # 1) Conversion codec
+    if video_path.endswith(".mp4"):
+        try:
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=codec_name",
+                 "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+                capture_output=True, text=True, timeout=5)
+            codec = probe.stdout.strip()
+            if codec and codec not in ("h264", "hevc", "h265", "avc"):
+                converted = video_path.replace(".mp4", "_conv.mp4")
+                subprocess.run(
+                    ["ffmpeg", "-i", video_path, "-c:v", "libx264", "-crf", "23",
+                     "-preset", "fast", "-c:a", "aac", "-y", converted],
+                    capture_output=True, timeout=60)
+                if os.path.exists(converted) and os.path.getsize(converted) > 1000:
+                    os.remove(video_path); os.rename(converted, video_path)
+        except Exception as e:
+            print(f"⚠️ Probe/convert: {e}", flush=True)
+
+    try:
+        dur = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+            capture_output=True, text=True, timeout=5)
+        duration = float(dur.stdout.strip() or 0)
+        if 0 < duration < 3:
+            session["status"] = "error"
+            session["result"] = {"status": "error", "code": "video_too_short",
+                "message": f"Vidéo trop courte ({duration:.1f}s). Essayez au moins 3 secondes."}
+            return False
+    except Exception:
+        pass
+
+    # 2) Gemini sur la vidéo ENTIÈRE
+    print("🎬 Gemini sur la vidéo entière (fichier)...", flush=True)
+    try:
+        from core.extraction import _extract_gemini_video_file
+        file_ext = await _extract_gemini_video_file(video_path)
+        if _extraction_is_useful(file_ext):
+            print("✅ Gemini fichier concluant → pas de frames", flush=True)
+            result = await process_analysis(
+                frames=[], ocr_text="", transcript=file_ext.get("_transcript_raw", ""),
+                url=url_label, lang=lang, browser_lang=browser_lang,
+                prefetched_extraction=file_ext)
+            session["status"] = "done"; session["result"] = result
+            return False
+        print("⚠️ Gemini fichier non concluant → frames + transcription", flush=True)
+    except Exception as e:
+        print(f"⚠️ Gemini fichier KO: {e} → frames", flush=True)
+
+    # 3) Audio
+    try:
+        subprocess.run(
+            ["ffmpeg", "-i", video_path, "-t", str(MAX_VIDEO_SECONDS),
+             "-vn", "-acodec", "libmp3lame", "-ar", "16000", "-ac", "1",
+             "-b:a", "64k", "-y", audio_path],
+            check=True, capture_output=True, timeout=30)
+        audio_exists = os.path.exists(audio_path) and os.path.getsize(audio_path) > 100
+    except Exception:
+        try:
+            subprocess.run(
+                ["ffmpeg", "-i", video_path, "-t", str(MAX_VIDEO_SECONDS),
+                 "-vn", "-ar", "16000", "-ac", "1", "-f", "mp3", "-y", audio_path],
+                check=True, capture_output=True, timeout=30)
+            audio_exists = os.path.exists(audio_path) and os.path.getsize(audio_path) > 100
+        except Exception as e2:
+            print(f"⚠️ Audio KO: {str(e2)[:80]}", flush=True)
+
+    # 4) Frames
+    try:
+        frames = extract_keyframes(video_path, frame_dir, max_frames=6) or []
+    except Exception as e:
+        print(f"⚠️ Keyframes: {e}", flush=True); frames = []
+    frames = [f for f in frames if os.path.exists(f) and os.path.getsize(f) > 0]
+    print(f"✅ Frames valides: {len(frames)}", flush=True)
+
+    if not frames and not audio_exists:
+        session["status"] = "error"
+        session["result"] = {"status": "error", "code": "no_frames",
+            "message": "Impossible d'extraire des images ou de l'audio de cette vidéo."}
+        return False
+
+    # 5) Transcription
+    transcript = ""
+    if audio_exists:
+        try:
+            transcript = transcribe(audio_path, enabled=True) or ""
+        except Exception as e:
+            print(f"⚠️ Transcription KO: {e}", flush=True)
+
+    # 6) Analyse via frames
+    if frames:
+        result = await process_analysis(frames, "", transcript, url_label, lang, browser_lang)
+        session["status"] = "done"; session["result"] = result
+        return False
+
+    # 7) Fallback client (aucune frame)
+    audio_b64 = ""
+    if audio_exists:
+        try:
+            with open(audio_path, "rb") as f:
+                audio_b64 = base64.b64encode(f.read()).decode()
+        except Exception:
+            pass
+    fallback_sid = str(uuid.uuid4())[:12]
+    sessions[fallback_sid] = {
+        "url": url_label, "lang": lang, "browser_lang": browser_lang,
+        "video_path": video_path, "audio_path": audio_path, "frame_dir": frame_dir,
+        "ocr_text": "", "timestamp": time.time()}
+    session["status"] = "done"
+    session["result"] = {"status": "transcription_needed", "session_id": fallback_sid,
+                         "frames_base64": [], "audio_base64": audio_b64}
+    return True
+
+
+async def _run_download_and_analyse(session_id, url, platform, lang, browser_lang):
     session = _dl_sessions.get(session_id)
     if not session:
         return
-
-    uid        = session["uid"]
-    video_path = session["video_path"]
-    audio_path = session["audio_path"]
-    frame_dir  = session["frame_dir"]
-    audio_exists         = False
+    video_path = session["video_path"]; audio_path = session["audio_path"]; frame_dir = session["frame_dir"]
     need_client_fallback = False
-
-    # ══════════════════════════════════════════════════════════════
-    # SHORTCUT GEMINI DIRECT — toutes plateformes sauf TikTok
-    # YouTube (Shorts, longs, lives), Instagram, Facebook, Twitter/X,
-    # Dailymotion, Vimeo, Reddit, LinkedIn, Bilibili, Snapchat...
-    # Gemini accède directement à l'URL sans téléchargement.
-    # Si Gemini échoue (URL privée, plateforme bloquée) → fallback download.
-    # TikTok exclu : leur CDN est fermé, Gemini ne peut pas y accéder.
-    # ══════════════════════════════════════════════════════════════
-    if platform != "tiktok":
-        print(f"🎬 Gemini direct [{platform}] → pas de download", flush=True)
-        session["status"] = "processing"
-        try:
-            from core.extraction import _extract_gemini_url_direct
-            extraction = await _extract_gemini_url_direct(url)
-
-            if extraction:
-                result = await process_analysis(
-                    frames=[],
-                    ocr_text="",
-                    transcript=extraction.get("_transcript_raw", ""),
-                    url=url,
-                    lang=lang,
-                    browser_lang=browser_lang,
-                    prefetched_extraction=extraction,
-                )
-                session["status"] = "done"
-                session["result"] = result
-                session["timestamp"] = time.time()
-                return
-            else:
-                print(
-                    f"⚠️ Gemini direct KO [{platform}] → fallback pipeline download",
-                    flush=True
-                )
-
-        except Exception as e:
-            print(
-                f"⚠️ Gemini direct exception [{platform}]: {e} → fallback download",
-                flush=True
-            )
-
-    # ══════════════════════════════════════════════════════════════
-    # PIPELINE DOWNLOAD — TikTok + fallback toutes plateformes
-    # ══════════════════════════════════════════════════════════════
     try:
-        # ── 1. Download ──────────────────────────────────────────
+        # URL directe → Gemini (sauf TikTok), pas de download si concluant
+        if platform != "tiktok":
+            session["status"] = "processing"
+            try:
+                from core.extraction import _extract_gemini_url_direct
+                extraction = await _extract_gemini_url_direct(url)
+                if _extraction_is_useful(extraction):
+                    result = await process_analysis(
+                        frames=[], ocr_text="", transcript=extraction.get("_transcript_raw", ""),
+                        url=url, lang=lang, browser_lang=browser_lang,
+                        prefetched_extraction=extraction)
+                    session["status"] = "done"; session["result"] = result
+                    return
+                print(f"⚠️ URL directe non concluante [{platform}] → download", flush=True)
+            except Exception as e:
+                print(f"⚠️ URL directe exception: {e} → download", flush=True)
+
+        # Download
         session["status"] = "downloading"
-        print(
-            f"📥 DOWNLOAD (max {MAX_VIDEO_SECONDS}s) [{platform}] session={session_id}",
-            flush=True
-        )
-        dl_result = await download_video(url, video_path, platform)
-
-        if not dl_result["ok"]:
+        print(f"📥 DOWNLOAD [{platform}] session={session_id}", flush=True)
+        dl = await download_video(url, video_path, platform)
+        if not dl["ok"]:
             session["status"] = "error"
-            session["result"] = {
-                "status":  "error",
-                "code":    dl_result["code"],
-                "message": dl_result["message"],
-            }
+            session["result"] = {"status": "error", "code": dl["code"], "message": dl["message"]}
             return
-
         if not os.path.exists(video_path) or os.path.getsize(video_path) < 1000:
             session["status"] = "error"
-            session["result"] = {
-                "status":  "error",
-                "code":    "download_empty",
-                "message": "Le fichier vidéo est vide ou corrompu.",
-            }
+            session["result"] = {"status": "error", "code": "download_empty",
+                                 "message": "Le fichier vidéo est vide ou corrompu."}
             return
+        print(f"✅ Vidéo téléchargée ({os.path.getsize(video_path)/1024/1024:.1f} MB)", flush=True)
 
-        # ── 2. Conversion si nécessaire ──────────────────────────
-        session["status"] = "processing"
-        if video_path.endswith(".mp4"):
-            try:
-                probe = subprocess.run(
-                    ["ffprobe", "-v", "error", "-select_streams", "v:0",
-                     "-show_entries", "stream=codec_name",
-                     "-of", "default=noprint_wrappers=1:nokey=1", video_path],
-                    capture_output=True, text=True, timeout=5
-                )
-                codec = probe.stdout.strip()
-                if codec and codec not in ("h264", "hevc", "h265", "avc"):
-                    print(f"🔄 Conversion {codec} → h264", flush=True)
-                    converted = video_path.replace(".mp4", "_conv.mp4")
-                    subprocess.run(
-                        ["ffmpeg", "-i", video_path, "-c:v", "libx264",
-                         "-crf", "23", "-preset", "fast",
-                         "-c:a", "aac", "-y", converted],
-                        capture_output=True, timeout=60
-                    )
-                    if os.path.exists(converted) and os.path.getsize(converted) > 1000:
-                        os.remove(video_path)
-                        os.rename(converted, video_path)
-            except Exception as e:
-                print(f"⚠️ Probe/convert: {e}", flush=True)
-
-        try:
-            dur_probe = subprocess.run(
-                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                 "-of", "default=noprint_wrappers=1:nokey=1", video_path],
-                capture_output=True, text=True, timeout=5
-            )
-            duration = float(dur_probe.stdout.strip() or 0)
-            if 0 < duration < 3:
-                session["status"] = "error"
-                session["result"] = {
-                    "status":  "error",
-                    "code":    "video_too_short",
-                    "message": f"Vidéo trop courte ({duration:.1f}s). "
-                               f"Essayez un extrait d'au moins 3 secondes.",
-                }
-                return
-            print(f"✅ Durée: {duration:.1f}s", flush=True)
-        except Exception:
-            pass
-
-        file_mb = os.path.getsize(video_path) / 1024 / 1024
-        print(f"✅ Vidéo téléchargée ({file_mb:.1f} MB)", flush=True)
-
-        # ── 3. Extraction audio ──────────────────────────────────
-        print("🎵 AUDIO", flush=True)
-        try:
-            subprocess.run(
-                ["ffmpeg", "-i", video_path,
-                 "-t", str(MAX_VIDEO_SECONDS),
-                 "-vn", "-acodec", "libmp3lame",
-                 "-ar", "16000", "-ac", "1", "-b:a", "64k",
-                 "-y", audio_path],
-                check=True, capture_output=True, timeout=30
-            )
-            audio_exists = (
-                os.path.exists(audio_path) and os.path.getsize(audio_path) > 100
-            )
-        except Exception as e1:
-            print(
-                f"⚠️ Audio libmp3lame KO ({str(e1)[:60]}) → tentative 2",
-                flush=True
-            )
-            try:
-                subprocess.run(
-                    ["ffmpeg", "-i", video_path,
-                     "-t", str(MAX_VIDEO_SECONDS),
-                     "-vn", "-ar", "16000", "-ac", "1",
-                     "-f", "mp3", "-y", audio_path],
-                    check=True, capture_output=True, timeout=30
-                )
-                audio_exists = (
-                    os.path.exists(audio_path) and os.path.getsize(audio_path) > 100
-                )
-            except Exception as e2:
-                print(
-                    f"⚠️ Audio extraction KO définitif: {str(e2)[:80]}",
-                    flush=True
-                )
-
-        # ── 4. Extraction frames ─────────────────────────────────
-        print("🖼️ FRAMES", flush=True)
-        try:
-            frames = extract_keyframes(video_path, frame_dir, max_frames=6) or []
-        except Exception as e:
-            print(f"⚠️ Keyframes: {e}", flush=True)
-            frames = []
-        frames = [
-            f for f in frames
-            if os.path.exists(f) and os.path.getsize(f) > 0
-        ]
-        print(f"✅ Frames valides: {len(frames)}", flush=True)
-
-        if not frames and not audio_exists:
-            session["status"] = "error"
-            session["result"] = {
-                "status":  "error",
-                "code":    "no_frames",
-                "message": "Impossible d'extraire des images ou de l'audio de cette vidéo.",
-            }
-            return
-
-        # ── 5. Transcription ─────────────────────────────────────
-        print("🎙️ TRANSCRIPTION", flush=True)
-        transcript = ""
-        if audio_exists:
-            try:
-                transcript = transcribe(audio_path, enabled=True)
-                if transcript:
-                    print(f"✅ Transcription OK ({len(transcript)} chars)", flush=True)
-                else:
-                    print("⚠️ Transcription vide", flush=True)
-            except Exception as e:
-                print(f"⚠️ Transcription KO: {e}", flush=True)
-        else:
-            print("⚠️ Pas d'audio", flush=True)
-
-        # ── 6. Analyse ───────────────────────────────────────────
-        # Si des frames sont disponibles, Gemini analyse même sans transcript.
-        # Le fallback client ne se déclenche que si aucune frame n'est dispo.
-        if frames:
-            if not transcript:
-                print(
-                    "🔍 Pas de transcript → Gemini analyse les frames seules",
-                    flush=True
-                )
-            result = await process_analysis(
-                frames, "", transcript, url, lang, browser_lang
-            )
-            session["status"] = "done"
-            session["result"] = result
-            return
-
-        # ── 7. Fallback client (aucune frame disponible) ─────────
-        print("🔄 Fallback client (Tesseract.js + Whisper.js)", flush=True)
-        need_client_fallback = True
-        audio_b64 = ""
-        if audio_exists:
-            try:
-                with open(audio_path, "rb") as f:
-                    audio_b64 = base64.b64encode(f.read()).decode()
-            except Exception:
-                pass
-
-        fallback_sid = str(uuid.uuid4())[:12]
-        sessions[fallback_sid] = {
-            "url":          url,
-            "lang":         lang,
-            "browser_lang": browser_lang,
-            "video_path":   video_path,
-            "audio_path":   audio_path,
-            "frame_dir":    frame_dir,
-            "ocr_text":     "",
-            "timestamp":    time.time(),
-        }
-        session["status"] = "done"
-        session["result"] = {
-            "status":        "transcription_needed",
-            "session_id":    fallback_sid,
-            "frames_base64": [],
-            "audio_base64":  audio_b64,
-        }
+        # Fichier local → Gemini fichier → frames/transcription
+        need_client_fallback = await _process_local_file(
+            session, video_path, audio_path, frame_dir, url, lang, browser_lang)
 
     except Exception:
-        print(
-            f"❌ _run_download_and_analyse: {traceback.format_exc()}",
-            flush=True
-        )
+        print(f"❌ _run_download_and_analyse: {traceback.format_exc()}", flush=True)
         session["status"] = "error"
-        session["result"] = {
-            "status":  "error",
-            "code":    "unexpected",
-            "message": "Une erreur inattendue s'est produite. Réessayez.",
-        }
+        session["result"] = {"status": "error", "code": "unexpected",
+                             "message": "Une erreur inattendue s'est produite. Réessayez."}
     finally:
         if not need_client_fallback:
-            cleanup_files(video_path, audio_path, frame_dir, audio_exists)
+            cleanup_files(video_path, audio_path, frame_dir, True)
         session["timestamp"] = time.time()
-
-
 # ════════════════════════════════════════════════════════════════
 # ENDPOINT PRINCIPAL
 # ════════════════════════════════════════════════════════════════
@@ -583,6 +501,83 @@ async def analyser(req: VideoRequest, request: Request):
 
     return {"status": "processing", "session_id": session_id}
 
+
+
+
+async def _run_uploaded_analyse(session_id, lang, browser_lang):
+    session = _dl_sessions.get(session_id)
+    if not session:
+        return
+    vp, ap, fd = session["video_path"], session["audio_path"], session["frame_dir"]
+    need_client_fallback = False
+    try:
+        need_client_fallback = await _process_local_file(
+            session, vp, ap, fd, session["url"], lang, browser_lang)
+    except Exception:
+        print(f"❌ _run_uploaded_analyse: {traceback.format_exc()}", flush=True)
+        session["status"] = "error"
+        session["result"] = {"status": "error", "code": "unexpected",
+                             "message": "Une erreur inattendue s'est produite. Réessayez."}
+    finally:
+        if not need_client_fallback:
+            cleanup_files(vp, ap, fd, True)
+        session["timestamp"] = time.time()
+
+
+@app.post("/analyser-upload")
+async def analyser_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    lang: str = Form("fr"),
+    browser_lang: str = Form("fr"),
+):
+    ip = _get_client_ip(request)
+    rate_err = _check_rate_limit(ip)
+    if rate_err:
+        return rate_err
+    if _analysis_semaphore.locked():
+        return {"status": "error", "code": "server_busy",
+                "message": "Le serveur analyse déjà plusieurs vidéos. Réessayez dans 30 secondes."}
+    if not (file.content_type or "").startswith("video/"):
+        return {"status": "error", "code": "unsupported",
+                "message": "Le fichier doit être une vidéo (mp4, mov, webm…)."}
+
+    uid = str(uuid.uuid4())[:8]; session_id = str(uuid.uuid4())[:12]
+    os.makedirs("temp", exist_ok=True)
+    video_path = f"temp/{uid}.mp4"
+    max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
+    size = 0
+    try:
+        with open(video_path, "wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > max_bytes:
+                    out.close()
+                    if os.path.exists(video_path):
+                        os.remove(video_path)
+                    return {"status": "error", "code": "file_too_large",
+                            "message": f"Fichier trop volumineux (max {MAX_FILE_SIZE_MB} Mo)."}
+                out.write(chunk)
+    except Exception as e:
+        print(f"❌ upload write: {e}", flush=True)
+        return {"status": "error", "code": "unexpected", "message": "Échec de l'upload."}
+
+    if size < 1000:
+        if os.path.exists(video_path):
+            os.remove(video_path)
+        return {"status": "error", "code": "download_empty", "message": "Fichier vide ou corrompu."}
+
+    print(f"📤 UPLOAD reçu ({size/1024/1024:.1f} MB) session={session_id}", flush=True)
+    _dl_sessions[session_id] = {
+        "uid": uid, "url": f"upload:{uid}", "lang": lang, "browser_lang": browser_lang,
+        "platform": "upload", "video_path": video_path,
+        "audio_path": f"temp/{uid}.mp3", "frame_dir": f"temp/{uid}",
+        "status": "queued", "result": None, "timestamp": time.time()}
+    asyncio.create_task(_run_uploaded_analyse(session_id, lang, browser_lang))
+    return {"status": "processing", "session_id": session_id}
 # ════════════════════════════════════════════════════════════════
 # POLLING
 # ════════════════════════════════════════════════════════════════

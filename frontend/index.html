@@ -369,6 +369,22 @@
             <i class="fas fa-bolt"></i> <span data-i18n="cta">Identifier</span>
           </button>
         </div>
+        <div style="margin-top: 10px; text-align: center">
+          <input
+            type="file"
+            id="video-upload-input"
+            accept="video/*"
+            style="display: none"
+            onchange="if (this.files[0]) analyserVideoUpload(this.files[0]);"
+          />
+          <button
+            class="hero-search-btn"
+            style="background: transparent; border: 1px solid var(--border)"
+            onclick="document.getElementById('video-upload-input').click()"
+          >
+            <i class="fas fa-upload"></i> Ou uploader une vidéo
+          </button>
+        </div>
 
         <p class="hero-hint" data-i18n="hero_hint">
           👆 Clique sur une carte pour voir les détails, le streaming et les

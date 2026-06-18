@@ -24,6 +24,7 @@ import os
 import re
 import base64
 import httpx
+import asyncio
 
 from core.prompts import EXTRACTION_PROMPT
 
@@ -406,23 +407,12 @@ async def _call_gemini(
 # ════════════════════════════════════════════════════════════════
 # EXTRACTION YOUTUBE/URL DIRECTE (sans téléchargement)
 # ════════════════════════════════════════════════════════════════
-
 _YOUTUBE_DOMAINS = re.compile(r"youtube\.com|youtu\.be", re.IGNORECASE)
+GEMINI_FILES_BASE = "https://generativelanguage.googleapis.com"
 
 
-async def _extract_gemini_url_direct(video_url: str) -> dict | None:
-    """
-    Envoie une URL vidéo directement à Gemini sans téléchargement.
-    Gemini supporte nativement YouTube via file_data file_uri.
-    Pour les autres plateformes publiques, tente de fetcher l'URL.
-    Retourne None si la plateforme bloque → fallback download.
-    """
-    if not GEMINI_API_KEY:
-        return None
-
-    is_youtube = bool(_YOUTUBE_DOMAINS.search(video_url))
-
-    prompt = EXTRACTION_PROMPT.format(
+def _video_prompt() -> str:
+    return EXTRACTION_PROMPT.format(
         ocr_text="",
         transcript=(
             "(Analyse cette vidéo directement. "
@@ -436,102 +426,150 @@ async def _extract_gemini_url_direct(video_url: str) -> dict | None:
         ),
     )
 
+
+async def _gemini_video_generate(file_uri: str, label: str, mime: str = "video/mp4") -> dict | None:
+    """generateContent avec une partie vidéo (file_uri YouTube/URL OU fichier uploadé)."""
+    if not GEMINI_API_KEY:
+        return None
     payload = {
-        "contents": [{
-            "role": "user",
-            "parts": [
-                {"text": prompt},
-                {
-                    "file_data": {
-                        "mime_type": "video/mp4",
-                        "file_uri":  video_url,
-                    }
-                },
-            ],
-        }],
+        "contents": [{"role": "user", "parts": [
+            {"text": _video_prompt()},
+            {"file_data": {"mime_type": mime, "file_uri": file_uri}},
+        ]}],
         "generationConfig": {
-            "temperature":      0.1,
-            "maxOutputTokens":  3000,
+            "temperature": 0.1, "maxOutputTokens": 3000,
             "responseMimeType": "application/json",
         },
     }
-
-    platform_tag = "YouTube" if is_youtube else "URL directe"
-    print(f"🎬 Gemini {platform_tag} direct: {video_url[:70]}", flush=True)
-
+    print(f"🎬 Gemini {label}: {file_uri[:70]}", flush=True)
     try:
-        async with httpx.AsyncClient(timeout=90) as client:
-            resp = await client.post(
-                f"{GEMINI_URLS[0]}?key={GEMINI_API_KEY}", json=payload
-            )
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(f"{GEMINI_URLS[0]}?key={GEMINI_API_KEY}", json=payload)
             resp.raise_for_status()
-
-        raw       = resp.json()
-        candidate = raw.get("candidates", [{}])[0]
-        finish    = candidate.get("finishReason", "")
-
-        if finish in ("SAFETY", "RECITATION", "OTHER"):
-            print(f"⚠️ Gemini direct bloqué ({finish}): {video_url[:50]}", flush=True)
+        candidate = resp.json().get("candidates", [{}])[0]
+        if candidate.get("finishReason", "") in ("SAFETY", "RECITATION", "OTHER"):
+            print(f"⚠️ Gemini {label} bloqué", flush=True)
             return None
-
-        text = (
-            candidate
-            .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text", "")
-        ).strip()
-
+        text = (candidate.get("content", {}).get("parts", [{}])[0].get("text", "")).strip()
         if not text:
-            print(f"⚠️ Gemini direct: réponse vide pour {video_url[:50]}", flush=True)
+            print(f"⚠️ Gemini {label}: réponse vide", flush=True)
             return None
-
-        text = _clean_json_fences(text)
-        data = json.loads(text)
-
-        data["source"] = "gemini_url_direct"
-
-        # Source fiable → seuil certitude plus généreux (75 par défaut)
+        data = json.loads(_clean_json_fences(text))
+        data["source"] = "gemini_url_direct"   # source fiable (vidéo entière)
         data = _normalize_all_fields(data, default_certitude=75)
-
-        acteurs    = data.get("acteurs", [])
-        certitudes = data.get("acteurs_certitude", [])
-        is_ai      = data.get("is_ai_generated", False)
-
         print(
-            f"✅ Gemini direct OK ({platform_tag}) — "
-            f"titres={data.get('titres_possibles')}, "
-            f"acteurs={list(zip(acteurs, certitudes))}, "
-            f"is_ai={is_ai}",
-            flush=True
+            f"✅ Gemini {label} OK — titres={data.get('titres_possibles')}, "
+            f"acteurs={data.get('acteurs')}, is_ai={data.get('is_ai_generated')}",
+            flush=True,
         )
-
-        if is_ai:
-            print(
-                f"🤖 Gemini direct : contenu généré par IA détecté",
-                flush=True
-            )
-
         return data
-
     except httpx.HTTPStatusError as e:
-        print(
-            f"⚠️ Gemini direct HTTP {e.response.status_code} "
-            f"pour {video_url[:50]} → fallback pipeline",
-            flush=True
-        )
+        print(f"⚠️ Gemini {label} HTTP {e.response.status_code}", flush=True)
         return None
     except json.JSONDecodeError as e:
-        print(f"⚠️ Gemini direct JSON KO: {e}", flush=True)
+        print(f"⚠️ Gemini {label} JSON KO: {e}", flush=True)
         return None
     except Exception as e:
-        print(f"⚠️ Gemini direct KO: {str(e)[:200]}", flush=True)
+        print(f"⚠️ Gemini {label} KO: {str(e)[:160]}", flush=True)
         return None
 
 
-# Alias pour compatibilité avec les imports existants dans app.py
+async def _extract_gemini_url_direct(video_url: str) -> dict | None:
+    """URL publique (YouTube, IG, FB…) → Gemini, sans téléchargement."""
+    if not GEMINI_API_KEY:
+        return None
+    is_yt = bool(_YOUTUBE_DOMAINS.search(video_url))
+    return await _gemini_video_generate(video_url, "YouTube direct" if is_yt else "URL directe")
+
+
+async def _gemini_upload_file(path: str, mime: str = "video/mp4") -> dict | None:
+    """Upload résumable d'un fichier local vers la Files API Gemini."""
+    if not GEMINI_API_KEY or not os.path.exists(path):
+        return None
+    size = os.path.getsize(path)
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            start = await client.post(
+                f"{GEMINI_FILES_BASE}/upload/v1beta/files?key={GEMINI_API_KEY}",
+                headers={
+                    "X-Goog-Upload-Protocol": "resumable",
+                    "X-Goog-Upload-Command": "start",
+                    "X-Goog-Upload-Header-Content-Length": str(size),
+                    "X-Goog-Upload-Header-Content-Type": mime,
+                    "Content-Type": "application/json",
+                },
+                json={"file": {"display_name": os.path.basename(path)}},
+            )
+            start.raise_for_status()
+            upload_url = start.headers.get("x-goog-upload-url")
+            if not upload_url:
+                print("⚠️ Files API: pas d'upload URL", flush=True)
+                return None
+            with open(path, "rb") as fh:
+                content = fh.read()
+            up = await client.post(
+                upload_url,
+                headers={
+                    "Content-Length": str(size),
+                    "X-Goog-Upload-Offset": "0",
+                    "X-Goog-Upload-Command": "upload, finalize",
+                },
+                content=content,
+            )
+            up.raise_for_status()
+            return up.json().get("file") or None
+    except Exception as e:
+        print(f"⚠️ Files API upload KO: {str(e)[:160]}", flush=True)
+        return None
+
+
+async def _gemini_wait_active(name: str, max_attempts: int = 30) -> bool:
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            for _ in range(max_attempts):
+                r = await client.get(f"{GEMINI_FILES_BASE}/v1beta/{name}?key={GEMINI_API_KEY}")
+                r.raise_for_status()
+                state = r.json().get("state", "")
+                if state == "ACTIVE":
+                    return True
+                if state == "FAILED":
+                    return False
+                await asyncio.sleep(2)
+    except Exception as e:
+        print(f"⚠️ Files API poll KO: {str(e)[:120]}", flush=True)
+    return False
+
+
+async def _gemini_delete_file(name: str) -> None:
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            await client.delete(f"{GEMINI_FILES_BASE}/v1beta/{name}?key={GEMINI_API_KEY}")
+    except Exception:
+        pass
+
+
+async def _extract_gemini_video_file(video_path: str) -> dict | None:
+    """Fichier vidéo LOCAL (téléchargé OU uploadé) → Gemini via Files API."""
+    if not GEMINI_API_KEY or not os.path.exists(video_path):
+        return None
+    info = await _gemini_upload_file(video_path, "video/mp4")
+    if not info:
+        return None
+    name, uri, state = info.get("name"), info.get("uri"), info.get("state", "")
+    if not uri:
+        return None
+    if state != "ACTIVE" and not await _gemini_wait_active(name):
+        print("⚠️ Fichier Gemini jamais ACTIVE", flush=True)
+        await _gemini_delete_file(name)
+        return None
+    result = await _gemini_video_generate(uri, "vidéo fichier")
+    await _gemini_delete_file(name)
+    return result
+
+
+# Alias compat
 async def _extract_gemini_youtube(youtube_url: str) -> dict | None:
     return await _extract_gemini_url_direct(youtube_url)
-
 
 # ════════════════════════════════════════════════════════════════
 # EXTRACTION PRINCIPALE (frames + OCR + transcript)

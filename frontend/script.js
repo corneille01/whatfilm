@@ -653,7 +653,7 @@ async function analyserVideo(lien){
       const continueRes=await fetch("/analyser_continue",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:data.session_id,ocr_text:ocrText.status==="fulfilled"?ocrText.value:"",transcript:transcript.status==="fulfilled"?transcript.value:"",browser_lang:getBrowserLangShort()}),signal});
       let finalData;try{finalData=await continueRes.json();}catch(e){throw new Error("json_parse");}_afficherResultatFinal(finalData);return;
     }
-    if(data.status==="processing"&&data.session_id){clearInterval(progInterval);const finalResult=await pollAnalysisStatus(data.session_id,signal);_afficherResultatFinal(finalResult);return;}
+    if(data.status==="processing"&&data.session_id){clearInterval(progInterval);const finalResult=await pollAnalysisStatus(data.session_id,signal);await _consumeAnalysis(finalResult,signal);return;}
     clearInterval(progInterval);_afficherResultatFinal(data);
   }catch(e){
     clearInterval(progInterval);_adFinished=true;document.getElementById('ad-modal').style.display='none';clearInterval(_adCountdownInterval);overlay.classList.remove("active");stopGame();
@@ -662,6 +662,49 @@ async function analyserVideo(lien){
     else if(e.message?.startsWith("http_")){const status=parseInt(e.message.split("_")[1]);afficherErreurRiche({code:status===502||status===503?"server_busy":"unexpected"});}
     else afficherErreurRiche({code:"unexpected",message:t("err_generic")});
   }
+}
+
+async function analyserVideoUpload(file){
+  if(!file)return;
+  if(file.size > 50*1024*1024){ afficherErreur(t("err_file_too_large")||"Fichier trop volumineux (max 50 Mo)."); return; }
+  hideHero();_adFinished=false;_analysisResult=null;
+  const lastAd=parseInt(localStorage.getItem('last_ad')||'0');
+  if(Date.now()-lastAd>30*60*1000){localStorage.setItem('last_ad',Date.now().toString());demarrerPub();}else{_adFinished=true;}
+  const overlay=document.getElementById("loading-overlay");overlay.classList.add("active");startGame();
+  const progressBar=document.getElementById("prog-fill"),percentLabel=document.getElementById("prog-percent");
+  analysisAbortController=new AbortController();const signal=analysisAbortController.signal;
+  const fd=new FormData();fd.append("file",file);fd.append("lang",getTMDBLang());fd.append("browser_lang",getBrowserLangShort());
+  try{
+    const data=await new Promise((resolve,reject)=>{
+      const xhr=new XMLHttpRequest();xhr.open("POST","/analyser-upload");
+      xhr.upload.onprogress=e=>{if(e.lengthComputable){const p=Math.round((e.loaded/e.total)*40);if(progressBar)progressBar.style.width=p+"%";if(percentLabel)percentLabel.textContent=p+"%";}};
+      xhr.onload=()=>{try{resolve(JSON.parse(xhr.responseText));}catch(e){reject(new Error("json_parse"));}};
+      xhr.onerror=()=>reject(new Error("network"));
+      signal.addEventListener("abort",()=>xhr.abort());
+      xhr.send(fd);
+    });
+    if(data.status==="error"){_adFinished=true;document.getElementById('ad-modal').style.display='none';clearInterval(_adCountdownInterval);overlay.classList.remove("active");stopGame();afficherErreurRiche(data);return;}
+    if(data.status==="processing"&&data.session_id){const r=await pollAnalysisStatus(data.session_id,signal);await _consumeAnalysis(r,signal);return;}
+    await _consumeAnalysis(data,signal);
+  }catch(e){
+    _adFinished=true;document.getElementById('ad-modal').style.display='none';clearInterval(_adCountdownInterval);overlay.classList.remove("active");stopGame();
+    if(e.name==="AbortError"||signal.aborted)return;
+    afficherErreurRiche({code:"unexpected",message:t("err_generic")});
+  }
+}
+
+async function _consumeAnalysis(data,signal){
+  if(data && data.status==="transcription_needed"){
+    const skipWhisper=data.skip_whisper===true;
+    const [ocrText,transcript]=await Promise.allSettled([
+      data.frames_base64?.length?runLocalOCR(data.frames_base64):Promise.resolve(""),
+      (!skipWhisper&&data.audio_base64)?runLocalWhisper(data.audio_base64):Promise.resolve("")
+    ]);
+    const cr=await fetch("/analyser_continue",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:data.session_id,ocr_text:ocrText.status==="fulfilled"?ocrText.value:"",transcript:transcript.status==="fulfilled"?transcript.value:"",browser_lang:getBrowserLangShort()}),signal});
+    let fdata;try{fdata=await cr.json();}catch(e){afficherErreurRiche({code:"unexpected",message:t("err_generic")});return;}
+    _afficherResultatFinal(fdata);return;
+  }
+  _afficherResultatFinal(data);
 }
 async function pollAnalysisStatus(sessionId,signal,maxRetries=80){
   const progressBar=document.getElementById("prog-fill"),percentLabel=document.getElementById("prog-percent");let lastProgress=88;
