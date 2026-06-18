@@ -332,6 +332,33 @@ const STREAMING_LINKS = {
   Mubi:"https://mubi.com/search/",
   Hulu:"https://www.hulu.com/search?query="
 };
+
+// ════ AMAZON PAR MARCHÉ (détection navigateur) ════
+const AMAZON_DOMAINS = {
+  FR:"www.amazon.fr", BE:"www.amazon.com.be", ES:"www.amazon.es", DE:"www.amazon.de",
+  AT:"www.amazon.de", IT:"www.amazon.it", NL:"www.amazon.nl", SE:"www.amazon.se",
+  PL:"www.amazon.pl", GB:"www.amazon.co.uk", IE:"www.amazon.co.uk", US:"www.amazon.com",
+  CA:"www.amazon.ca", MX:"www.amazon.com.mx", BR:"www.amazon.com.br", JP:"www.amazon.co.jp",
+  IN:"www.amazon.in", AU:"www.amazon.com.au", AE:"www.amazon.ae", SA:"www.amazon.sa",
+  SG:"www.amazon.sg", TR:"www.amazon.com.tr",
+};
+function _amazonTag(domain){
+  if (domain.endsWith(".com")) return "pelify-20";
+  if (domain.endsWith(".ca"))  return "pelify-20";
+  return "pelify-21";
+}
+function _detectCountry(){
+  for (const l of (navigator.languages || [navigator.language || ""])) {
+    const m = l.toUpperCase().match(/-([A-Z]{2})$/);
+    if (m && AMAZON_DOMAINS[m[1]]) return m[1];
+  }
+  const uiToCC = { fr:"FR", es:"ES", de:"DE", "en-GB":"GB", "en-US":"US", zh:"US" };
+  return uiToCC[currentLang] || "US";
+}
+function getAmazonSearch(title){
+  const domain = AMAZON_DOMAINS[_detectCountry()] || "www.amazon.com";
+  return `https://${domain}/s?k=${encodeURIComponent(title||"")}&i=instant-video&tag=${_amazonTag(domain)}`;
+}
 // ════ CONFIG AFFILIATION ════
 const AFFILIATE_CONFIG = {
   deliveroo:    { base: "https://deliveroo.fr",            aff_param: "" },
