@@ -743,8 +743,8 @@ async function chargerParPlateforme(platformKey){
   document.getElementById("genre-grid").style.display="block";
   document.getElementById("genre-title").innerText="📺 "+(nameMap[platformKey]||platformKey.toUpperCase());
   document.getElementById("movie-cards").innerHTML=`<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
-  document.querySelectorAll(".btn-platform").forEach(b=>b.classList.remove("active"));
-  event?.currentTarget?.classList.add("active");
+ document.querySelectorAll(".btn-platform").forEach(b=>b.classList.remove("active"));
+  document.querySelector(`.btn-platform[href="/plateforme/${platformKey}"]`)?.classList.add("active");
   lastGrid=platformKey;navStack=[];
   try{
     const data=await safeFetch(`/discover-provider/${platformKey}?lang=${getTMDBLang()}&page=1`);
