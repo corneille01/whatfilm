@@ -372,8 +372,7 @@
             </span>
           </div>
         </div>
-
-        <!-- Barre de recherche centrale -->
+<!-- Barre de recherche centrale -->
         <div class="hero-search-wrap">
           <i class="fas fa-search hero-search-icon"></i>
           <input
@@ -385,21 +384,19 @@
             aria-label="Rechercher"
             onkeydown="if (event.key === 'Enter') rechercheHero();"
           />
-          <div class="hero-search-wrap">
-            <button class="hero-search-btn" onclick="document.getElementById('video-upload-input').click()"
-        title="Uploader une vidéo" aria-label="Uploader une vidéo" style="flex:0 0 auto">
-  <i class="fas fa-paperclip"></i>
-</button>
+          <button
+            class="hero-search-btn"
+            onclick="document.getElementById('video-upload-input').click()"
+            title="Uploader une vidéo"
+            aria-label="Uploader une vidéo"
+            style="flex: 0 0 auto"
+          >
+            <i class="fas fa-paperclip"></i>
+          </button>
           <button class="hero-search-btn" onclick="rechercheHero()">
             <i class="fas fa-bolt"></i> <span data-i18n="cta">Identifier</span>
           </button>
         </div>
-
-        <p class="hero-hint" data-i18n="hero_hint">
-          👆 Clique sur une carte pour voir les détails, le streaming et les
-          films similaires.
-        </p>
-      </div>
     </section>
 
     <!-- GENRE NAV -->

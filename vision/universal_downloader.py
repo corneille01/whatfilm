@@ -157,6 +157,34 @@ async def _download_with_ytdlp(url: str, output_path: str) -> Dict[str, Any]:
     return {"ok": False, "code": "ytdlp_error", "message": last_error}
 
 
+
+
+
+async def _download_tiktok_api(url: str, output_path: str) -> Dict[str, Any]:
+    """Résout l'URL MP4 via l'API publique tikwm.com, puis télécharge."""
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True,
+                                     headers={"User-Agent": "Mozilla/5.0"}) as client:
+            r = await client.get("https://www.tikwm.com/api/",
+                                 params={"url": url, "hd": 1})
+            r.raise_for_status()
+            j = r.json()
+        if j.get("code") != 0:
+            return {"ok": False, "code": "tikwm_failed",
+                    "message": f"tikwm: {j.get('msg', 'erreur')}"}
+        data = j.get("data") or {}
+        play = data.get("hdplay") or data.get("play") or data.get("wmplay")
+        if not play:
+            return {"ok": False, "code": "tikwm_no_url", "message": "tikwm: pas d'URL vidéo"}
+        if play.startswith("/"):
+            play = "https://www.tikwm.com" + play
+        print("✅ tikwm → URL MP4 obtenue, téléchargement...", flush=True)
+        return await _download_via_direct_url(play, output_path,
+                                              referer="https://www.tiktok.com/")
+    except Exception as e:
+        return {"ok": False, "code": "tikwm_error", "message": str(e)[:200]}
+
 # ══════════════════════════════════════════════════════════════
 # TikTok
 # ══════════════════════════════════════════════════════════════
@@ -261,32 +289,27 @@ async def _download_tiktok_playwright_direct(url: str) -> Dict[str, Any]:
 # Téléchargement URL directe
 # ══════════════════════════════════════════════════════════════
 
-async def _download_via_direct_url(direct_url: str, output_path: str) -> Dict[str, Any]:
+async def _download_via_direct_url(direct_url: str, output_path: str,
+                                   referer: str = "https://www.youtube.com/") -> Dict[str, Any]:
     """Télécharge un fichier depuis une URL directe (httpx streaming)."""
     try:
         import httpx
         async with httpx.AsyncClient(
-            timeout=60,
-            follow_redirects=True,
+            timeout=60, follow_redirects=True,
             headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Linux; Android 10; K) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/124.0.6367.82 Mobile Safari/537.36"
-                ),
-                "Referer": "https://www.youtube.com/",
+                "User-Agent": ("Mozilla/5.0 (Linux; Android 10; K) "
+                               "AppleWebKit/537.36 (KHTML, like Gecko) "
+                               "Chrome/124.0.6367.82 Mobile Safari/537.36"),
+                "Referer": referer,
             },
         ) as client:
             async with client.stream("GET", direct_url) as resp:
                 if resp.status_code != 200:
-                    return {
-                        "ok": False, "code": "direct_download_failed",
-                        "message": f"Échec du téléchargement direct (HTTP {resp.status_code})",
-                    }
+                    return {"ok": False, "code": "direct_download_failed",
+                            "message": f"Échec du téléchargement direct (HTTP {resp.status_code})"}
                 with open(output_path, "wb") as f:
                     async for chunk in resp.aiter_bytes(chunk_size=8192):
                         f.write(chunk)
-
         size = os.path.getsize(output_path)
         if size > 1000:
             return {"ok": True}
@@ -294,8 +317,6 @@ async def _download_via_direct_url(direct_url: str, output_path: str) -> Dict[st
                 "message": f"Fichier téléchargé trop petit ({size} octets)"}
     except Exception as e:
         return {"ok": False, "code": "direct_download_error", "message": str(e)[:200]}
-
-
 # ══════════════════════════════════════════════════════════════
 # FONCTION PRINCIPALE
 # ══════════════════════════════════════════════════════════════
@@ -338,22 +359,27 @@ async def download_video(url: str, output_path: str, platform: str = "unknown") 
         return await _download_with_ytdlp(url, output_path)
 
     # ── TikTok ───────────────────────────────────────────────────
+   
     if platform == "tiktok":
-        playwright_result = None
+        # 1) API publique tikwm (la plus fiable, contourne les 404 CDN)
+        api_result = await _download_tiktok_api(url, output_path)
+        if api_result["ok"]:
+            return api_result
+        print(f"⚠️ tikwm KO ({api_result.get('code')}) → Playwright", flush=True)
+
+        # 2) Playwright (extraction de l'URL dans la page)
         if IS_RENDER:
-            playwright_result = await _download_tiktok_playwright_subprocess(url)
+            pw = await _download_tiktok_playwright_subprocess(url)
         else:
-            playwright_result = await _download_tiktok_playwright_direct(url)
+            pw = await _download_tiktok_playwright_direct(url)
+        if pw and pw.get("ok") and pw.get("direct_url"):
+            dl = await _download_via_direct_url(
+                pw["direct_url"], output_path, referer="https://www.tiktok.com/")
+            if dl["ok"]:
+                return dl
+        print("⚠️ Playwright KO → yt-dlp", flush=True)
 
-        if playwright_result and playwright_result.get("ok") \
-                and playwright_result.get("direct_url"):
-            dl_result = await _download_via_direct_url(
-                playwright_result["direct_url"], output_path
-            )
-            if dl_result["ok"]:
-                return dl_result
-
+        # 3) yt-dlp (dernier recours)
         return await _download_with_ytdlp(url, output_path)
-
     # ── Autres plateformes ───────────────────────────────────────
     return await _download_with_ytdlp(url, output_path)
