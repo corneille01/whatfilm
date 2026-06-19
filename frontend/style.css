@@ -17,8 +17,8 @@
   --error-bg: rgba(255, 60, 60, 0.1);
   --error-border: rgba(255, 60, 60, 0.35);
   --error-text: #ff6b6b;
-  --font-display: "Bricolage Grotesque", var(--font-body);
-  --font-body: "Plus Jakarta Sans", var(--font-body);
+ --font-display: "Orbitron", sans-serif;
+  --font-body: "Rajdhani", sans-serif;
 }
 *,
 *::before,
@@ -317,7 +317,7 @@ body {
 #genre-grid {
   display: none;
   padding: 0 16px 60px;
-  max-width: 90px;
+  max-width: min(90%, 1280px); 
   margin: 0 auto;
 }
 #genre-title {
@@ -475,7 +475,7 @@ body {
 /* FILM DETAIL */
 #page-film-detail {
   display: none;
-  max-width: 90%;
+  max-width: min(90%, 900px);
   margin: 0 auto;
   padding: 28px 16px 80px;
 }
@@ -538,7 +538,7 @@ body {
   border: 1px solid rgba(0, 255, 204, 0.2);
   color: var(--primary);
   padding: 4px 10px;
-  border-radius: 20px;
+  border-radius: 2px;
   font-size: 0.75rem;
   font-weight: 600;
 }
@@ -906,7 +906,7 @@ body {
   margin: 16px 0;
   cursor: pointer;
   transition: border-color 0.2s;
-  width: 500px;
+  width: 100%; max-width: 500px; margin: 16px auto;
 }
 .ad-slot:hover {
   border-color: rgba(255, 215, 0, 0.4);
@@ -922,7 +922,7 @@ body {
   margin: 16px 0;
   gap: 14px;
   align-items: center;
-  width: 500px;
+  width: 100%; max-width: 500px;
 }
 .food-partner.visible {
   display: flex;
@@ -2033,11 +2033,29 @@ body {
   margin-bottom: 6px;
 }
 
-/* ── Polish typo (display non condensée) ── */
-.logo            { letter-spacing: .5px; font-weight: 800; }
-#hero h1         { letter-spacing: 1px;  font-weight: 800; }
-#genre-title     { letter-spacing: 1px;  font-weight: 800; }
-.detail-info h2  { letter-spacing: .5px; font-weight: 800; }
+
+
+/* ── Polish typo GAMER (Orbitron + Rajdhani) ── */
+body { font-weight: 500; }                  /* Rajdhani 400 est trop fin */
+
+.logo            { letter-spacing: 2px;   font-weight: 800; }
+#hero h1         { letter-spacing: 2px;   font-weight: 800; }
+#genre-title     { letter-spacing: 1.5px; font-weight: 700; }
+.detail-info h2  { letter-spacing: 1px;   font-weight: 700; }
 #seasons_section h3,
 #similar_section h3,
-#privacy-page h2 { letter-spacing: .5px; font-weight: 700; }
+#privacy-page h2 { letter-spacing: 1px;   font-weight: 700; }
+
+/* Boutons & nav en capitales = look "écran de jeu" (optionnel) */
+.hero-search-btn,
+.btn-genre,
+.btn-platform,
+.btn-stream {
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  font-weight: 600;
+}
+@media (max-width: 380px) {
+  #hero h1 { font-size: clamp(1.8rem, 8vw, 2.4rem); letter-spacing: 1px; }
+}
+@media (max-width: 560px) { #synopsis_film { text-align: left; } }
