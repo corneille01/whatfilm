@@ -1123,7 +1123,7 @@ _LANG_TO_REGION = {
     "fr": "FR", "en": "US", "es": "ES", "de": "DE", "zh": "CN",
 }
 
-# Provider IDs TMDB (identiques dans la plupart des régions)
+# Provider IDs TMDB 
 _PROVIDER_IDS = {
     "amazon":   119,    # Amazon Prime Video
     "netflix":  8,

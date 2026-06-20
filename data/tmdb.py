@@ -407,6 +407,8 @@ async def get_trending(lang: str = "fr", media_type: str = "movie") -> list:
 
 
 async def discover_by_provider(provider_id: int, region: str, lang: str, page: int = 1):
+   
+    
     lang_map = {
         "fr": "fr-FR",
         "en": "en-US",
@@ -442,6 +444,7 @@ async def discover_by_provider(provider_id: int, region: str, lang: str, page: i
 
         r.raise_for_status()
         data = r.json()
+        print("📦 Réponse TMDB brute:", data)
 
     print(
         f"TMDB status={r.status_code} "
@@ -454,7 +457,9 @@ async def discover_by_provider(provider_id: int, region: str, lang: str, page: i
         "results": data.get("results", []),
         "total_pages": min(data.get("total_pages", 1), 500),
         "page": data.get("page", 1),
+        
     }
+
 async def get_season_details(
     series_id: int,
     season_number: int,
