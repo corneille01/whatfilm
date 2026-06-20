@@ -2059,3 +2059,36 @@ body { font-weight: 500; }                  /* Rajdhani 400 est trop fin */
   #hero h1 { font-size: clamp(1.8rem, 8vw, 2.4rem); letter-spacing: 1px; }
 }
 @media (max-width: 560px) { #synopsis_film { text-align: left; } }
+
+
+
+
+.streaming-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.streaming-badge {
+  display: inline-flex;
+  align-items: center;
+  background: var(--card2);
+  padding: 4px 10px 4px 6px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  text-decoration: none;
+  color: var(--text);
+  transition: border-color 0.2s, background 0.2s;
+  font-size: 0.75rem;
+}
+.streaming-badge:hover {
+  border-color: var(--primary);
+  background: rgba(0,255,204,0.08);
+}
+.streaming-badge img {
+  height: 20px;
+  width: auto;
+  max-width: 40px;
+  object-fit: contain;
+  margin-right: 4px;
+}

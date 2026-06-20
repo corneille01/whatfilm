@@ -2051,38 +2051,54 @@ function afficherDetailFilm(data) {
     }
   }
 
-  // ─── STREAMING (NOUVEAU) ────────────────────────────
-  const streamEl = document.getElementById("streaming_section");
-  const providers = data.streaming_logos || []; // tableau [{name, logo_path}]
+ // ─── STREAMING ──────────────────────────────────────────────
+const streamEl = document.getElementById("streaming_section");
+const providers = data.streaming_logos || []; // [{name, logo_path}]
 
-  if (providers.length > 0) {
-    const logos = providers.map(p => {
-      const logoUrl = p.logo_path ? `https://image.tmdb.org/t/p/w92${p.logo_path}` : '';
-      const name = p.name || '';
-      return `<span class="streaming-badge" title="${name}">
-        ${logoUrl ? `<img src="${logoUrl}" alt="${name}" loading="lazy">` : name}
-      </span>`;
-    }).join('');
+if (providers.length > 0) {
+  const logos = providers.map(p => {
+    const name = p.name || '';
+    const logoUrl = p.logo_path ? `https://image.tmdb.org/t/p/w92${p.logo_path}` : '';
+    
+    // Construire l'URL de recherche pour chaque plateforme
+    let link = '#';
+    const searchTitle = encodeURIComponent(data.title || '');
+    if (STREAMING_LINKS[name]) {
+      link = STREAMING_LINKS[name] + searchTitle;
+    } else {
+      // Fallback : recherche Google
+      link = `https://www.google.com/search?q=${searchTitle}+${name}`;
+    }
+    
+    // Ajouter le tag d'affiliation pour Amazon
+    if (name === 'Amazon Prime Video') {
+      link = link.replace('&tag=', '&tag=pelify-21'); // ajuster si nécessaire
+    }
+    
+    return `<a href="${link}" target="_blank" rel="sponsored noopener" class="streaming-badge" title="${name}">
+      ${logoUrl ? `<img src="${logoUrl}" alt="${name}" loading="lazy">` : name}
+    </a>`;
+  }).join('');
 
-    streamEl.innerHTML = `
-      <h3><i class="fas fa-satellite-dish"></i> ${t("streaming_title")}</h3>
-      <div class="streaming-badges">${logos}</div>
-    `;
-  } else {
-    // Pas de provider dans la région → message + suggestion Amazon
-    const region = getRegionCode();
-    streamEl.innerHTML = `
-      <h3><i class="fas fa-satellite-dish"></i> ${t("streaming_title")}</h3>
-      <p style="color:var(--muted);font-size:.85rem">
-        ${t("no_streaming_country")} (région ${region})
-      </p>
-      <div class="streaming-buttons" style="margin-top:8px">
-        <a href="${getAmazonSearch(data.title)}" target="_blank" rel="sponsored noopener" class="btn-stream affiliate" style="border-color:#00a8e040">
-          <i class="fas fa-search" style="color:#00a8e0"></i> Amazon Prime
-        </a>
-      </div>
-    `;
-  }
+  streamEl.innerHTML = `
+    <h3><i class="fas fa-satellite-dish"></i> ${t("streaming_title")}</h3>
+    <div class="streaming-badges">${logos}</div>
+  `;
+} else {
+  // Pas de provider dans la région → fallback Amazon
+  const region = getRegionCode();
+  streamEl.innerHTML = `
+    <h3><i class="fas fa-satellite-dish"></i> ${t("streaming_title")}</h3>
+    <p style="color:var(--muted);font-size:.85rem">
+      ${t("no_streaming_country")} (région ${region})
+    </p>
+    <div class="streaming-buttons" style="margin-top:8px">
+      <a href="${getAmazonSearch(data.title)}" target="_blank" rel="sponsored noopener" class="btn-stream affiliate" style="border-color:#00a8e040">
+        <i class="fas fa-search" style="color:#00a8e0"></i> Amazon Prime
+      </a>
+    </div>
+  `;
+}
 
   // ─── SAISONS ──────────────────────────────────────────
   const seasonsEl = document.getElementById("seasons_section");
@@ -2250,16 +2266,20 @@ function afficherLocationsWikidata(container,locations){
   if(withGPS.length>0&&typeof L!=="undefined")initFilmingMap(withGPS);
   else if(withGPS.length>0)_ensureLeafletFull(()=>initFilmingMap(withGPS));
 }
+
+
 function initFilmingMap(locations) {
   try {
     const mapEl = document.getElementById("filming-map-inner");
     if (!mapEl || !window.L) return;
+
+    // Nettoyer l'ancienne carte
     if (window._filmingMapDetail) {
       window._filmingMapDetail.remove();
       window._filmingMapDetail = null;
     }
 
-    // Centre sur le premier lieu
+    // Créer la carte
     const center = [locations[0].lat, locations[0].lng];
     const map = L.map(mapEl, { zoomControl: true, scrollWheelZoom: false });
     window._filmingMapDetail = map;
@@ -2270,60 +2290,56 @@ function initFilmingMap(locations) {
       maxZoom: 19
     }).addTo(map);
 
-    // ── CLUSTER ──
+    // Créer un groupe de clusters
     const clusterGroup = L.markerClusterGroup({
-      maxClusterRadius: 50,
+      maxClusterRadius: 60,
+      showCoverageOnHover: false,
       iconCreateFunction: function(cluster) {
         const count = cluster.getChildCount();
+        const size = count > 100 ? 50 : count > 30 ? 40 : 32;
         return L.divIcon({
-          html: `<div style="background:var(--primary);color:#000;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-weight:700;border:2px solid #fff;">${count}</div>`,
+          html: `<div class="fmap-cluster" style="width:${size}px;height:${size}px;border-radius:50%;background:rgba(0,255,204,0.2);border:2px solid #00ffcc;color:#00ffcc;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:${size>40?'14px':'12px'}">${count}</div>`,
           className: '',
-          iconSize: [30, 30]
+          iconSize: [size, size],
+          iconAnchor: [size/2, size/2]
         });
       }
     });
 
-    // ── CALCUL DES DISTANCES (Turf) ──
-    let distanceInfo = "";
-    if (locations.length > 1 && window.turf) {
-      const from = turf.point([locations[0].lng, locations[0].lat]);
-      const distances = locations.slice(1).map((loc, idx) => {
-        const to = turf.point([loc.lng, loc.lat]);
-        const dist = turf.distance(from, to, { units: 'kilometers' });
-        return { index: idx + 1, name: loc.name, dist: dist.toFixed(1) };
-      });
-      // Afficher les distances dans un petit encart (on peut le mettre dans le popup ou à côté)
-      distanceInfo = distances.map(d => `${d.name} : ${d.dist} km`).join(' · ');
-    }
+    // Définir une icône pour les lieux
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="background:var(--primary,#00ffcc);width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #000;box-shadow:0 2px 8px rgba(0,255,204,.4)"></div>`,
+      iconSize: [28, 28],
+      iconAnchor: [14, 28]
+    });
 
-    // ── MARQUEURS ──
+    // Ajouter les marqueurs avec calcul de distance
+    const points = locations.map(loc => [loc.lat, loc.lng]);
+    const firstPoint = points[0];
     const bounds = [];
+
     locations.forEach((loc, index) => {
-      const icon = L.divIcon({
-        className: "",
-        html: `<div style="background:var(--primary,#00ffcc);width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #000;box-shadow:0 2px 8px rgba(0,255,204,.4);display:flex;align-items:center;justify-content:center;font-weight:700;color:#000;">${index + 1}</div>`,
-        iconSize: [28, 28],
-        iconAnchor: [14, 28]
-      });
-
       const marker = L.marker([loc.lat, loc.lng], { icon }).addTo(clusterGroup);
+      
+      // Calculer la distance depuis le premier point (ou depuis le point précédent)
+      let distanceText = '';
+      if (index > 0 && window.turf) {
+        const from = turf.point(firstPoint);
+        const to = turf.point([loc.lng, loc.lat]); // turf utilise [lng, lat]
+        const distance = turf.distance(from, to, { units: 'kilometers' });
+        distanceText = ` <span style="font-size:0.7rem;color:var(--muted)">(${distance.toFixed(1)} km depuis le premier lieu)</span>`;
+      }
 
-      // Popup avec distance et liens d'hébergement
-      const popupContent = `
-        <strong>${loc.name}</strong><br>
-        ${index === 0 ? '<span style="color:var(--gold);">📍 Point de départ</span>' : ''}
-        ${index > 0 && window.turf ? `<br>📏 Distance : ${turf.distance(turf.point([locations[0].lng, locations[0].lat]), turf.point([loc.lng, loc.lat]), {units:'kilometers'}).toFixed(1)} km` : ''}
-        <br><br>
-        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">
-          <a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(loc.name)}&aid=Pelify" target="_blank" rel="sponsored noopener" style="background:#4dabf7;color:#fff;padding:2px 8px;border-radius:4px;font-size:.7rem;">🛏 Booking</a>
-          <a href="https://www.expedia.com/Hotel-Search?destination=${encodeURIComponent(loc.name)}" target="_blank" rel="sponsored noopener" style="background:#ff6b35;color:#fff;padding:2px 8px;border-radius:4px;font-size:.7rem;">🏨 Expedia</a>
-          <a href="https://www.agoda.com/search?city=${encodeURIComponent(loc.name)}" target="_blank" rel="sponsored noopener" style="background:#1a73e8;color:#fff;padding:2px 8px;border-radius:4px;font-size:.7rem;">🌐 Agoda</a>
-        </div>
-        <div style="margin-top:6px;">
-          <a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank" style="color:var(--primary);font-size:.7rem;">🗺️ Google Maps</a>
-        </div>
-      `;
-      marker.bindPopup(popupContent);
+      marker.bindPopup(`
+        <strong>${loc.name}</strong>
+        ${distanceText}
+        <br>
+        <a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(loc.name)}&aid=Pelify" target="_blank" style="color:#00ffcc;font-size:.8rem">🛏 Hôtels →</a> · 
+        <a href="https://www.expedia.com/search?q=${encodeURIComponent(loc.name)}" target="_blank" style="color:#00ffcc;font-size:.8rem">🏨 Expedia →</a> · 
+        <a href="https://www.airbnb.com/s/${encodeURIComponent(loc.name)}" target="_blank" style="color:#00ffcc;font-size:.8rem">🏡 Airbnb →</a> · 
+        <a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank" style="color:#00ffcc;font-size:.8rem">🗺 Maps →</a>
+      `);
 
       bounds.push([loc.lat, loc.lng]);
     });
@@ -2337,20 +2353,15 @@ function initFilmingMap(locations) {
       map.fitBounds(bounds, { padding: [30, 30] });
     }
 
-    // ── Afficher les distances dans un encart en bas à droite ──
-    if (distanceInfo) {
-      const infoControl = L.control({ position: 'bottomright' });
-      infoControl.onAdd = function() {
-        const div = L.DomUtil.create('div', 'info-distances');
-        div.style.cssText = 'background:rgba(0,0,0,0.7);color:#fff;padding:6px 12px;border-radius:8px;font-size:.7rem;border:1px solid var(--primary);backdrop-filter:blur(4px);';
-        div.innerHTML = `<i class="fas fa-route" style="color:var(--primary);"></i> ${distanceInfo}`;
-        return div;
-      };
-      infoControl.addTo(map);
+    // Ajouter une ligne reliant les points (itinéraire)
+    if (points.length > 1 && window.L.polyline) {
+      const line = L.polyline(points, {
+        color: '#00ffcc',
+        weight: 2,
+        opacity: 0.5,
+        dashArray: '6,8'
+      }).addTo(map);
     }
-
-    // ── JOUER UN SON IMMERSIF (ambiance spatiale) ──
-    playImmersiveSound();
 
   } catch (e) {
     console.warn("Leaflet map KO:", e);

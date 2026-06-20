@@ -54,6 +54,30 @@ _TRACKING_PARAMS = {
 }
 
 
+
+# ── Mapping langue → région (complet) ────────────────────────────
+def _get_region_from_lang(lang: str) -> str:
+    """Retourne le code pays ISO 3166-1 alpha-2 à partir de la langue du navigateur."""
+    if not lang:
+        return "US"
+    lang = lang.lower()
+    
+    # Mapping étendu (identique au frontend)
+    map_region = {
+        'fr': 'FR', 'fr-fr': 'FR', 'fr-be': 'BE', 'fr-ca': 'CA', 'fr-ch': 'CH',
+        'en': 'US', 'en-us': 'US', 'en-gb': 'GB', 'en-ca': 'CA', 'en-au': 'AU',
+        'es': 'ES', 'es-es': 'ES', 'es-mx': 'MX', 'es-ar': 'AR',
+        'de': 'DE', 'de-de': 'DE', 'de-at': 'AT', 'de-ch': 'CH',
+        'it': 'IT', 'it-it': 'IT',
+        'pt': 'BR', 'pt-br': 'BR', 'pt-pt': 'PT',
+        'nl': 'NL', 'nl-nl': 'NL', 'nl-be': 'BE',
+        'pl': 'PL', 'ru': 'RU', 'ja': 'JP', 'ko': 'KR',
+        'zh': 'CN', 'zh-cn': 'CN', 'zh-tw': 'TW',
+        'ar': 'AE', 'he': 'IL', 'tr': 'TR',
+        'sv': 'SE', 'da': 'DK', 'no': 'NO', 'fi': 'FI'
+    }
+    return map_region.get(lang, map_region.get(lang.split('-')[0], 'US'))
+
 def normalize_url(url: str) -> str:
     url = url.strip()
     if "?" not in url:
@@ -147,6 +171,8 @@ def _check_rate_limit(ip: str) -> Optional[dict]:
     _ip_minute[ip].append(now)
     _ip_day[ip].append(now)
     return None
+
+
 
 def _get_client_ip(request: Request) -> str:
     for header in ("x-forwarded-for", "x-real-ip", "cf-connecting-ip"):
@@ -998,13 +1024,7 @@ async def process_analysis(
             return {"status": "error", "code": "tmdb_error",
                     "message": "Impossible de récupérer les détails du film."}
 
-    _lang_to_region = {
-        "fr": "FR", "en": "US", "es": "ES", "de": "DE",
-        "zh": "CN", "ja": "JP", "ko": "KR", "pt": "BR",
-        "ar": "AE", "ru": "RU", "it": "IT", "nl": "NL",
-        "pl": "PL", "tr": "TR", "sv": "SE", "da": "DK",
-        "fi": "FI", "nb": "NO", "no": "NO",
-    }
+    
     region    = _lang_to_region.get(browser_lang, "US")
     providers = (
         details.get("watch/providers", {})
@@ -1139,7 +1159,7 @@ async def discover_provider(provider_key: str, lang: str = "fr", page: int = 1):
     if not provider_id:
         return {"status": "error", "message": f"Plateforme '{provider_key}' inconnue."}
 
-    region = _LANG_TO_REGION.get(lang, "US")
+    region = _get_region_from_lang(lang)
     cache_key = f"provider:{provider_key.lower()}:{lang}:{page}"
 
     cached = cache_get_generic(cache_key)
