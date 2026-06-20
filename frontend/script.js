@@ -2167,18 +2167,110 @@ function afficherLocationsWikidata(container,locations){
   if(withGPS.length>0&&typeof L!=="undefined")initFilmingMap(withGPS);
   else if(withGPS.length>0)_ensureLeafletFull(()=>initFilmingMap(withGPS));
 }
-function initFilmingMap(locations){
-  try{
-    const mapEl=document.getElementById("filming-map-inner");if(!mapEl||!window.L)return;
-    if(window._filmingMapDetail){window._filmingMapDetail.remove();window._filmingMapDetail=null;}
-    const center=[locations[0].lat,locations[0].lng];
-    const map=L.map(mapEl,{zoomControl:true,scrollWheelZoom:false});window._filmingMapDetail=map;
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",{attribution:'© OpenStreetMap © CARTO',subdomains:'abcd',maxZoom:19}).addTo(map);
-    const icon=L.divIcon({className:"",html:`<div style="background:var(--primary,#00ffcc);width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #000;box-shadow:0 2px 8px rgba(0,255,204,.4)"></div>`,iconSize:[28,28],iconAnchor:[14,28]});
-    const bounds=[];
-    locations.forEach(loc=>{const marker=L.marker([loc.lat,loc.lng],{icon}).addTo(map);marker.on('contextmenu',e=>{const coords=`${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;navigator.clipboard.writeText(coords).then(()=>toast(`📍 Coordonnées copiées : ${coords}`));});marker.bindPopup(`<strong>${loc.name}</strong><br><a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(loc.name)}&aid=Pelify" target="_blank" style="color:#00ffcc;font-size:.8rem">🛏 Hôtels →</a> · <a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank" style="color:#00ffcc;font-size:.8rem">Maps →</a>`);bounds.push([loc.lat,loc.lng]);});
-    if(bounds.length===1)map.setView(center,12);else map.fitBounds(bounds,{padding:[30,30]});
-  }catch(e){console.warn("Leaflet map KO:",e);}
+function initFilmingMap(locations) {
+  try {
+    const mapEl = document.getElementById("filming-map-inner");
+    if (!mapEl || !window.L) return;
+
+    // Si une carte existe déjà, on la détruit
+    if (window._filmingMapDetail) {
+      window._filmingMapDetail.remove();
+      window._filmingMapDetail = null;
+    }
+
+    // Centre sur le premier lieu
+    const center = [locations[0].lat, locations[0].lng];
+    const map = L.map(mapEl, {
+      zoomControl: true,
+      scrollWheelZoom: false,
+    });
+    window._filmingMapDetail = map;
+
+    // Fond de carte
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+      attribution: '© OpenStreetMap © CARTO',
+      subdomains: 'abcd',
+      maxZoom: 19,
+    }).addTo(map);
+
+    // --- Clustering ---
+    const clusterGroup = L.markerClusterGroup({
+      maxClusterRadius: 50,
+      iconCreateFunction: function(cluster) {
+        const childCount = cluster.getChildCount();
+        let size = childCount < 10 ? 'small' : childCount < 100 ? 'medium' : 'large';
+        return L.divIcon({
+          html: `<div style="background:var(--primary);color:#000;border-radius:50%;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-weight:bold;box-shadow:0 2px 8px rgba(0,0,0,0.3);">${childCount}</div>`,
+          className: 'marker-cluster',
+          iconSize: L.point(40, 40),
+        });
+      }
+    });
+
+    // --- Icône personnalisée pour les lieux de tournage ---
+    const filmIcon = L.divIcon({
+      className: '',
+      html: `<div style="background:var(--primary,#00ffcc);width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #000;box-shadow:0 2px 8px rgba(0,255,204,.4);display:flex;align-items:center;justify-content:center;font-size:14px;">📍</div>`,
+      iconSize: [28, 28],
+      iconAnchor: [14, 28],
+    });
+
+    // --- Calcul des distances avec Turf ---
+    // On garde le premier point comme référence
+    const origin = turf.point([locations[0].lng, locations[0].lat]);
+
+    // Parcourir chaque lieu
+    const bounds = [];
+    locations.forEach((loc, index) => {
+      const lat = loc.lat;
+      const lng = loc.lng;
+      const name = loc.name || "Lieu inconnu";
+
+      // Créer un point Turf
+      const point = turf.point([lng, lat]);
+      // Distance depuis l'origine (en km)
+      const distance = turf.distance(origin, point, { units: 'kilometers' });
+      // Arrondi
+      const distText = distance < 1 ? `${Math.round(distance * 1000)} m` : `${distance.toFixed(1)} km`;
+
+      const marker = L.marker([lat, lng], { icon: filmIcon });
+      marker.bindPopup(`
+        <div style="min-width:200px;">
+          <strong>${escapeHtml(name)}</strong><br>
+          <span style="color:var(--muted);font-size:0.8rem;">📍 Distance depuis le premier lieu : ${distText}</span>
+          <br><br>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">
+            <a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(name)}&aid=Pelify" target="_blank" rel="sponsored noopener" style="background:#003580;color:#fff;padding:4px 10px;border-radius:4px;font-size:0.75rem;text-decoration:none;">Booking</a>
+            <a href="https://www.agoda.com/search?city=${encodeURIComponent(name)}&cid=1818574" target="_blank" rel="sponsored noopener" style="background:#ff6f00;color:#fff;padding:4px 10px;border-radius:4px;font-size:0.75rem;text-decoration:none;">Agoda</a>
+            <a href="https://www.expedia.com/Hotel-Search?destination=${encodeURIComponent(name)}" target="_blank" rel="sponsored noopener" style="background:#0033a0;color:#fff;padding:4px 10px;border-radius:4px;font-size:0.75rem;text-decoration:none;">Expedia</a>
+            <a href="https://www.hotels.com/search?q=${encodeURIComponent(name)}" target="_blank" rel="sponsored noopener" style="background:#d32f2f;color:#fff;padding:4px 10px;border-radius:4px;font-size:0.75rem;text-decoration:none;">Hotels.com</a>
+            <a href="https://www.airbnb.com/s/${encodeURIComponent(name)}" target="_blank" rel="sponsored noopener" style="background:#ff5a5f;color:#fff;padding:4px 10px;border-radius:4px;font-size:0.75rem;text-decoration:none;">Airbnb</a>
+          </div>
+          <a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" style="display:block;margin-top:8px;color:var(--primary);font-size:0.8rem;">Voir sur Google Maps →</a>
+        </div>
+      `);
+
+      // Ajouter au cluster
+      clusterGroup.addLayer(marker);
+      bounds.push([lat, lng]);
+    });
+
+    // Ajouter le cluster à la carte
+    map.addLayer(clusterGroup);
+
+    // Ajuster la vue
+    if (bounds.length === 1) {
+      map.setView(center, 12);
+    } else {
+      map.fitBounds(bounds, { padding: [30, 30] });
+    }
+
+    // Invalider la taille au cas où
+    setTimeout(() => map.invalidateSize(), 100);
+
+  } catch (e) {
+    console.warn("Leaflet map KO:", e);
+  }
 }
 function afficherFinanceWikidata(container,wd){
   if(!wd||(!wd.budget_usd&&!wd.box_office_usd)){container.innerHTML="";return;}
