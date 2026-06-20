@@ -90,6 +90,89 @@ let _isochroneLayer = null;
 let _routeLayer = null;
 let _filmingMoveTimeout = null;
 
+
+// ─── SON IMMERSIF (fond spatial) ──────────────────────────
+let _immersiveAudioCtx = null;
+let _immersiveGain = null;
+let _immersiveOsc = null;
+let _immersiveInterval = null;
+
+function playImmersiveSound() {
+  try {
+    if (_immersiveAudioCtx) return; // déjà joué
+
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    _immersiveAudioCtx = ctx;
+
+    // Créer un gain pour contrôler le volume
+    const gain = ctx.createGain();
+    gain.gain.value = 0.04; // très bas, ambiance
+    gain.connect(ctx.destination);
+
+    // Oscillateur principal (basse fréquence, type sine)
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 80; // grave
+    osc.connect(gain);
+    osc.start();
+
+    // Un second oscillateur pour créer un effet de battement spatial (désaccord léger)
+    const osc2 = ctx.createOscillator();
+    osc2.type = 'sine';
+    osc2.frequency.value = 82; // légèrement désaccordé
+    const gain2 = ctx.createGain();
+    gain2.gain.value = 0.03;
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start();
+
+    // Ajouter un peu de bruit blanc en fond (faible)
+    const bufferSize = 2 * ctx.sampleRate;
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * 0.01; // très faible
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    noise.loop = true;
+    const gainNoise = ctx.createGain();
+    gainNoise.gain.value = 0.02;
+    noise.connect(gainNoise);
+    gainNoise.connect(ctx.destination);
+    noise.start();
+
+    // Variation lente de la fréquence pour un effet spatial (modulation)
+    let freq = 80;
+    _immersiveInterval = setInterval(() => {
+      freq += (Math.random() - 0.5) * 0.3;
+      freq = Math.max(78, Math.min(84, freq));
+      osc.frequency.setTargetAtTime(freq, ctx.currentTime, 0.1);
+      osc2.frequency.setTargetAtTime(freq + 2, ctx.currentTime, 0.1);
+    }, 500);
+
+    // Garder une référence pour nettoyer
+    _immersiveOsc = osc;
+    _immersiveGain = gain;
+
+    // Augmenter progressivement le volume (effet fade-in)
+    gain.gain.setTargetAtTime(0.04, ctx.currentTime, 2);
+    gain2.gain.setTargetAtTime(0.03, ctx.currentTime, 2);
+    gainNoise.gain.setTargetAtTime(0.02, ctx.currentTime, 2);
+
+    // Arrêter automatiquement après 8 secondes (pour ne pas gêner)
+    setTimeout(() => {
+      if (_immersiveAudioCtx) {
+        _immersiveAudioCtx.close();
+        _immersiveAudioCtx = null;
+        clearInterval(_immersiveInterval);
+        _immersiveInterval = null;
+      }
+    }, 8000);
+  } catch (e) {
+    // Silencieux (API Audio non supportée)
+  }
+}
 // ════ DICTIONNAIRE INTERNATIONAL ════
 const dict = {
   "en-US": {
@@ -2171,8 +2254,6 @@ function initFilmingMap(locations) {
   try {
     const mapEl = document.getElementById("filming-map-inner");
     if (!mapEl || !window.L) return;
-
-    // Si une carte existe déjà, on la détruit
     if (window._filmingMapDetail) {
       window._filmingMapDetail.remove();
       window._filmingMapDetail = null;
@@ -2180,82 +2261,73 @@ function initFilmingMap(locations) {
 
     // Centre sur le premier lieu
     const center = [locations[0].lat, locations[0].lng];
-    const map = L.map(mapEl, {
-      zoomControl: true,
-      scrollWheelZoom: false,
-    });
+    const map = L.map(mapEl, { zoomControl: true, scrollWheelZoom: false });
     window._filmingMapDetail = map;
 
-    // Fond de carte
     L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
       attribution: '© OpenStreetMap © CARTO',
       subdomains: 'abcd',
-      maxZoom: 19,
+      maxZoom: 19
     }).addTo(map);
 
-    // --- Clustering ---
+    // ── CLUSTER ──
     const clusterGroup = L.markerClusterGroup({
       maxClusterRadius: 50,
       iconCreateFunction: function(cluster) {
-        const childCount = cluster.getChildCount();
-        let size = childCount < 10 ? 'small' : childCount < 100 ? 'medium' : 'large';
+        const count = cluster.getChildCount();
         return L.divIcon({
-          html: `<div style="background:var(--primary);color:#000;border-radius:50%;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-weight:bold;box-shadow:0 2px 8px rgba(0,0,0,0.3);">${childCount}</div>`,
-          className: 'marker-cluster',
-          iconSize: L.point(40, 40),
+          html: `<div style="background:var(--primary);color:#000;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-weight:700;border:2px solid #fff;">${count}</div>`,
+          className: '',
+          iconSize: [30, 30]
         });
       }
     });
 
-    // --- Icône personnalisée pour les lieux de tournage ---
-    const filmIcon = L.divIcon({
-      className: '',
-      html: `<div style="background:var(--primary,#00ffcc);width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #000;box-shadow:0 2px 8px rgba(0,255,204,.4);display:flex;align-items:center;justify-content:center;font-size:14px;">📍</div>`,
-      iconSize: [28, 28],
-      iconAnchor: [14, 28],
-    });
+    // ── CALCUL DES DISTANCES (Turf) ──
+    let distanceInfo = "";
+    if (locations.length > 1 && window.turf) {
+      const from = turf.point([locations[0].lng, locations[0].lat]);
+      const distances = locations.slice(1).map((loc, idx) => {
+        const to = turf.point([loc.lng, loc.lat]);
+        const dist = turf.distance(from, to, { units: 'kilometers' });
+        return { index: idx + 1, name: loc.name, dist: dist.toFixed(1) };
+      });
+      // Afficher les distances dans un petit encart (on peut le mettre dans le popup ou à côté)
+      distanceInfo = distances.map(d => `${d.name} : ${d.dist} km`).join(' · ');
+    }
 
-    // --- Calcul des distances avec Turf ---
-    // On garde le premier point comme référence
-    const origin = turf.point([locations[0].lng, locations[0].lat]);
-
-    // Parcourir chaque lieu
+    // ── MARQUEURS ──
     const bounds = [];
     locations.forEach((loc, index) => {
-      const lat = loc.lat;
-      const lng = loc.lng;
-      const name = loc.name || "Lieu inconnu";
+      const icon = L.divIcon({
+        className: "",
+        html: `<div style="background:var(--primary,#00ffcc);width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #000;box-shadow:0 2px 8px rgba(0,255,204,.4);display:flex;align-items:center;justify-content:center;font-weight:700;color:#000;">${index + 1}</div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 28]
+      });
 
-      // Créer un point Turf
-      const point = turf.point([lng, lat]);
-      // Distance depuis l'origine (en km)
-      const distance = turf.distance(origin, point, { units: 'kilometers' });
-      // Arrondi
-      const distText = distance < 1 ? `${Math.round(distance * 1000)} m` : `${distance.toFixed(1)} km`;
+      const marker = L.marker([loc.lat, loc.lng], { icon }).addTo(clusterGroup);
 
-      const marker = L.marker([lat, lng], { icon: filmIcon });
-      marker.bindPopup(`
-        <div style="min-width:200px;">
-          <strong>${escapeHtml(name)}</strong><br>
-          <span style="color:var(--muted);font-size:0.8rem;">📍 Distance depuis le premier lieu : ${distText}</span>
-          <br><br>
-          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">
-            <a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(name)}&aid=Pelify" target="_blank" rel="sponsored noopener" style="background:#003580;color:#fff;padding:4px 10px;border-radius:4px;font-size:0.75rem;text-decoration:none;">Booking</a>
-            <a href="https://www.agoda.com/search?city=${encodeURIComponent(name)}&cid=1818574" target="_blank" rel="sponsored noopener" style="background:#ff6f00;color:#fff;padding:4px 10px;border-radius:4px;font-size:0.75rem;text-decoration:none;">Agoda</a>
-            <a href="https://www.expedia.com/Hotel-Search?destination=${encodeURIComponent(name)}" target="_blank" rel="sponsored noopener" style="background:#0033a0;color:#fff;padding:4px 10px;border-radius:4px;font-size:0.75rem;text-decoration:none;">Expedia</a>
-            <a href="https://www.hotels.com/search?q=${encodeURIComponent(name)}" target="_blank" rel="sponsored noopener" style="background:#d32f2f;color:#fff;padding:4px 10px;border-radius:4px;font-size:0.75rem;text-decoration:none;">Hotels.com</a>
-            <a href="https://www.airbnb.com/s/${encodeURIComponent(name)}" target="_blank" rel="sponsored noopener" style="background:#ff5a5f;color:#fff;padding:4px 10px;border-radius:4px;font-size:0.75rem;text-decoration:none;">Airbnb</a>
-          </div>
-          <a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" style="display:block;margin-top:8px;color:var(--primary);font-size:0.8rem;">Voir sur Google Maps →</a>
+      // Popup avec distance et liens d'hébergement
+      const popupContent = `
+        <strong>${loc.name}</strong><br>
+        ${index === 0 ? '<span style="color:var(--gold);">📍 Point de départ</span>' : ''}
+        ${index > 0 && window.turf ? `<br>📏 Distance : ${turf.distance(turf.point([locations[0].lng, locations[0].lat]), turf.point([loc.lng, loc.lat]), {units:'kilometers'}).toFixed(1)} km` : ''}
+        <br><br>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">
+          <a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(loc.name)}&aid=Pelify" target="_blank" rel="sponsored noopener" style="background:#4dabf7;color:#fff;padding:2px 8px;border-radius:4px;font-size:.7rem;">🛏 Booking</a>
+          <a href="https://www.expedia.com/Hotel-Search?destination=${encodeURIComponent(loc.name)}" target="_blank" rel="sponsored noopener" style="background:#ff6b35;color:#fff;padding:2px 8px;border-radius:4px;font-size:.7rem;">🏨 Expedia</a>
+          <a href="https://www.agoda.com/search?city=${encodeURIComponent(loc.name)}" target="_blank" rel="sponsored noopener" style="background:#1a73e8;color:#fff;padding:2px 8px;border-radius:4px;font-size:.7rem;">🌐 Agoda</a>
         </div>
-      `);
+        <div style="margin-top:6px;">
+          <a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank" style="color:var(--primary);font-size:.7rem;">🗺️ Google Maps</a>
+        </div>
+      `;
+      marker.bindPopup(popupContent);
 
-      // Ajouter au cluster
-      clusterGroup.addLayer(marker);
-      bounds.push([lat, lng]);
+      bounds.push([loc.lat, loc.lng]);
     });
 
-    // Ajouter le cluster à la carte
     map.addLayer(clusterGroup);
 
     // Ajuster la vue
@@ -2265,8 +2337,20 @@ function initFilmingMap(locations) {
       map.fitBounds(bounds, { padding: [30, 30] });
     }
 
-    // Invalider la taille au cas où
-    setTimeout(() => map.invalidateSize(), 100);
+    // ── Afficher les distances dans un encart en bas à droite ──
+    if (distanceInfo) {
+      const infoControl = L.control({ position: 'bottomright' });
+      infoControl.onAdd = function() {
+        const div = L.DomUtil.create('div', 'info-distances');
+        div.style.cssText = 'background:rgba(0,0,0,0.7);color:#fff;padding:6px 12px;border-radius:8px;font-size:.7rem;border:1px solid var(--primary);backdrop-filter:blur(4px);';
+        div.innerHTML = `<i class="fas fa-route" style="color:var(--primary);"></i> ${distanceInfo}`;
+        return div;
+      };
+      infoControl.addTo(map);
+    }
+
+    // ── JOUER UN SON IMMERSIF (ambiance spatiale) ──
+    playImmersiveSound();
 
   } catch (e) {
     console.warn("Leaflet map KO:", e);
