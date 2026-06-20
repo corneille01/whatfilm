@@ -12,7 +12,26 @@ async function safeFetch(url, options = {}) {
     return res.json();
 }
 
+function getRegionCode() {
+  const navLang = navigator.language || navigator.userLanguage || 'fr';
+  const lang = navLang.toLowerCase();
 
+  const map = {
+    'fr': 'FR', 'fr-fr': 'FR', 'fr-be': 'BE', 'fr-ca': 'CA', 'fr-ch': 'CH',
+    'en': 'US', 'en-us': 'US', 'en-gb': 'GB', 'en-ca': 'CA', 'en-au': 'AU',
+    'es': 'ES', 'es-es': 'ES', 'es-mx': 'MX', 'es-ar': 'AR',
+    'de': 'DE', 'de-de': 'DE', 'de-at': 'AT', 'de-ch': 'CH',
+    'it': 'IT', 'it-it': 'IT',
+    'pt': 'BR', 'pt-br': 'BR', 'pt-pt': 'PT',
+    'nl': 'NL', 'nl-nl': 'NL', 'nl-be': 'BE',
+    'pl': 'PL', 'ru': 'RU', 'ja': 'JP', 'ko': 'KR',
+    'zh': 'CN', 'zh-cn': 'CN', 'zh-tw': 'TW',
+    'ar': 'AE', 'he': 'IL', 'tr': 'TR',
+    'sv': 'SE', 'da': 'DK', 'no': 'NO', 'fi': 'FI'
+  };
+
+  return map[lang] || map[lang.split('-')[0]] || 'US';
+}
 // ════ ÉTAT GLOBAL ════
 let currentLang = "fr";
 // Détection langue navigateur (ex: "fr-FR" → "fr", "en-US" → "en-US")
@@ -45,7 +64,7 @@ let currentMovieId = null;
 let currentMediaType = "movie";
 let analysisAbortController = null;
 let navStack = [];
-let _forceAmazonOnly = false;
+
 
 // ════ ÉTAT GLOBAL FILMING ════
 let _filmingMap = null;
@@ -76,7 +95,7 @@ const dict = {
   "en-US": {
     title:"WHICH MOVIE?",tagline:"Paste a TikTok, Reel or YouTube link — AI identifies the film in seconds",
     placeholder:"Paste TikTok/Insta link or type a movie name...",badge:"Shazam for movies",
-    back_home:"Home",back_list:"Back to list",ai_conf:"AI Confidence",reset:"Reset",
+    back_home:"Home",back_list:"Back to list",ai_conf:"Confidence",reset:"Reset",
     year:"Year",min_score:"Min score",sort_pop:"🔥 Popularity",sort_top:"⭐ Top rated",
     sort_asc:"Score ascending",sort_new:"🆕 Newest",sort_old:"📼 Oldest",
     no_streaming_country:"No streaming available in the US currently.",cancel:"Cancel",
@@ -473,30 +492,34 @@ function applyLang(){
   if(btnFilming)btnFilming.innerHTML=`<i class="fas fa-map-marker-alt"></i> ${ld.filming_btn||"📍 Lieux de tournage"}`;
 }
 
-function genererNav(){
-  const nav=document.getElementById("genre-nav");
-  const g=dict[currentLang]?.genres||dict.fr.genres;
-  const ld=dict[currentLang]||dict.fr;
-nav.innerHTML=`
-    <a class="btn-genre" href="/genre/horror" onclick="chargerGenre('horror');return false;"><i class="fas fa-ghost"></i> ${g.horror}</a>
-    <a class="btn-genre" href="/genre/action" onclick="chargerGenre('action');return false;"><i class="fas fa-fire"></i> ${g.action}</a>
-    <a class="btn-genre" href="/genre/comedy" onclick="chargerGenre('comedy');return false;"><i class="fas fa-laugh"></i> ${g.comedy}</a>
-    <a class="btn-genre" href="/genre/science-fiction" onclick="chargerGenre('science-fiction');return false;"><i class="fas fa-robot"></i> ${g.scifi}</a>
-    <a class="btn-genre" href="/genre/romance" onclick="chargerGenre('romance');return false;"><i class="fas fa-heart"></i> ${g.romance}</a>
-    <a class="btn-genre" href="/genre/animation" onclick="chargerGenre('animation');return false;"><i class="fas fa-dragon"></i> ${g.animation}</a>
-    <a class="btn-genre" href="/genre/thriller" onclick="chargerGenre('thriller');return false;"><i class="fas fa-eye"></i> ${g.thriller}</a>
-    <a class="btn-genre" href="/genre/drama" onclick="chargerGenre('drama');return false;"><i class="fas fa-theater-masks"></i> ${g.drama}</a>
-    <a class="btn-genre series" href="/series" onclick="chargerSeries();return false;"><i class="fas fa-tv"></i> ${g.series}</a>
-    <a class="btn-genre trending" href="/" onclick="chargerTrending();return false;"><i class="fas fa-bolt"></i> ${g.trending}</a>
-    <a class="btn-genre filming" id="btn-genre-filming" href="/lieux-de-tournage" onclick="chargerLieuxDeTournage();return false;"><i class="fas fa-map-marker-alt"></i> ${ld.filming_btn||"📍 Lieux de tournage"}</a>`;
-  const platNav=document.getElementById("platform-nav");
-  platNav.innerHTML=`
-    <a class="btn-platform" href="/plateforme/netflix" onclick="chargerParPlateforme('netflix');return false;" style="border-color:#e50914"><span class="plat-dot" style="background:#e50914"></span> Netflix</a>
-    <a class="btn-platform" href="/plateforme/amazon" onclick="chargerParPlateforme('amazon');return false;" style="border-color:#00a8e0"><span class="plat-dot" style="background:#00a8e0"></span> Prime Video</a>
-    <a class="btn-platform" href="/plateforme/disney" onclick="chargerParPlateforme('disney');return false;" style="border-color:#113ccf"><span class="plat-dot" style="background:#113ccf"></span> Disney+</a>
-    <a class="btn-platform" href="/plateforme/apple" onclick="chargerParPlateforme('apple');return false;" style="border-color:#a2aaad"><span class="plat-dot" style="background:#a2aaad"></span> Apple TV+</a>
-    <a class="btn-platform" href="/plateforme/paramount" onclick="chargerParPlateforme('paramount');return false;" style="border-color:#0064ff"><span class="plat-dot" style="background:#0064ff"></span> Paramount+</a>
-    <a class="btn-platform" href="/plateforme/hulu" onclick="chargerParPlateforme('hulu');return false;" style="border-color:#1ce783"><span class="plat-dot" style="background:#1ce783"></span> Hulu</a>`;
+function genererNav() {
+  const nav = document.getElementById("genre-nav");
+  const g = dict[currentLang]?.genres || dict.fr.genres;
+  const ld = dict[currentLang] || dict.fr;
+
+  nav.innerHTML = `
+    <a class="btn-genre" href="/genre/horror" onclick="chargerGenre(this, 'horror');return false;"><i class="fas fa-ghost"></i> ${g.horror}</a>
+    <a class="btn-genre" href="/genre/action" onclick="chargerGenre(this, 'action');return false;"><i class="fas fa-fire"></i> ${g.action}</a>
+    <a class="btn-genre" href="/genre/comedy" onclick="chargerGenre(this, 'comedy');return false;"><i class="fas fa-laugh"></i> ${g.comedy}</a>
+    <a class="btn-genre" href="/genre/science-fiction" onclick="chargerGenre(this, 'science-fiction');return false;"><i class="fas fa-robot"></i> ${g.scifi}</a>
+    <a class="btn-genre" href="/genre/romance" onclick="chargerGenre(this, 'romance');return false;"><i class="fas fa-heart"></i> ${g.romance}</a>
+    <a class="btn-genre" href="/genre/animation" onclick="chargerGenre(this, 'animation');return false;"><i class="fas fa-dragon"></i> ${g.animation}</a>
+    <a class="btn-genre" href="/genre/thriller" onclick="chargerGenre(this, 'thriller');return false;"><i class="fas fa-eye"></i> ${g.thriller}</a>
+    <a class="btn-genre" href="/genre/drama" onclick="chargerGenre(this, 'drama');return false;"><i class="fas fa-theater-masks"></i> ${g.drama}</a>
+    <a class="btn-genre series" href="/series" onclick="chargerSeries(this);return false;"><i class="fas fa-tv"></i> ${g.series}</a>
+    <a class="btn-genre trending" href="/" onclick="chargerTrending(this);return false;"><i class="fas fa-bolt"></i> ${g.trending}</a>
+    <a class="btn-genre filming" id="btn-genre-filming" href="/lieux-de-tournage" onclick="chargerLieuxDeTournage(this);return false;"><i class="fas fa-map-marker-alt"></i> ${ld.filming_btn || "📍 Lieux de tournage"}</a>
+  `;
+
+  const platNav = document.getElementById("platform-nav");
+  platNav.innerHTML = `
+    <a class="btn-platform" href="/plateforme/netflix" onclick="chargerParPlateforme(this, 'netflix');return false;" style="border-color:#e50914"><span class="plat-dot" style="background:#e50914"></span> Netflix</a>
+    <a class="btn-platform" href="/plateforme/amazon" onclick="chargerParPlateforme(this, 'amazon');return false;" style="border-color:#00a8e0"><span class="plat-dot" style="background:#00a8e0"></span> Prime Video</a>
+    <a class="btn-platform" href="/plateforme/disney" onclick="chargerParPlateforme(this, 'disney');return false;" style="border-color:#113ccf"><span class="plat-dot" style="background:#113ccf"></span> Disney+</a>
+    <a class="btn-platform" href="/plateforme/apple" onclick="chargerParPlateforme(this, 'apple');return false;" style="border-color:#a2aaad"><span class="plat-dot" style="background:#a2aaad"></span> Apple TV+</a>
+    <a class="btn-platform" href="/plateforme/paramount" onclick="chargerParPlateforme(this, 'paramount');return false;" style="border-color:#0064ff"><span class="plat-dot" style="background:#0064ff"></span> Paramount+</a>
+    <a class="btn-platform" href="/plateforme/hulu" onclick="chargerParPlateforme(this, 'hulu');return false;" style="border-color:#1ce783"><span class="plat-dot" style="background:#1ce783"></span> Hulu</a>
+  `;
 }
 function changerLangueManuellement(){
   const newLang=document.getElementById("lang-selector").value;
@@ -615,7 +638,7 @@ function _hideAllPages(){
   });
 }
 function retourAccueil(){
-  _forceAmazonOnly = false;
+  
   cacherErreur();_hideAllPages();
   document.getElementById("hero").style.display="block";
   document.getElementById("genre-nav").style.display="flex";
@@ -630,7 +653,7 @@ function hideHero(){document.getElementById("hero").style.display="none";documen
 
 // ════ RECHERCHE GLOBALE ════
 async function gererRechercheGlobal(){
-  _forceAmazonOnly = false;
+ 
   const input=document.getElementById("input_global").value.trim();
   if(!input)return;
   cacherErreur();
@@ -812,74 +835,162 @@ async function runLocalWhisper(audioBase64){try{if(!audioBase64||!window.getWhis
 function base64ToBlob(base64,mimeType){const byteChars=atob(base64);const byteArrays=[];for(let offset=0;offset<byteChars.length;offset+=512){const slice=byteChars.slice(offset,offset+512);const byteNumbers=new Array(slice.length);for(let i=0;i<slice.length;i++)byteNumbers[i]=slice.charCodeAt(i);byteArrays.push(new Uint8Array(byteNumbers));}return new Blob(byteArrays,{type:mimeType});}
 
 // ════ GENRES ════
-async function chargerGenre(genreName,page=1,mediaType="movie"){
-  _forceAmazonOnly = false;
-  hideHero();cacherErreur();currentGenreName=genreName;currentPage=page;
-  const cacheKey=`genre_${genreName}_${page}_${getTMDBLang()}`;const cached=getCached(cacheKey);
-  document.querySelectorAll(".btn-genre").forEach(b=>b.classList.remove("active"));
-  document.getElementById("page-film-detail").style.display="none";
-  document.getElementById("filming-page").style.display="none";
-  document.getElementById("genre-grid").style.display="block";
+async function chargerGenre(btn, genreName, page = 1, mediaType = "movie") {
+  // ── Activation du bouton ────────────────────────────────────
+  document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
+  if (btn) btn.classList.add("active");
+
+  // ── Suite de la fonction existante ────────────────────────
+
+  hideHero();
+  cacherErreur();
+  currentGenreName = genreName;
+  currentPage = page;
+
+  const cacheKey = `genre_${genreName}_${page}_${getTMDBLang()}`;
+  const cached = getCached(cacheKey);
+
+  document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active")); // déjà fait mais on garde
+  document.getElementById("page-film-detail").style.display = "none";
+  document.getElementById("filming-page").style.display = "none";
+  document.getElementById("genre-grid").style.display = "block";
   document.getElementById("platform-nav").classList.remove("visible");
-  document.getElementById("genre-title").innerText=genreName.toUpperCase();
-  lastGrid=genreName;navStack=[];
-  if(cached){renderCards(cached,genreName,page,10,mediaType);return;}
-  document.getElementById("movie-cards").innerHTML=`<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
-  try{const url=`/discover/${encodeURIComponent(genreName)}?lang=${getTMDBLang()}&page=${page}${mediaType==="tv"?"&type=tv":""}`;const data=await safeFetch(url);if(data.status==="success"){setCache(cacheKey,data.results);renderCards(data.results,genreName,page,data.total_pages,mediaType);}else afficherVideGrid(`<i class="fas fa-exclamation-circle"></i> ${data.message||"Genre introuvable."}`);}
-  catch(e){afficherVideGrid(`<i class="fas fa-wifi"></i> ${t("err_generic")}`);}
+  document.getElementById("genre-title").innerText = genreName.toUpperCase();
+  lastGrid = genreName;
+  navStack = [];
+
+  if (cached) {
+    renderCards(cached, genreName, page, 10, mediaType);
+    return;
+  }
+
+  document.getElementById("movie-cards").innerHTML =
+    `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
+
+  try {
+    const url = `/discover/${encodeURIComponent(genreName)}?lang=${getTMDBLang()}&page=${page}${mediaType === "tv" ? "&type=tv" : ""}`;
+    const data = await safeFetch(url);
+    if (data.status === "success") {
+      setCache(cacheKey, data.results);
+      renderCards(data.results, genreName, page, data.total_pages, mediaType);
+    } else {
+      afficherVideGrid(`<i class="fas fa-exclamation-circle"></i> ${data.message || "Genre introuvable."}`);
+    }
+  } catch (e) {
+    afficherVideGrid(`<i class="fas fa-wifi"></i> ${t("err_generic")}`);
+  }
 }
-async function chargerSeries(page=1){
-  _forceAmazonOnly = false;
-  hideHero();cacherErreur();currentGenreName="series";currentPage=page;
-  document.querySelectorAll(".btn-genre").forEach(b=>b.classList.remove("active"));
-  document.querySelector(".btn-genre.series")?.classList.add("active");
-  document.getElementById("page-film-detail").style.display="none";
-  document.getElementById("filming-page").style.display="none";
-  document.getElementById("genre-grid").style.display="block";
+
+async function chargerSeries(btn, page = 1) {
+  document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
+  if (btn) btn.classList.add("active");
+
+
+  hideHero();
+  cacherErreur();
+  currentGenreName = "series";
+  currentPage = page;
+
+  document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active")); // déjà
+  document.querySelector(".btn-genre.series")?.classList.add("active"); // on laisse pour sécurité
+
+  document.getElementById("page-film-detail").style.display = "none";
+  document.getElementById("filming-page").style.display = "none";
+  document.getElementById("genre-grid").style.display = "block";
   document.getElementById("platform-nav").classList.remove("visible");
-  document.getElementById("genre-title").innerText=tg("series").toUpperCase();
-  document.getElementById("movie-cards").innerHTML=`<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
-  lastGrid="series";navStack=[];
-  try{const data=await safeFetch(`/trending?lang=${getTMDBLang()}&type=tv`);if(data.status==="success")renderCards(data.results.map(r=>({...r,media_type:"tv"})),"series",1,1,"tv");else afficherVideGrid(data.message||"Impossible de charger les séries.");}
-  catch(e){afficherVideGrid(t("err_generic"));}
+  document.getElementById("genre-title").innerText = tg("series").toUpperCase();
+  document.getElementById("movie-cards").innerHTML =
+    `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
+  lastGrid = "series";
+  navStack = [];
+
+  try {
+    const data = await safeFetch(`/trending?lang=${getTMDBLang()}&type=tv`);
+    if (data.status === "success") {
+      renderCards(data.results.map(r => ({ ...r, media_type: "tv" })), "series", 1, 1, "tv");
+    } else {
+      afficherVideGrid(data.message || "Impossible de charger les séries.");
+    }
+  } catch (e) {
+    afficherVideGrid(t("err_generic"));
+  }
 }
-async function chargerTrending(){
-  _forceAmazonOnly = false;
-  hideHero();cacherErreur();currentGenreName="trending";
-  const cacheKey=`trending_${getTMDBLang()}`;const cached=getCached(cacheKey);
-  document.querySelectorAll(".btn-genre").forEach(b=>b.classList.remove("active"));
-  document.querySelector(".btn-genre.trending")?.classList.add("active");
-  document.getElementById("page-film-detail").style.display="none";
-  document.getElementById("filming-page").style.display="none";
-  document.getElementById("genre-grid").style.display="block";
+async function chargerTrending(btn) {
+  document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
+  if (btn) btn.classList.add("active");
+
+ 
+  hideHero();
+  cacherErreur();
+  currentGenreName = "trending";
+
+  const cacheKey = `trending_${getTMDBLang()}`;
+  const cached = getCached(cacheKey);
+
+  document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active")); // déjà
+  document.querySelector(".btn-genre.trending")?.classList.add("active"); // sécurité
+
+  document.getElementById("page-film-detail").style.display = "none";
+  document.getElementById("filming-page").style.display = "none";
+  document.getElementById("genre-grid").style.display = "block";
   document.getElementById("platform-nav").classList.remove("visible");
-  document.getElementById("genre-title").innerText=tg("trending").toUpperCase();
-  if(cached){renderCards(cached,"trending",1,1);return;}
-  document.getElementById("movie-cards").innerHTML=`<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
-  lastGrid="trending";navStack=[];
-  try{const data=await safeFetch(`/trending?lang=${getTMDBLang()}`);if(data.status==="success"){setCache(cacheKey,data.results);renderCards(data.results,"trending",1,1);}else afficherVideGrid(data.message||"Impossible de charger les tendances.");}
-  catch(e){afficherVideGrid(t("err_generic"));}
+  document.getElementById("genre-title").innerText = tg("trending").toUpperCase();
+
+  if (cached) {
+    renderCards(cached, "trending", 1, 1);
+    return;
+  }
+
+  document.getElementById("movie-cards").innerHTML =
+    `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
+  lastGrid = "trending";
+  navStack = [];
+
+  try {
+    const data = await safeFetch(`/trending?lang=${getTMDBLang()}`);
+    if (data.status === "success") {
+      setCache(cacheKey, data.results);
+      renderCards(data.results, "trending", 1, 1);
+    } else {
+      afficherVideGrid(data.message || "Impossible de charger les tendances.");
+    }
+  } catch (e) {
+    afficherVideGrid(t("err_generic"));
+  }
 }
 
 
-async function chargerParPlateforme(platformKey){
-  hideHero();cacherErreur();
-  const nameMap={netflix:"NETFLIX",amazon:"PRIME VIDEO",disney:"DISNEY+",apple:"APPLE TV+",paramount:"PARAMOUNT+",hulu:"HULU"};
-  currentGenreName=platformKey;
-  _forceAmazonOnly = (platformKey === "amazon");
-  document.getElementById("page-film-detail").style.display="none";
-  document.getElementById("filming-page").style.display="none";
-  document.getElementById("genre-grid").style.display="block";
-  document.getElementById("genre-title").innerText="📺 "+(nameMap[platformKey]||platformKey.toUpperCase());
-  document.getElementById("movie-cards").innerHTML=`<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
- document.querySelectorAll(".btn-platform").forEach(b=>b.classList.remove("active"));
+async function chargerParPlateforme(btn, platformKey) {
+  document.querySelectorAll(".btn-platform").forEach(b => b.classList.remove("active"));
+  if (btn) btn.classList.add("active");
+
+  // Le reste inchangé
+  hideHero();
+  cacherErreur();
+  const nameMap = { netflix: "NETFLIX", amazon: "PRIME VIDEO", disney: "DISNEY+", apple: "APPLE TV+", paramount: "PARAMOUNT+", hulu: "HULU" };
+  currentGenreName = platformKey;
+ 
+  document.getElementById("page-film-detail").style.display = "none";
+  document.getElementById("filming-page").style.display = "none";
+  document.getElementById("genre-grid").style.display = "block";
+  document.getElementById("genre-title").innerText = "📺 " + (nameMap[platformKey] || platformKey.toUpperCase());
+  document.getElementById("movie-cards").innerHTML =
+    `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
+  document.querySelectorAll(".btn-platform").forEach(b => b.classList.remove("active")); // déjà
   document.querySelector(`.btn-platform[href="/plateforme/${platformKey}"]`)?.classList.add("active");
-  lastGrid=platformKey;navStack=[];
-  try{
-    const data=await safeFetch(`/discover-provider/${platformKey}?lang=${getTMDBLang()}&page=1`);
-    if(data.status==="success"&&data.results?.length)renderCards(data.results,platformKey,1,data.total_pages||1);
-    else afficherVideGrid(data.message||"Aucun résultat.");
-  }catch(e){afficherVideGrid(t("err_generic"));}
+  lastGrid = platformKey;
+  navStack = [];
+
+  try {
+    const data = await safeFetch(`/discover-provider/${platformKey}?lang=${getTMDBLang()}&page=1`);
+    if (data.status === "success" && data.results?.length) {
+      renderCards(data.results, platformKey, 1, data.total_pages || 1);
+    } else {
+      afficherVideGrid(data.message || "Aucun résultat.");
+    }
+  } catch (e) {
+    afficherVideGrid(t("err_generic"));
+  }
 }
 
 
@@ -961,27 +1072,32 @@ function _clearTempLayers() {
   if (_isochroneLayer) { try { _filmingMap.removeLayer(_isochroneLayer); } catch(e){} _isochroneLayer = null; }
 }
 
-async function chargerLieuxDeTournage(page=1){
-  _forceAmazonOnly = false;
-  hideHero();cacherErreur();currentGenreName="filming";_filmingCurrentPage=page;
-  document.getElementById("genre-grid").style.display="none";
-  document.getElementById("page-film-detail").style.display="none";
-  document.getElementById("hero").style.display="none";
-  document.getElementById("genre-nav").style.display="flex";
-  document.querySelectorAll(".btn-genre").forEach(b=>b.classList.remove("active"));
+async function chargerLieuxDeTournage(btn, page = 1) {
+  document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
+  if (btn) btn.classList.add("active");
+
+  // Le reste de la fonction est inchangé
+ 
+  hideHero();
+  cacherErreur();
+  currentGenreName = "filming";
+  _filmingCurrentPage = page;
+  document.getElementById("genre-grid").style.display = "none";
+  document.getElementById("page-film-detail").style.display = "none";
+  document.getElementById("hero").style.display = "none";
+  document.getElementById("genre-nav").style.display = "flex";
+  document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
   document.getElementById("btn-genre-filming")?.classList.add("active");
-  const filmingPage=document.getElementById("filming-page");
-  if(filmingPage)filmingPage.style.display="";
-  navStack=[];
-  // Charger stats ET méta-filtres en parallèle, ATTENDRE la fin avant de rendre la page
+  const filmingPage = document.getElementById("filming-page");
+  if (filmingPage) filmingPage.style.display = "";
+  navStack = [];
   await Promise.allSettled([
-    _filmingStats ? Promise.resolve() : safeFetch("/films-tournes/stats").then(d=>{_filmingStats=d;}).catch(()=>{}),
+    _filmingStats ? Promise.resolve() : safeFetch("/films-tournes/stats").then(d => { _filmingStats = d; }).catch(() => {}),
     _chargerMetaFiltres()
   ]);
-  const alreadyRendered=filmingPage.querySelector(".filming-filters-wrap");
-  if(!alreadyRendered){
+  const alreadyRendered = filmingPage.querySelector(".filming-filters-wrap");
+  if (!alreadyRendered) {
     _renderFilmingPage(filmingPage);
-    // Les filtres sont peuplés DANS _renderFilmingPage, après _initFilmingLeafletMap
   } else {
     _updateFilmingFilters();
   }
@@ -1766,32 +1882,84 @@ function showDetailLoading(){
   document.getElementById("confidence_wrap").style.display="none";
   document.getElementById("food-partner").classList.remove("visible");
 }
-function afficherDetailFilm(data){
-  document.getElementById("page-film-detail").style.display="block";
-  document.getElementById("genre-grid").style.display="none";
-  document.getElementById("filming-page").style.display="none";
-  document.getElementById("hero").style.display="none";
-  document.getElementById("back-label").innerText=lastGrid?t("back_list"):t("back_home");
-  document.getElementById("fake_alert").innerHTML=data._lowConfWarning?`<div class="fake-alert"><i class="fas fa-exclamation-triangle"></i> Résultat incertain — (${Math.round(data.confidence)}% de confiance). Vérifiez manuellement si besoin.</div>`:data.is_fake?`<div class="fake-alert"><i class="fas fa-exclamation-triangle"></i> Contenu humoristique possible.</div>`:"";
-  document.getElementById("titre_film").innerText=data.title||"Inconnu";
-  const imgEl=document.getElementById("affiche_film");
-  if(data.image){imgEl.src=data.image;imgEl.style.display="block";}else imgEl.style.display="none";
-  const tagsEl=document.getElementById("detail_tags");tagsEl.innerHTML="";
-  if(data.is_series)tagsEl.innerHTML+=`<span class="tag series"><i class="fas fa-tv"></i> ${t("series_tag")}</span>`;
-  if(data.year)tagsEl.innerHTML+=`<span class="tag year"><i class="fas fa-calendar"></i> ${data.year}</span>`;
-  if(data.runtime)tagsEl.innerHTML+=`<span class="tag"><i class="fas fa-clock"></i> ${data.runtime} min</span>`;
-  (data.genres||[]).forEach(g=>tagsEl.innerHTML+=`<span class="tag genre">${g}</span>`);
-  const confWrap=document.getElementById("confidence_wrap");
-  if(data.confidence!==null&&data.confidence!==undefined){const pct=Math.round(data.confidence);const color=pct>=70?"#00ffcc":pct>=40?"#ffd700":"#ff4444";const lbl=pct>=70?(currentLang.startsWith("en")?"High confidence":"Confiance élevée"):pct>=40?(currentLang.startsWith("en")?"Medium confidence":"Confiance moyenne"):(currentLang.startsWith("en")?"Low confidence":"Confiance faible");confWrap.style.display="block";document.getElementById("conf-bar-inner").style.width=pct+"%";document.getElementById("conf-bar-inner").style.background=color;document.getElementById("conf-pct-label").textContent=pct+"% — "+lbl;document.getElementById("conf-pct-label").style.color=color;}else confWrap.style.display="none";
-  const ratingEl=document.getElementById("detail_rating");ratingEl.innerHTML=data.vote_average?`<i class="fas fa-star" style="color:var(--gold)"></i> ${parseFloat(data.vote_average).toFixed(1)}<small> / 10 · ${data.vote_count?data.vote_count.toLocaleString()+" votes":""}</small>`:"";
-  const synEl=document.getElementById("synopsis_film");
-  if(data.scene_description){synEl.innerHTML=`<div style="background:rgba(0,255,204,.06);border-left:3px solid var(--primary);padding:10px 14px;border-radius:0 8px 8px 0;margin-bottom:14px;font-size:.82rem;color:var(--muted)"><span style="color:var(--primary);font-weight:600;font-size:.73rem;text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:6px"><i class="fas fa-film"></i> ${t("scene_identified")}</span>${data.scene_description}</div><span style="font-size:.73rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:8px">Synopsis</span>${data.synopsis||t("no_synopsis")}`;}
-  else synEl.textContent=data.synopsis||t("no_synopsis");
-  setTimeout(()=>{
+function afficherDetailFilm(data) {
+  document.getElementById("page-film-detail").style.display = "block";
+  document.getElementById("genre-grid").style.display = "none";
+  document.getElementById("filming-page").style.display = "none";
+  document.getElementById("hero").style.display = "none";
+  document.getElementById("back-label").innerText = lastGrid ? t("back_list") : t("back_home");
+
+  // Fake / low confidence
+  document.getElementById("fake_alert").innerHTML =
+    data._lowConfWarning
+      ? `<div class="fake-alert"><i class="fas fa-exclamation-triangle"></i> Résultat incertain — (${Math.round(data.confidence)}% de confiance). Vérifiez manuellement si besoin.</div>`
+      : data.is_fake
+      ? `<div class="fake-alert"><i class="fas fa-exclamation-triangle"></i> Contenu humoristique possible.</div>`
+      : "";
+
+  document.getElementById("titre_film").innerText = data.title || "Inconnu";
+
+  // Affiche
+  const imgEl = document.getElementById("affiche_film");
+  if (data.image) {
+    imgEl.src = data.image;
+    imgEl.style.display = "block";
+  } else {
+    imgEl.style.display = "none";
+  }
+
+  // Tags
+  const tagsEl = document.getElementById("detail_tags");
+  tagsEl.innerHTML = "";
+  if (data.is_series) tagsEl.innerHTML += `<span class="tag series"><i class="fas fa-tv"></i> ${t("series_tag")}</span>`;
+  if (data.year) tagsEl.innerHTML += `<span class="tag year"><i class="fas fa-calendar"></i> ${data.year}</span>`;
+  if (data.runtime) tagsEl.innerHTML += `<span class="tag"><i class="fas fa-clock"></i> ${data.runtime} min</span>`;
+  (data.genres || []).forEach(g => tagsEl.innerHTML += `<span class="tag genre">${g}</span>`);
+
+  // Confiance
+  const confWrap = document.getElementById("confidence_wrap");
+  if (data.confidence !== null && data.confidence !== undefined) {
+    const pct = Math.round(data.confidence);
+    const color = pct >= 70 ? "#00ffcc" : pct >= 40 ? "#ffd700" : "#ff4444";
+    const lbl = pct >= 70 ? (currentLang.startsWith("en") ? "High confidence" : "Confiance élevée")
+                 : pct >= 40 ? (currentLang.startsWith("en") ? "Medium confidence" : "Confiance moyenne")
+                 : (currentLang.startsWith("en") ? "Low confidence" : "Confiance faible");
+    confWrap.style.display = "block";
+    document.getElementById("conf-bar-inner").style.width = pct + "%";
+    document.getElementById("conf-bar-inner").style.background = color;
+    document.getElementById("conf-pct-label").textContent = pct + "% — " + lbl;
+    document.getElementById("conf-pct-label").style.color = color;
+  } else {
+    confWrap.style.display = "none";
+  }
+
+  // Note
+  const ratingEl = document.getElementById("detail_rating");
+  ratingEl.innerHTML = data.vote_average
+    ? `<i class="fas fa-star" style="color:var(--gold)"></i> ${parseFloat(data.vote_average).toFixed(1)}<small> / 10 · ${data.vote_count ? data.vote_count.toLocaleString() + " votes" : ""}</small>`
+    : "";
+
+  // Synopsis
+  const synEl = document.getElementById("synopsis_film");
+  if (data.scene_description) {
+    synEl.innerHTML = `
+      <div style="background:rgba(0,255,204,.06);border-left:3px solid var(--primary);padding:10px 14px;border-radius:0 8px 8px 0;margin-bottom:14px;font-size:.82rem;color:var(--muted)">
+        <span style="color:var(--primary);font-weight:600;font-size:.73rem;text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:6px">
+          <i class="fas fa-film"></i> ${t("scene_identified")}
+        </span>
+        ${data.scene_description}
+      </div>
+      <span style="font-size:.73rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:8px">Synopsis</span>
+      ${data.synopsis || t("no_synopsis")}
+    `;
+  } else {
+    synEl.textContent = data.synopsis || t("no_synopsis");
+  }
+
+  // ─── PARTNER (popcorn) ──────────────────────────────
   const foodPartner = document.getElementById("food-partner");
   if (foodPartner) {
     foodPartner.classList.add("visible");
-    // Mettre à jour le lien du bouton de commande avec le bon partenaire selon la langue
     const foodBtn = foodPartner.querySelector("a.btn-stream, a.food-btn, a");
     if (foodBtn) {
       foodBtn.href = getFoodLink(currentLang);
@@ -1799,34 +1967,130 @@ function afficherDetailFilm(data){
       foodBtn.rel = "sponsored noopener";
     }
   }
-}, 400);
-  const streamEl=document.getElementById("streaming_section");
-   if(_forceAmazonOnly){
-    const url=`https://www.amazon.fr/s?k=${encodeURIComponent(data.title||"")}&i=instant-video&tag=pelify-21`;
-    streamEl.innerHTML=`<h3><i class="fas fa-satellite-dish"></i> ${t("streaming_title")}</h3><div class="streaming-buttons"><a href="${url}" target="_blank" rel="sponsored noopener" class="btn-stream affiliate" style="border-color:#00a8e040"><i class="fas fa-play-circle" style="color:#00a8e0"></i> Amazon Prime Video</a></div>`;
-  } else{
-  streamEl.innerHTML=`
-    <h3><i class="fas fa-satellite-dish"></i> Streaming</h3>
-    <p style="color:var(--muted);font-size:.85rem">${t("no_streaming_country")}</p>
-    <div class="streaming-buttons" style="margin-top:8px">
-      <a href="https://www.amazon.fr/s?k=${encodeURIComponent(data.title||"")}&i=instant-video&tag=pelify-21" target="_blank" rel="sponsored noopener" class="btn-stream affiliate" style="border-color:#00a8e040">
-        <i class="fas fa-search" style="color:#00a8e0"></i> Amazon Prime
+
+  // ─── STREAMING (NOUVEAU) ────────────────────────────
+  const streamEl = document.getElementById("streaming_section");
+  const providers = data.streaming_logos || []; // tableau [{name, logo_path}]
+
+  if (providers.length > 0) {
+    const logos = providers.map(p => {
+      const logoUrl = p.logo_path ? `https://image.tmdb.org/t/p/w92${p.logo_path}` : '';
+      const name = p.name || '';
+      return `<span class="streaming-badge" title="${name}">
+        ${logoUrl ? `<img src="${logoUrl}" alt="${name}" loading="lazy">` : name}
+      </span>`;
+    }).join('');
+
+    streamEl.innerHTML = `
+      <h3><i class="fas fa-satellite-dish"></i> ${t("streaming_title")}</h3>
+      <div class="streaming-badges">${logos}</div>
+    `;
+  } else {
+    // Pas de provider dans la région → message + suggestion Amazon
+    const region = getRegionCode();
+    streamEl.innerHTML = `
+      <h3><i class="fas fa-satellite-dish"></i> ${t("streaming_title")}</h3>
+      <p style="color:var(--muted);font-size:.85rem">
+        ${t("no_streaming_country")} (région ${region})
+      </p>
+      <div class="streaming-buttons" style="margin-top:8px">
+        <a href="${getAmazonSearch(data.title)}" target="_blank" rel="sponsored noopener" class="btn-stream affiliate" style="border-color:#00a8e040">
+          <i class="fas fa-search" style="color:#00a8e0"></i> Amazon Prime
+        </a>
+      </div>
+    `;
+  }
+
+  // ─── SAISONS ──────────────────────────────────────────
+  const seasonsEl = document.getElementById("seasons_section");
+  if (data.is_series && data.seasons && data.seasons.length > 0) {
+    const seasons = data.seasons.filter(s => s.season_number > 0 || s.episode_count > 0);
+    const seasonCards = seasons.map(s => {
+      const poster = s.poster_path ? `https://image.tmdb.org/t/p/w154${s.poster_path}` : "";
+      const airYear = s.air_date ? s.air_date.split("-")[0] : "";
+      const posterHtml = poster
+        ? `<img class="season-poster" src="${poster}" alt="${s.name || ""}" loading="lazy">`
+        : `<div style="width:48px;height:72px;background:var(--card2);border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.2rem">🎬</div>`;
+      return `<div class="season-card" id="season-${s.season_number}">
+        <div class="season-header" onclick="toggleSaison(${data.tmdb_id},${s.season_number})">
+          ${posterHtml}
+          <div class="season-info">
+            <div class="season-name">${s.name || t("seasons_title") + " " + s.season_number}</div>
+            <div class="season-meta">${s.episode_count || 0} ${t("episodes_title")}${airYear ? " · " + airYear : ""}</div>
+          </div>
+          <i class="fas fa-chevron-down season-chevron"></i>
+        </div>
+        <div class="episodes-list" id="episodes-${s.season_number}">
+          <div class="episodes-loading"><i class="fas fa-circle-notch fa-spin"></i> ${t("loading_episodes")}</div>
+        </div>
+      </div>`;
+    }).join("");
+    seasonsEl.innerHTML = `<h3><i class="fas fa-layer-group"></i> ${t("seasons_title")}</h3>${seasonCards}`;
+  } else {
+    seasonsEl.innerHTML = "";
+  }
+
+  // ─── CAST ──────────────────────────────────────────────
+  const castEl = document.getElementById("cast_section");
+  if ((data.cast || []).length > 0) {
+    const items = data.cast.map(c => {
+      const photo = c.profile_path
+        ? `https://image.tmdb.org/t/p/w185${c.profile_path}`
+        : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Crect width='60' height='60' fill='%231a1a24' rx='30'/%3E%3Ctext x='50%25' y='50%25' fill='%23555' font-size='24' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%91%A4%3C/text%3E%3C/svg%3E";
+      return `<div class="cast-card">
+        <img src="${photo}" alt="${c.name}" loading="lazy">
+        <p>${c.name}${c.character ? `<br><span style="color:var(--primary);font-size:.58rem">${c.character}</span>` : ""}</p>
+      </div>`;
+    }).join("");
+    castEl.innerHTML = `<h3><i class="fas fa-users"></i> ${t("cast_title")}</h3><div class="cast-list">${items}</div>`;
+  } else {
+    castEl.innerHTML = "";
+  }
+
+  // ─── TRAILER ────────────────────────────────────────────
+  const trailerEl = document.getElementById("trailer_section");
+  if (data.trailer) {
+    const embedUrl = data.trailer.replace("watch?v=", "embed/").replace("youtu.be/", "www.youtube.com/embed/");
+    trailerEl.innerHTML = `
+      <h3><i class="fab fa-youtube"></i> ${t("trailer_title")}</h3>
+      <button class="btn-trailer" onclick="afficherTrailer(this,'${embedUrl}')">
+        <i class="fas fa-play"></i> ${t("see_trailer")}
+      </button>
+      <iframe id="trailer_iframe" allowfullscreen style="display:none;width:100%;aspect-ratio:16/9;border-radius:12px;border:none;margin-top:10px;"></iframe>
+    `;
+  } else {
+    const q = encodeURIComponent((data.title || "") + " trailer");
+    trailerEl.innerHTML = `
+      <h3><i class="fab fa-youtube"></i> ${t("trailer_title")}</h3>
+      <a href="https://www.youtube.com/results?search_query=${q}" target="_blank" rel="noopener" class="btn-trailer">
+        <i class="fas fa-search"></i> ${t("search_trailer")}
       </a>
-    </div>
-  `;
-}
-  const seasonsEl=document.getElementById("seasons_section");
-  if(data.is_series&&data.seasons&&data.seasons.length>0){const seasons=data.seasons.filter(s=>s.season_number>0||s.episode_count>0);const seasonCards=seasons.map(s=>{const poster=s.poster_path?`https://image.tmdb.org/t/p/w154${s.poster_path}`:"";const airYear=s.air_date?s.air_date.split("-")[0]:"";const posterHtml=poster?`<img class="season-poster" src="${poster}" alt="${s.name||""}" loading="lazy">`:`<div style="width:48px;height:72px;background:var(--card2);border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.2rem">🎬</div>`;return `<div class="season-card" id="season-${s.season_number}"><div class="season-header" onclick="toggleSaison(${data.tmdb_id},${s.season_number})">${posterHtml}<div class="season-info"><div class="season-name">${s.name||t("seasons_title")+" "+s.season_number}</div><div class="season-meta">${s.episode_count||0} ${t("episodes_title")}${airYear?" · "+airYear:""}</div></div><i class="fas fa-chevron-down season-chevron"></i></div><div class="episodes-list" id="episodes-${s.season_number}"><div class="episodes-loading"><i class="fas fa-circle-notch fa-spin"></i> ${t("loading_episodes")}</div></div></div>`;}).join("");seasonsEl.innerHTML=`<h3><i class="fas fa-layer-group"></i> ${t("seasons_title")}</h3>${seasonCards}`;}else seasonsEl.innerHTML="";
-  const castEl=document.getElementById("cast_section");
-  if((data.cast||[]).length>0){const items=data.cast.map(c=>{const photo=c.profile_path?`https://image.tmdb.org/t/p/w185${c.profile_path}`:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Crect width='60' height='60' fill='%231a1a24' rx='30'/%3E%3Ctext x='50%25' y='50%25' fill='%23555' font-size='24' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%91%A4%3C/text%3E%3C/svg%3E";return `<div class="cast-card"><img src="${photo}" alt="${c.name}" loading="lazy"><p>${c.name}${c.character?`<br><span style="color:var(--primary);font-size:.58rem">${c.character}</span>`:""}</p></div>`;}).join("");castEl.innerHTML=`<h3><i class="fas fa-users"></i> ${t("cast_title")}</h3><div class="cast-list">${items}</div>`;}else castEl.innerHTML="";
-  const trailerEl=document.getElementById("trailer_section");
-  if(data.trailer){const embedUrl=data.trailer.replace("watch?v=","embed/").replace("youtu.be/","www.youtube.com/embed/");trailerEl.innerHTML=`<h3><i class="fab fa-youtube"></i> ${t("trailer_title")}</h3><button class="btn-trailer" onclick="afficherTrailer(this,'${embedUrl}')"><i class="fas fa-play"></i> ${t("see_trailer")}</button><iframe id="trailer_iframe" allowfullscreen style="display:none;width:100%;aspect-ratio:16/9;border-radius:12px;border:none;margin-top:10px;"></iframe>`;}
-  else{const q=encodeURIComponent((data.title||"")+" trailer");trailerEl.innerHTML=`<h3><i class="fab fa-youtube"></i> ${t("trailer_title")}</h3><a href="https://www.youtube.com/results?search_query=${q}" target="_blank" rel="noopener" class="btn-trailer"><i class="fas fa-search"></i> ${t("search_trailer")}</a>`;}
-  const similarEl=document.getElementById("similar_section");
-  const similarList=data.similar||[];
-  if(similarList.length>0){const cards=similarList.map(s=>{const poster=s.poster_path?`https://image.tmdb.org/t/p/w200${s.poster_path}`:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='300' fill='%231a1a24'%3E%3Crect width='200' height='300'/%3E%3Ctext x='50%25' y='50%25' fill='%23444' font-size='28' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E";const isTv=s.media_type==="tv"||!!s.first_air_date;return `<div class="movie-card" onclick="afficherDetails(${s.id},'${isTv?"tv":"movie"}')" style="cursor:pointer"><img src="${poster}" alt="${s.title||s.name||"?"}" loading="lazy" style="aspect-ratio:2/3;object-fit:cover"><div class="card-body"><h4>${s.title||s.name||"?"}</h4></div></div>`;}).join("");similarEl.innerHTML=`<h3>${t("similar_title")}</h3><div id="similar_cards">${cards}</div>`;}else similarEl.innerHTML="";
-  if(data.tmdb_id)chargerEnrichissementWikidata(data.tmdb_id,data.media_type||"movie");
-  window.scrollTo({top:0,behavior:"smooth"});
+    `;
+  }
+
+  // ─── SIMILAR ────────────────────────────────────────────
+  const similarEl = document.getElementById("similar_section");
+  const similarList = data.similar || [];
+  if (similarList.length > 0) {
+    const cards = similarList.map(s => {
+      const poster = s.poster_path
+        ? `https://image.tmdb.org/t/p/w200${s.poster_path}`
+        : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='300' fill='%231a1a24'%3E%3Crect width='200' height='300'/%3E%3Ctext x='50%25' y='50%25' fill='%23444' font-size='28' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E";
+      const isTv = s.media_type === "tv" || !!s.first_air_date;
+      return `<div class="movie-card" onclick="afficherDetails(${s.id},'${isTv ? "tv" : "movie"}')" style="cursor:pointer">
+        <img src="${poster}" alt="${s.title || s.name || "?"}" loading="lazy" style="aspect-ratio:2/3;object-fit:cover">
+        <div class="card-body"><h4>${s.title || s.name || "?"}</h4></div>
+      </div>`;
+    }).join("");
+    similarEl.innerHTML = `<h3>${t("similar_title")}</h3><div id="similar_cards">${cards}</div>`;
+  } else {
+    similarEl.innerHTML = "";
+  }
+
+  // ─── WIKIDATA ENRICHMENT ──────────────────────────────
+  if (data.tmdb_id) chargerEnrichissementWikidata(data.tmdb_id, data.media_type || "movie");
+
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 function afficherTrailer(btn,embedUrl){const iframe=document.getElementById("trailer_iframe");if(iframe){iframe.src=embedUrl;iframe.style.display="block";btn.style.display="none";}}
 

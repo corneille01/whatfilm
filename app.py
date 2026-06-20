@@ -117,7 +117,7 @@ async def _resolve_short_url(url: str) -> str:
             print(f"🔗 URL résolue: {url[:40]} → {resolved[:60]}", flush=True)
             return resolved
     except Exception as e:
-        print(f"⚠️ Résolution URL échouée: {e}", flush=True)
+        
         return url
 
 # ════════════════════════════════════════════════════════════════
@@ -1148,26 +1148,14 @@ async def discover_provider(provider_key: str, lang: str = "fr", page: int = 1):
 
     try:
         from data.tmdb import discover_by_provider
-        print(
-    f"provider={provider_key} "
-    f"provider_id={provider_id} "
-    f"region={region} "
-    f"lang={lang}",
-    flush=True
-)
+    
         data = await discover_by_provider(provider_id, region, lang, page)
-        print(
-    f"Provider={provider_key} "
-    f"id={provider_id} "
-    f"region={region} "
-    f"results={len(data.get('results', []))}",
-    flush=True
-)
+   
         response = {"status": "success", **data}
         cache_set_generic(cache_key, response, ttl=21600)  # 6 h
         return response
     except Exception as e:
-        print(f"❌ /discover-provider: {e}", flush=True)
+       
         return {"status": "error", "message": "Erreur lors du chargement de la plateforme."}
 
 # ════════════════════════════════════════════════════════════════

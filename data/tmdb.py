@@ -102,7 +102,7 @@ async def _search_movies(query: str, locale: str) -> list:
                 r["_search_locale"] = locale
             return results
     except Exception as e:
-        print(f"⚠️ TMDB movie search [{locale}] KO: {e}", flush=True)
+        
         return []
 
 
@@ -125,7 +125,7 @@ async def _search_tv(query: str, locale: str) -> list:
                 r["_search_locale"] = locale
             return results
     except Exception as e:
-        print(f"⚠️ TMDB tv search [{locale}] KO: {e}", flush=True)
+       
         return []
 
 
@@ -180,7 +180,7 @@ async def search_episode_parent_series(
                     item["media_type"] = "tv"
                     results.append(item)
     except Exception as e:
-        print(f"⚠️ search_episode_parent_series step1: {e}", flush=True)
+        print(f" search_episode_parent_series step1: {e}", flush=True)
 
     # ── Étape 2 : vérification épisodes ──────────────────────────
     episode_title_norm = episode_title.lower().strip()
@@ -208,12 +208,7 @@ async def search_episode_parent_series(
                             or ep_name in episode_title_norm
                             or _similarity(episode_title_norm, ep_name) > 0.8
                         ):
-                            print(
-                                f"📺 Épisode trouvé: '{ep.get('name')}' "
-                                f"→ série '{series.get('name')}' "
-                                f"S{season_num}E{ep.get('episode_number')}",
-                                flush=True
-                            )
+                            
                             found                    = True
                             series["_episode_match"] = True
                             series["_episode_name"]  = ep.get("name")
@@ -242,12 +237,7 @@ async def search_multi_lang(
     include_tv: bool = True,
 ) -> list:
     locales = _build_lang_priority(transcript_lang, browser_lang)
-    print(
-        f"🌍 TMDB multi-lang '{query}' — "
-        f"transcript={transcript_lang}, browser={browser_lang} "
-        f"→ locales={locales}",
-        flush=True
-    )
+   
 
     tasks = [_search_movies(query, loc) for loc in locales]
     if include_tv:
@@ -269,11 +259,7 @@ async def search_multi_lang(
 
     merged.sort(key=lambda x: x.get("popularity", 0), reverse=True)
 
-    print(
-        f"✅ TMDB multi-lang → {len(merged)} candidats uniques "
-        f"(avant: {sum(len(b) for b in batches if not isinstance(b, Exception))} bruts)",
-        flush=True
-    )
+   
 
     return merged[:20]
 
@@ -426,13 +412,7 @@ async def discover_by_provider(provider_id: int, region: str, lang: str, page: i
         "page": page,
     }
 
-    print(
-        f"TMDB discover provider_id={provider_id} "
-        f"region={region} "
-        f"lang={lang} "
-        f"page={page}",
-        flush=True
-    )
+   
 
     print(params, flush=True)
 
@@ -444,14 +424,9 @@ async def discover_by_provider(provider_id: int, region: str, lang: str, page: i
 
         r.raise_for_status()
         data = r.json()
-        print("📦 Réponse TMDB brute:", data)
+       
 
-    print(
-        f"TMDB status={r.status_code} "
-        f"results={len(data.get('results', []))} "
-        f"total_pages={data.get('total_pages')}",
-        flush=True
-    )
+   
 
     return {
         "results": data.get("results", []),

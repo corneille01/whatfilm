@@ -272,14 +272,6 @@
         />
         <div class="search-btns">
           <button
-            class="btn-search"
-            onclick="document.getElementById('video-upload-input').click()"
-            title="Uploader une vidéo"
-            aria-label="Uploader une vidéo"
-          >
-            <i class="fas fa-paperclip"></i>
-          </button>
-          <button
             class="btn-search-clear"
             id="btn-clear"
             onclick="effacerRecherche()"
@@ -288,6 +280,15 @@
           >
             <i class="fas fa-times"></i>
           </button>
+          <button
+            class="btn-search"
+            onclick="document.getElementById('video-upload-input').click()"
+            title="Uploader une vidéo"
+            aria-label="Uploader une vidéo"
+          >
+            <i class="fas fa-paperclip"></i>
+          </button>
+
           <button
             class="btn-search"
             onclick="gererRechercheGlobal()"
