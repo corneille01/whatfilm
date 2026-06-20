@@ -81,15 +81,15 @@ const dict = {
     sort_asc:"Score ascending",sort_new:"🆕 Newest",sort_old:"📼 Oldest",
     no_streaming_country:"No streaming available in the US currently.",cancel:"Cancel",
     game_hint:"TAP / SPACE to jump",
-    game_playing_msg:"🎬 We're identifying the movie from your link…\nPlay while you wait — it takes about 30 seconds!",
+    game_playing_msg:"<i class=\"fas fa-film\"></i> We're identifying the movie from your link…\nPlay while you wait — it takes about 30 seconds!",
     food_title:"Ready to watch?",food_desc:"Order popcorn & snacks via DoorDash!",food_btn:"Order",
     streaming_title:"Available on",searching:"Manual search",loading_home:"Loading trending...",
-    not_found_title:"Movie not found",similar_title:"🍿 Similar movies",cast_title:"Cast",series_tag:"TV Series",
+    not_found_title:"Movie not found",similar_title:"<i class=\"fas fa-film\"></i> Similar movies",cast_title:"Cast",series_tag:"TV Series",
     trailer_title:"Trailer",scene_identified:"Scene identified",no_synopsis:"No synopsis available.",
     see_trailer:"Watch trailer",search_trailer:"Find trailer on YouTube",
     seasons_title:"Seasons",episodes_title:"Episodes",loading_episodes:"Loading episodes...",
     providers_country:"US",game_over:"GAME OVER — Score: ",
-    filming_btn:"📍 Filmed Here",filming_title:"FILMING LOCATIONS",
+    filming_btn:"Filmed Here",filming_title:"FILMING LOCATIONS",
     filming_subtitle:"Explore real-world locations from cinema & TV worldwide",
     filming_search:"Search a film…",filming_movies_only:"Movies",filming_all_media:"All",
     err_server_busy:"The server is busy. Please retry in 30 seconds.",
@@ -109,8 +109,17 @@ const dict = {
     err_file_too_large:"File too large. Try a shorter video.",
     err_video_blocked:"Video blocked for copyright reasons.",
     err_unsupported:"Unsupported platform or format.",
-    step1:"Paste a TikTok, Reel or Short link",step2:"AI analyses the video",step3:"Get the movie in seconds",cta:"Identify",hero_hint:"👆 Tap a card for details, streaming and similar movies.",
-    genres:{horror:"Horror",action:"Action",comedy:"Comedy",scifi:"Sci-Fi",trending:"🔥 Trending",romance:"Romance",animation:"Animation",thriller:"Thriller",drama:"Drama",crime:"Crime",documentary:"Documentary",fantasy:"Fantasy",series:"📺 TV Series",family:"Family"}
+    step1:"Paste a film or anime clip link (TikTok, Reel, Short) or upload a video",
+    step2:"We analyze the video",step3:"Get the movie in seconds",
+    step4:"Discover the filming locations of movies & series",
+    cta:"Identify",hero_hint:"<i class=\"fas fa-hand-pointer\"></i> Tap a card for details, streaming and similar movies.",
+    results:"results",
+    seo_summary:"How to find a movie from TikTok?",
+    seo_h2:"How to find a movie from a TikTok, Instagram, YouTube or any other social media video?",
+    seo_intro:"Many viral scenes on TikTok, Instagram or YouTube Shorts come from unknown movies, series or anime. With Pelify, just paste the link to identify the film in seconds.",
+    seo_li1:"Identify a movie from TikTok",seo_li2:"Find a movie from a video",
+    seo_li3:"Recognize a movie scene",seo_li4:"What movie is in this video?",
+    genres:{horror:"Horror",action:"Action",comedy:"Comedy",scifi:"Sci-Fi",trending:"Trending",romance:"Romance",animation:"Animation",thriller:"Thriller",drama:"Drama",crime:"Crime",documentary:"Documentary",fantasy:"Fantasy",series:"TV Series",family:"Family"}
   },
   "en-GB": {
     title:"WHICH MOVIE?",tagline:"Paste a TikTok, Reel or YouTube link — AI identifies the film in seconds",
@@ -120,15 +129,15 @@ const dict = {
     sort_asc:"Score ascending",sort_new:"🆕 Newest",sort_old:"📼 Oldest",
     no_streaming_country:"No streaming available in the UK currently.",cancel:"Cancel",
     game_hint:"TAP / SPACE to jump",
-    game_playing_msg:"🎬 We're identifying the movie from your link…\nPlay while you wait — it takes about 30 seconds!",
+    game_playing_msg:"<i class=\"fas fa-film\"></i> We're identifying the movie from your link…\nPlay while you wait — it takes about 30 seconds!",
     food_title:"Ready to watch?",food_desc:"Order popcorn & snacks via Deliveroo!",food_btn:"Order",
     streaming_title:"Available on",searching:"Manual search",loading_home:"Loading trending...",
-    not_found_title:"Movie not found",similar_title:"🍿 Similar movies",cast_title:"Cast",series_tag:"TV Series",
+    not_found_title:"Movie not found",similar_title:"<i class=\"fas fa-film\"></i> Similar movies",cast_title:"Cast",series_tag:"TV Series",
     trailer_title:"Trailer",scene_identified:"Scene identified",no_synopsis:"No synopsis available.",
     see_trailer:"Watch trailer",search_trailer:"Find trailer on YouTube",
     seasons_title:"Seasons",episodes_title:"Episodes",loading_episodes:"Loading episodes...",
     providers_country:"GB",game_over:"GAME OVER — Score: ",
-    filming_btn:"📍 Filmed Here",filming_title:"FILMING LOCATIONS",
+    filming_btn:"Filmed Here",filming_title:"FILMING LOCATIONS",
     filming_subtitle:"Explore real-world locations from cinema & TV worldwide",
     filming_search:"Search a film…",filming_movies_only:"Movies",filming_all_media:"All",
     err_server_busy:"The server is busy. Please retry in 30 seconds.",
@@ -148,26 +157,35 @@ const dict = {
     err_file_too_large:"File too large. Try a shorter video.",
     err_video_blocked:"Video blocked for copyright reasons.",
     err_unsupported:"Unsupported platform or format.",
-    step1:"Paste a TikTok, Reel or Short link",step2:"AI analyses the video",step3:"Get the movie in seconds",cta:"Identify",hero_hint:"👆 Tap a card for details, streaming and similar movies.",
-    genres:{horror:"Horror",action:"Action",comedy:"Comedy",scifi:"Sci-Fi",trending:"🔥 Trending",romance:"Romance",animation:"Animation",thriller:"Thriller",drama:"Drama",crime:"Crime",documentary:"Documentary",fantasy:"Fantasy",series:"📺 TV Series",family:"Family"}
+    step1:"Paste a film or anime clip link (TikTok, Reel, Short) or upload a video",
+    step2:"We analyse the video",step3:"Get the movie in seconds",
+    step4:"Discover the filming locations of movies & series",
+    cta:"Identify",hero_hint:"<i class=\"fas fa-hand-pointer\"></i> Tap a card for details, streaming and similar movies.",
+    results:"results",
+    seo_summary:"How to find a movie from TikTok?",
+    seo_h2:"How to find a movie from a TikTok, Instagram, YouTube or any other social media video?",
+    seo_intro:"Many viral scenes on TikTok, Instagram or YouTube Shorts come from unknown movies, series or anime. With Pelify, just paste the link to identify the film in seconds.",
+    seo_li1:"Identify a movie from TikTok",seo_li2:"Find a movie from a video",
+    seo_li3:"Recognise a movie scene",seo_li4:"What movie is in this video?",
+    genres:{horror:"Horror",action:"Action",comedy:"Comedy",scifi:"Sci-Fi",trending:"Trending",romance:"Romance",animation:"Animation",thriller:"Thriller",drama:"Drama",crime:"Crime",documentary:"Documentary",fantasy:"Fantasy",series:"TV Series",family:"Family"}
   },
   fr: {
     title:"QUEL FILM ?",tagline:"Colle un lien TikTok, Reel ou YouTube — l'IA identifie le film en secondes",
-    placeholder:"Colle un lien TikTok/Reel ou tape le nom d'un film...",badge:"Shazam pour les films",
+    placeholder:"Coller un lien TikTok/Reel ou taper un titre de film...",badge:"Shazam pour les films",
     back_home:"Accueil",back_list:"Retour à la liste",ai_conf:"Confiance IA",reset:"Reset",
     year:"Année",min_score:"Note min",sort_pop:"🔥 Popularité",sort_top:"⭐ Mieux notés",
     sort_asc:"Note croissante",sort_new:"🆕 Plus récents",sort_old:"📼 Plus anciens",
     no_streaming_country:"Pas de streaming disponible en France actuellement.",cancel:"Annuler",
     game_hint:"TAP / ESPACE pour sauter",
-    game_playing_msg:"🎬 On cherche le film de votre lien…\nJouez pendant l'analyse — ça prend environ 30 secondes !",
+    game_playing_msg:"<i class=\"fas fa-film\"></i> On cherche le film de votre lien…\nJouez pendant l'analyse — ça prend environ 30 secondes !",
     food_title:"Prêt à regarder ce film ?",food_desc:"Commandez vos snacks via UberEats !",food_btn:"Commander",
     streaming_title:"Disponible sur",searching:"Recherche manuelle",loading_home:"Chargement des tendances...",
-    not_found_title:"Film non identifié",similar_title:"🍿 Films similaires",cast_title:"Au casting",series_tag:"Série TV",
+    not_found_title:"Film non identifié",similar_title:"<i class=\"fas fa-film\"></i> Films similaires",cast_title:"Au casting",series_tag:"Série TV",
     trailer_title:"Bande-annonce",scene_identified:"Scène identifiée",no_synopsis:"Pas de synopsis disponible.",
     see_trailer:"Voir la bande-annonce",search_trailer:"Chercher la bande-annonce",
     seasons_title:"Saisons",episodes_title:"Épisodes",loading_episodes:"Chargement des épisodes...",
     providers_country:"FR",game_over:"GAME OVER — Score : ",
-    filming_btn:"📍 Lieux de tournage",filming_title:"LIEUX DE TOURNAGE",
+    filming_btn:"Lieux de tournage",filming_title:"LIEUX DE TOURNAGE",
     filming_subtitle:"Explorez les vrais décors du cinéma mondial",
     filming_search:"Rechercher un film…",filming_movies_only:"Films",filming_all_media:"Tout",
     err_server_busy:"Le serveur est actuellement surchargé. Réessayez dans 30 secondes.",
@@ -187,26 +205,35 @@ const dict = {
     err_file_too_large:"Fichier trop volumineux. Essayez une vidéo plus courte.",
     err_video_blocked:"Vidéo bloquée pour droits d'auteur.",
     err_unsupported:"Plateforme ou format non supporté.",
-    step1:"Colle un lien TikTok, Reel ou Short",step2:"L'IA analyse la vidéo",step3:"Découvre le film en secondes",cta:"Identifier",hero_hint:"👆 Clique sur une carte pour voir les détails, le streaming et les films similaires.",
-    genres:{horror:"Horreur",action:"Action",comedy:"Comédie",scifi:"Sci-Fi",trending:"🔥 Tendances",romance:"Romance",animation:"Animation",thriller:"Thriller",drama:"Drame",crime:"Crime",documentary:"Documentaire",fantasy:"Fantastique",series:"📺 Séries TV",family:"Famille"}
+    step1:"Coller un lien d'extrait de film ou d'animé (TikTok, Reel, Short) ou importer une vidéo",
+    step2:"Nous analysons la vidéo",step3:"Découvrir le film en secondes",
+    step4:"Découvrir les lieux de tournage des films et séries",
+    cta:"Identifier",hero_hint:"<i class=\"fas fa-hand-pointer\"></i> Cliquer sur une carte pour voir les détails, le streaming et les films similaires.",
+    results:"résultats",
+    seo_summary:"Comment trouver un film depuis TikTok ?",
+    seo_h2:"Comment trouver un film à partir d'une vidéo TikTok, Instagram, YouTube ou tout autre réseau social ?",
+    seo_intro:"Beaucoup de scènes virales sur TikTok, Instagram ou YouTube Shorts proviennent de films, séries ou animes inconnus. Avec Pelify, il suffit de coller le lien pour identifier le film en quelques secondes.",
+    seo_li1:"Identifier un film depuis TikTok",seo_li2:"Trouver un film à partir d'une vidéo",
+    seo_li3:"Reconnaître une scène de film",seo_li4:"Quel film est dans cette vidéo ?",
+    genres:{horror:"Horreur",action:"Action",comedy:"Comédie",scifi:"Sci-Fi",trending:"Tendances",romance:"Romance",animation:"Animation",thriller:"Thriller",drama:"Drame",crime:"Crime",documentary:"Documentaire",fantasy:"Fantastique",series:"Séries TV",family:"Famille"}
   },
   es: {
     title:"¿QUÉ PELÍCULA?",tagline:"Pega un enlace de TikTok o Reel — la IA identifica la película",
-    placeholder:"Pega enlace TikTok/Reel o escribe un título...",badge:"Shazam para películas",
+    placeholder:"Pegar enlace TikTok/Reel o escribir un título...",badge:"Shazam para películas",
     back_home:"Inicio",back_list:"Volver a la lista",ai_conf:"Confianza IA",reset:"Restablecer",
     year:"Año",min_score:"Nota mínima",sort_pop:"🔥 Popularidad",sort_top:"⭐ Mejor valoradas",
     sort_asc:"Nota ascendente",sort_new:"🆕 Más recientes",sort_old:"📼 Más antiguas",
     no_streaming_country:"Sin streaming disponible actualmente.",cancel:"Cancelar",
     game_hint:"TAP / ESPACIO para saltar",
-    game_playing_msg:"🎬 Estamos identificando la película…\n¡Juega mientras esperas, tarda unos 30 segundos!",
+    game_playing_msg:"<i class=\"fas fa-film\"></i> Estamos identificando la película…\n¡Juega mientras esperas, tarda unos 30 segundos!",
     food_title:"¿Listo para ver la película?",food_desc:"¡Pide snacks y palomitas!",food_btn:"Pedir",
     streaming_title:"Disponible en",searching:"Buscar manualmente",loading_home:"Cargando tendencias...",
-    not_found_title:"Película no encontrada",similar_title:"🍿 Películas similares",cast_title:"Reparto",series_tag:"Serie TV",
+    not_found_title:"Película no encontrada",similar_title:"<i class=\"fas fa-film\"></i> Películas similares",cast_title:"Reparto",series_tag:"Serie TV",
     trailer_title:"Tráiler",scene_identified:"Escena identificada",no_synopsis:"Sin sinopsis disponible.",
     see_trailer:"Ver tráiler",search_trailer:"Buscar tráiler en YouTube",
     seasons_title:"Temporadas",episodes_title:"Episodios",loading_episodes:"Cargando episodios...",
     providers_country:"ES",game_over:"GAME OVER — Puntuación: ",
-    filming_btn:"📍 Rodado aquí",filming_title:"LOCALIZACIONES DE RODAJE",
+    filming_btn:"Rodado aquí",filming_title:"LOCALIZACIONES DE RODAJE",
     filming_subtitle:"Explora los escenarios reales del cine mundial",
     filming_search:"Buscar una película…",filming_movies_only:"Películas",filming_all_media:"Todo",
     err_server_busy:"El servidor está ocupado. Reintenta en 30 segundos.",
@@ -226,8 +253,17 @@ const dict = {
     err_file_too_large:"Archivo demasiado grande. Prueba con un video más corto.",
     err_video_blocked:"Video bloqueado por derechos de autor.",
     err_unsupported:"Plataforma o formato no compatible.",
-    step1:"Pega un enlace de TikTok o Reel",step2:"La IA analiza el vídeo",step3:"Descubre la película en segundos",cta:"Identificar",hero_hint:"👆 Toca una tarjeta para ver detalles, streaming y películas similares.",
-    genres:{horror:"Terror",action:"Acción",comedy:"Comedia",scifi:"Ciencia Ficción",trending:"🔥 Tendencias",romance:"Romance",animation:"Animación",thriller:"Thriller",drama:"Drama",crime:"Crimen",documentary:"Documental",fantasy:"Fantasía",series:"📺 Series TV",family:"Familia"}
+    step1:"Pegar un enlace de clip de película o anime (TikTok, Reel, Short) o subir un vídeo",
+    step2:"Analizamos el vídeo",step3:"Descubrir la película en segundos",
+    step4:"Descubrir las localizaciones de rodaje de películas y series",
+    cta:"Identificar",hero_hint:"<i class=\"fas fa-hand-pointer\"></i> Tocar una tarjeta para ver detalles, streaming y películas similares.",
+    results:"resultados",
+    seo_summary:"¿Cómo encontrar una película desde TikTok?",
+    seo_h2:"¿Cómo encontrar una película a partir de un vídeo de TikTok, Instagram, YouTube o cualquier otra red social?",
+    seo_intro:"Muchas escenas virales en TikTok, Instagram o YouTube Shorts provienen de películas, series o animes desconocidos. Con Pelify, solo tienes que pegar el enlace para identificar la película en segundos.",
+    seo_li1:"Identificar una película desde TikTok",seo_li2:"Encontrar una película a partir de un vídeo",
+    seo_li3:"Reconocer una escena de película",seo_li4:"¿Qué película aparece en este vídeo?",
+    genres:{horror:"Terror",action:"Acción",comedy:"Comedia",scifi:"Ciencia Ficción",trending:"Tendencias",romance:"Romance",animation:"Animación",thriller:"Thriller",drama:"Drama",crime:"Crimen",documentary:"Documental",fantasy:"Fantasía",series:"Series TV",family:"Familia"}
   },
   de: {
     title:"WELCHER FILM?",tagline:"TikTok- oder Reel-Link einfügen — KI erkennt den Film in Sekunden",
@@ -237,15 +273,15 @@ const dict = {
     sort_asc:"Bewertung aufsteigend",sort_new:"🆕 Neueste",sort_old:"📼 Älteste",
     no_streaming_country:"Kein Streaming in Deutschland verfügbar.",cancel:"Abbrechen",
     game_hint:"TAP / LEERTASTE zum Springen",
-    game_playing_msg:"🎬 Wir identifizieren den Film…\nSpiel während du wartest — dauert ca. 30 Sekunden!",
+    game_playing_msg:"<i class=\"fas fa-film\"></i> Wir identifizieren den Film…\nSpiel während du wartest — dauert ca. 30 Sekunden!",
     food_title:"Bereit zum Anschauen?",food_desc:"Bestelle Snacks und Popcorn!",food_btn:"Bestellen",
     streaming_title:"Verfügbar auf",searching:"Manuell suchen",loading_home:"Trends werden geladen...",
-    not_found_title:"Film nicht gefunden",similar_title:"🍿 Ähnliche Filme",cast_title:"Besetzung",series_tag:"TV-Serie",
+    not_found_title:"Film nicht gefunden",similar_title:"<i class=\"fas fa-film\"></i> Ähnliche Filme",cast_title:"Besetzung",series_tag:"TV-Serie",
     trailer_title:"Trailer",scene_identified:"Szene identifiziert",no_synopsis:"Keine Beschreibung verfügbar.",
     see_trailer:"Trailer ansehen",search_trailer:"Trailer auf YouTube suchen",
     seasons_title:"Staffeln",episodes_title:"Folgen",loading_episodes:"Folgen werden geladen...",
     providers_country:"DE",game_over:"GAME OVER — Punkte: ",
-    filming_btn:"📍 Drehorte",filming_title:"DREHORTE",
+    filming_btn:"Drehorte",filming_title:"DREHORTE",
     filming_subtitle:"Entdecke echte Filmschauplätze weltweit",
     filming_search:"Film suchen…",filming_movies_only:"Filme",filming_all_media:"Alle",
     err_server_busy:"Der Server ist ausgelastet. Versuche es in 30 Sekunden.",
@@ -265,8 +301,17 @@ const dict = {
     err_file_too_large:"Datei zu groß. Versuche ein kürzeres Video.",
     err_video_blocked:"Video aus urheberrechtlichen Gründen gesperrt.",
     err_unsupported:"Nicht unterstützte Plattform oder Format.",
-    step1:"Füge einen TikTok- oder Reel-Link ein",step2:"Die KI analysiert das Video",step3:"Entdecke den Film in Sekunden",cta:"Identifizieren",hero_hint:"👆 Tippe auf eine Karte für Details, Streaming und ähnliche Filme.",
-    genres:{horror:"Horror",action:"Action",comedy:"Komödie",scifi:"Science-Fiction",trending:"🔥 Trends",romance:"Romantik",animation:"Animation",thriller:"Thriller",drama:"Drama",crime:"Krimi",documentary:"Dokumentarfilm",fantasy:"Fantasy",series:"📺 TV-Serien",family:"Familie"}
+    step1:"Film- oder Anime-Clip-Link einfügen (TikTok, Reel, Short) oder ein Video hochladen",
+    step2:"Wir analysieren das Video",step3:"Den Film in Sekunden entdecken",
+    step4:"Die Drehorte von Filmen und Serien entdecken",
+    cta:"Identifizieren",hero_hint:"<i class=\"fas fa-hand-pointer\"></i> Auf eine Karte tippen für Details, Streaming und ähnliche Filme.",
+    results:"Ergebnisse",
+    seo_summary:"Wie findet man einen Film über TikTok?",
+    seo_h2:"Wie findet man einen Film anhand eines TikTok-, Instagram-, YouTube- oder anderen Social-Media-Videos?",
+    seo_intro:"Viele virale Szenen auf TikTok, Instagram oder YouTube Shorts stammen aus unbekannten Filmen, Serien oder Animes. Mit Pelify fügst du einfach den Link ein, um den Film in Sekunden zu erkennen.",
+    seo_li1:"Einen Film über TikTok identifizieren",seo_li2:"Einen Film anhand eines Videos finden",
+    seo_li3:"Eine Filmszene erkennen",seo_li4:"Welcher Film ist in diesem Video?",
+    genres:{horror:"Horror",action:"Action",comedy:"Komödie",scifi:"Science-Fiction",trending:"Trends",romance:"Romantik",animation:"Animation",thriller:"Thriller",drama:"Drama",crime:"Krimi",documentary:"Dokumentarfilm",fantasy:"Fantasy",series:"TV-Serien",family:"Familie"}
   },
   zh: {
     title:"什么电影？",tagline:"粘贴 TikTok 或 Reel 链接 — AI 即刻识别电影",
@@ -276,15 +321,15 @@ const dict = {
     sort_asc:"评分升序",sort_new:"🆕 最新",sort_old:"📼 最早",
     no_streaming_country:"暂无可用的流媒体。",cancel:"取消",
     game_hint:"点击 / 空格键跳跃",
-    game_playing_msg:"🎬 正在识别您的视频中的电影…\n请玩游戏等待，大约需要30秒！",
+    game_playing_msg:"<i class=\"fas fa-film\"></i> 正在识别您视频中的电影…\n请玩游戏等待，大约需要30秒！",
     food_title:"准备好看电影了吗？",food_desc:"立即订购爆米花和零食！",food_btn:"下单",
     streaming_title:"可在以下平台观看",searching:"手动搜索",loading_home:"加载热门中...",
-    not_found_title:"未找到影片",similar_title:"🍿 相似影片",cast_title:"演员表",series_tag:"电视剧",
+    not_found_title:"未找到影片",similar_title:"<i class=\"fas fa-film\"></i> 相似影片",cast_title:"演员表",series_tag:"电视剧",
     trailer_title:"预告片",scene_identified:"识别场景",no_synopsis:"暂无简介。",
     see_trailer:"观看预告片",search_trailer:"在 YouTube 上搜索预告片",
     seasons_title:"季",episodes_title:"集",loading_episodes:"加载剧集中...",
     providers_country:"CN",game_over:"游戏结束 — 得分：",
-    filming_btn:"📍 拍摄地",filming_title:"拍摄地点",
+    filming_btn:"拍摄地",filming_title:"拍摄地点",
     filming_subtitle:"探索全球电影真实拍摄地",
     filming_search:"搜索电影…",filming_movies_only:"电影",filming_all_media:"全部",
     err_server_busy:"服务器繁忙，请30秒后重试。",
@@ -304,8 +349,17 @@ const dict = {
     err_file_too_large:"文件太大。请尝试较短的视频。",
     err_video_blocked:"视频因版权原因被屏蔽。",
     err_unsupported:"不支持的平台或格式。",
-    step1:"粘贴 TikTok 或 Reel 链接",step2:"AI 分析视频",step3:"几秒内找到电影",cta:"识别",hero_hint:"👆 点击卡片查看详情、播放平台和相似电影。",
-    genres:{horror:"恐怖",action:"动作",comedy:"喜剧",scifi:"科幻",trending:"🔥 热门",romance:"爱情",animation:"动画",thriller:"惊悚",drama:"剧情",crime:"犯罪",documentary:"纪录片",fantasy:"奇幻",series:"📺 电视剧",family:"家庭"}
+    step1:"粘贴电影或动漫片段链接（TikTok、Reel、Short）或上传视频",
+    step2:"我们分析视频",step3:"几秒内找到电影",
+    step4:"探索电影和剧集的拍摄地点",
+    cta:"识别",hero_hint:"<i class=\"fas fa-hand-pointer\"></i> 点击卡片查看详情、播放平台和相似电影。",
+    results:"个结果",
+    seo_summary:"如何通过 TikTok 找电影？",
+    seo_h2:"如何通过 TikTok、Instagram、YouTube 或其他社交媒体视频找到电影？",
+    seo_intro:"TikTok、Instagram 或 YouTube Shorts 上的许多热门片段来自不知名的电影、剧集或动漫。使用 Pelify，只需粘贴链接即可在几秒内识别影片。",
+    seo_li1:"通过 TikTok 识别电影",seo_li2:"通过视频找到电影",
+    seo_li3:"识别电影场景",seo_li4:"这个视频里是什么电影？",
+    genres:{horror:"恐怖",action:"动作",comedy:"喜剧",scifi:"科幻",trending:"热门",romance:"爱情",animation:"动画",thriller:"惊悚",drama:"剧情",crime:"犯罪",documentary:"纪录片",fantasy:"奇幻",series:"电视剧",family:"家庭"}
   }
 };
 
@@ -400,8 +454,13 @@ function initLang(){
   applyLang();genererNav();
 }
 function applyLang(){
-  const ld=dict[currentLang]||dict.fr;
-  document.querySelectorAll("[data-i18n]").forEach(el=>{const k=el.getAttribute("data-i18n");if(ld[k])el.textContent=ld[k];});
+   const ld=dict[currentLang]||dict.fr;
+  document.querySelectorAll("[data-i18n]").forEach(el=>{
+    const k=el.getAttribute("data-i18n");
+    if(ld[k]==null) return;
+    if(el.tagName==="OPTION") el.textContent=ld[k];   // les <option> ne rendent que du texte
+    else el.innerHTML=ld[k];                           // le reste rend les <i>
+  });
   const inp=document.getElementById("input_global");if(inp)inp.placeholder=ld.placeholder||"";
   const heroInp=document.getElementById("hero-search-input");
   if(heroInp)heroInp.placeholder=ld.placeholder||"";
@@ -413,6 +472,7 @@ function applyLang(){
   const btnFilming=document.getElementById("btn-genre-filming");
   if(btnFilming)btnFilming.innerHTML=`<i class="fas fa-map-marker-alt"></i> ${ld.filming_btn||"📍 Lieux de tournage"}`;
 }
+
 function genererNav(){
   const nav=document.getElementById("genre-nav");
   const g=dict[currentLang]?.genres||dict.fr.genres;
@@ -804,7 +864,7 @@ function renderCards(results,genreName,page,totalPages,mediaType="movie"){
   _allResults=results||[];_currentTotalPages=totalPages||1;
   peuplerFiltreAnnee(_allResults);
   document.getElementById("filtres-bar").style.display=_allResults.length>0?"flex":"none";
-  document.getElementById("filtre-count").textContent=_allResults.length+" film"+(_allResults.length>1?"s":"");
+  document.getElementById("filtre-count").textContent=`${_allResults.length} ${t("results")}`;
   appliquerFiltres();
   if(genreName!=="trending"&&genreName!=="search"){
     setTimeout(()=>{
@@ -832,7 +892,7 @@ function appliquerFiltres(){
   else if(tri==="note_asc")res.sort((a,b)=>(a.vote_average||0)-(b.vote_average||0));
   else if(tri==="recent")res.sort((a,b)=>(b.release_date||b.first_air_date||"").localeCompare(a.release_date||a.first_air_date||""));
   else if(tri==="ancien")res.sort((a,b)=>(a.release_date||a.first_air_date||"").localeCompare(b.release_date||b.first_air_date||""));
-  document.getElementById("filtre-count").textContent=res.length+" film"+(res.length>1?"s":"");
+ document.getElementById("filtre-count").textContent=`${res.length} ${t("results")}`;
   renderCardsFiltered(res);
 }
 function reinitFiltres(){document.getElementById("filtre-annee").value="";document.getElementById("filtre-note").value="";document.getElementById("filtre-tri").value="pop";appliquerFiltres();}
