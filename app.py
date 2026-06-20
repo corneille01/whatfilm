@@ -1025,7 +1025,7 @@ async def process_analysis(
                     "message": "Impossible de récupérer les détails du film."}
 
     
-    region    = _lang_to_region.get(browser_lang, "US")
+    region = _get_region_from_lang(browser_lang)
     providers = (
         details.get("watch/providers", {})
                .get("results", {})
@@ -1138,10 +1138,7 @@ async def discover(genre_name: str, lang: str = "fr", page: int = 1, type: str =
 
 
 
-# Mapping langue → région (réutilisé pour les providers)
-_LANG_TO_REGION = {
-    "fr": "FR", "en": "US", "es": "ES", "de": "DE", "zh": "CN",
-}
+
 
 # Provider IDs TMDB 
 _PROVIDER_IDS = {
@@ -1154,13 +1151,14 @@ _PROVIDER_IDS = {
 }
 
 @app.get("/discover-provider/{provider_key}")
-async def discover_provider(provider_key: str, lang: str = "fr", page: int = 1):
+
+async def discover_provider(provider_key: str, browser_lang: str = "fr", page: int = 1):
     provider_id = _PROVIDER_IDS.get(provider_key.lower())
     if not provider_id:
         return {"status": "error", "message": f"Plateforme '{provider_key}' inconnue."}
 
-    region = _get_region_from_lang(lang)
-    cache_key = f"provider:{provider_key.lower()}:{lang}:{page}"
+    region = _get_region_from_lang(browser_lang)
+    cache_key = f"provider:{provider_key.lower()}:{browser_lang}:{page}"
 
     cached = cache_get_generic(cache_key)
     if cached:
@@ -1168,14 +1166,12 @@ async def discover_provider(provider_key: str, lang: str = "fr", page: int = 1):
 
     try:
         from data.tmdb import discover_by_provider
-    
-        data = await discover_by_provider(provider_id, region, lang, page)
-   
+        data = await discover_by_provider(provider_id, region, browser_lang, page)
         response = {"status": "success", **data}
-        cache_set_generic(cache_key, response, ttl=21600)  # 6 h
+        cache_set_generic(cache_key, response, ttl=21600)
         return response
     except Exception as e:
-       
+        print(f"❌ discover_provider error: {e}", flush=True)
         return {"status": "error", "message": "Erreur lors du chargement de la plateforme."}
 
 # ════════════════════════════════════════════════════════════════

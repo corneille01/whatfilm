@@ -1065,7 +1065,7 @@ async function chargerParPlateforme(btn, platformKey) {
   navStack = [];
 
   try {
-    const data = await safeFetch(`/discover-provider/${platformKey}?lang=${getTMDBLang()}&page=1`);
+    const data = await safeFetch(`/discover-provider/${platformKey}?browser_lang=${getBrowserLangShort()}&page=1`);
     if (data.status === "success" && data.results?.length) {
       renderCards(data.results, platformKey, 1, data.total_pages || 1);
     } else {
