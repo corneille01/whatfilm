@@ -2271,7 +2271,10 @@ function afficherLocationsWikidata(container,locations){
 function initFilmingMap(locations) {
   try {
     const mapEl = document.getElementById("filming-map-inner");
-    if (!mapEl || !window.L) return;
+    if (!mapEl || !window.L) {
+      console.warn("Leaflet ou conteneur manquant");
+      return;
+    }
 
     // Nettoyer l'ancienne carte
     if (window._filmingMapDetail) {
@@ -2290,23 +2293,24 @@ function initFilmingMap(locations) {
       maxZoom: 19
     }).addTo(map);
 
-    // Créer un groupe de clusters
-    const clusterGroup = L.markerClusterGroup({
-      maxClusterRadius: 60,
-      showCoverageOnHover: false,
-      iconCreateFunction: function(cluster) {
-        const count = cluster.getChildCount();
-        const size = count > 100 ? 50 : count > 30 ? 40 : 32;
-        return L.divIcon({
-          html: `<div class="fmap-cluster" style="width:${size}px;height:${size}px;border-radius:50%;background:rgba(0,255,204,0.2);border:2px solid #00ffcc;color:#00ffcc;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:${size>40?'14px':'12px'}">${count}</div>`,
-          className: '',
-          iconSize: [size, size],
-          iconAnchor: [size/2, size/2]
-        });
-      }
-    });
+    // Vérifier que le plugin markerCluster est disponible
+    const clusterGroup = (window.L.markerClusterGroup)
+      ? L.markerClusterGroup({
+          maxClusterRadius: 60,
+          showCoverageOnHover: false,
+          iconCreateFunction: function(cluster) {
+            const count = cluster.getChildCount();
+            const size = count > 100 ? 50 : count > 30 ? 40 : 32;
+            return L.divIcon({
+              html: `<div class="fmap-cluster" style="width:${size}px;height:${size}px;border-radius:50%;background:rgba(0,255,204,0.2);border:2px solid #00ffcc;color:#00ffcc;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:${size>40?'14px':'12px'}">${count}</div>`,
+              className: '',
+              iconSize: [size, size],
+              iconAnchor: [size/2, size/2]
+            });
+          }
+        })
+      : L.layerGroup(); // fallback si cluster non disponible
 
-    // Définir une icône pour les lieux
     const icon = L.divIcon({
       className: '',
       html: `<div style="background:var(--primary,#00ffcc);width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #000;box-shadow:0 2px 8px rgba(0,255,204,.4)"></div>`,
@@ -2314,7 +2318,6 @@ function initFilmingMap(locations) {
       iconAnchor: [14, 28]
     });
 
-    // Ajouter les marqueurs avec calcul de distance
     const points = locations.map(loc => [loc.lat, loc.lng]);
     const firstPoint = points[0];
     const bounds = [];
@@ -2322,11 +2325,10 @@ function initFilmingMap(locations) {
     locations.forEach((loc, index) => {
       const marker = L.marker([loc.lat, loc.lng], { icon }).addTo(clusterGroup);
       
-      // Calculer la distance depuis le premier point (ou depuis le point précédent)
       let distanceText = '';
       if (index > 0 && window.turf) {
         const from = turf.point(firstPoint);
-        const to = turf.point([loc.lng, loc.lat]); // turf utilise [lng, lat]
+        const to = turf.point([loc.lng, loc.lat]);
         const distance = turf.distance(from, to, { units: 'kilometers' });
         distanceText = ` <span style="font-size:0.7rem;color:var(--muted)">(${distance.toFixed(1)} km depuis le premier lieu)</span>`;
       }
@@ -2346,14 +2348,12 @@ function initFilmingMap(locations) {
 
     map.addLayer(clusterGroup);
 
-    // Ajuster la vue
     if (bounds.length === 1) {
       map.setView(center, 12);
     } else {
       map.fitBounds(bounds, { padding: [30, 30] });
     }
 
-    // Ajouter une ligne reliant les points (itinéraire)
     if (points.length > 1 && window.L.polyline) {
       const line = L.polyline(points, {
         color: '#00ffcc',
@@ -2362,6 +2362,11 @@ function initFilmingMap(locations) {
         dashArray: '6,8'
       }).addTo(map);
     }
+
+    // 🔥 FORCER L'AFFICHAGE – Invalider la taille après un court délai
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 250);
 
   } catch (e) {
     console.warn("Leaflet map KO:", e);
