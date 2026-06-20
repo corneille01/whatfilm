@@ -1148,6 +1148,13 @@ async def discover_provider(provider_key: str, lang: str = "fr", page: int = 1):
 
     try:
         from data.tmdb import discover_by_provider
+        print(
+    f"provider={provider_key} "
+    f"provider_id={provider_id} "
+    f"region={region} "
+    f"lang={lang}",
+    flush=True
+)
         data = await discover_by_provider(provider_id, region, lang, page)
         print(
     f"Provider={provider_key} "
