@@ -1149,6 +1149,13 @@ async def discover_provider(provider_key: str, lang: str = "fr", page: int = 1):
     try:
         from data.tmdb import discover_by_provider
         data = await discover_by_provider(provider_id, region, lang, page)
+        print(
+    f"Provider={provider_key} "
+    f"id={provider_id} "
+    f"region={region} "
+    f"results={len(data.get('results', []))}",
+    flush=True
+)
         response = {"status": "success", **data}
         cache_set_generic(cache_key, response, ttl=21600)  # 6 h
         return response

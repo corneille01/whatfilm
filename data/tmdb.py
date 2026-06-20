@@ -406,24 +406,81 @@ async def get_trending(lang: str = "fr", media_type: str = "movie") -> list:
         return resp.json().get("results", [])
 
 
-async def discover_by_provider(provider_id: int, region: str, lang: str, page: int = 1):
-    lang_map = {"fr": "fr-FR", "en": "en-US", "es": "es-ES", "de": "de-DE", "zh": "zh-CN"}
+async def discover_by_provider(
+    provider_id: int,
+    region: str,
+    lang: str,
+    page: int = 1,
+):
+    lang_map = {
+        "fr": "fr-FR",
+        "en": "en-US",
+        "es": "es-ES",
+        "de": "de-DE",
+        "zh": "zh-CN",
+    }
+
     params = {
         "api_key": API_KEY,
         "language": lang_map.get(lang, "fr-FR"),
         "with_watch_providers": provider_id,
-        "watch_region": region,
+        "watch_region": region.upper(),
         "sort_by": "popularity.desc",
         "page": page,
+        "include_adult": False,
     }
+
     async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.get(f"{BASE_URL}/discover/movie", params=params)
-        r.raise_for_status()
-        data = r.json()
+
+        movie_resp = await client.get(
+            f"{BASE_URL}/discover/movie",
+            params=params,
+        )
+        movie_resp.raise_for_status()
+
+        tv_resp = await client.get(
+            f"{BASE_URL}/discover/tv",
+            params=params,
+        )
+        tv_resp.raise_for_status()
+
+        movie_data = movie_resp.json()
+        tv_data = tv_resp.json()
+
+    movies = movie_data.get("results", [])
+    tv_shows = tv_data.get("results", [])
+
+    for item in movies:
+        item["media_type"] = "movie"
+
+    for item in tv_shows:
+        item["media_type"] = "tv"
+
+    results = sorted(
+        movies + tv_shows,
+        key=lambda x: x.get("popularity", 0),
+        reverse=True,
+    )
+
+    print(
+        f"📺 Provider={provider_id} "
+        f"Region={region} "
+        f"Movies={len(movies)} "
+        f"TV={len(tv_shows)} "
+        f"Total={len(results)}",
+        flush=True,
+    )
+
     return {
-        "results": data.get("results", []),
-        "total_pages": min(data.get("total_pages", 1), 500),
-        "page": data.get("page", 1),
+        "results": results,
+        "total_pages": min(
+            max(
+                movie_data.get("total_pages", 1),
+                tv_data.get("total_pages", 1),
+            ),
+            500,
+        ),
+        "page": page,
     }
 
 async def get_season_details(

@@ -574,8 +574,34 @@ function afficherErreurRiche(data){
   document.getElementById("genre-title").innerText="";
   const icon={video_private:"🔒",video_geo:"🌍",video_deleted:"🗑️",download_failed:"📵",server_busy:"⏳",no_frames:"🖼️",timeout:"⏱️",session_expired:"🔄",low_confidence:"🔍"}[code]||"⚠️";
   const retryBtn=(code==="server_busy"||code==="timeout"||code==="unexpected")?`<button class="btn-stream" style="margin-top:8px" onclick="retourAccueil()"><i class="fas fa-redo"></i> Réessayer</button>`:"";
-  document.getElementById("movie-cards").innerHTML=`<div style="grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:48px 24px;max-width:520px;margin:0 auto;gap:16px;"><div style="font-size:3.5rem;line-height:1;">${icon}</div><h3 style="color:var(--text);font-size:1.2rem;margin:0;">${msg}</h3><p style="color:var(--muted);font-size:0.85rem;margin:0;line-height:1.6;">${d.search_manually||"Recherchez le film manuellement :"}</p><div class="streaming-buttons" style="gap:10px;flex-wrap:wrap;justify-content:center;"><button class="btn-stream" onclick="document.getElementById('input_global').value='';document.getElementById('input_global').focus();"><i class="fas fa-search"></i> ${d.search_manually||"Rechercher"}</button>${searchQ?`<a href="https://www.google.com/search?q=${searchQ}+film" target="_blank" rel="noopener" class="btn-stream"><i class="fab fa-google"></i> Google</a><a href="https://www.youtube.com/results?search_query=${searchQ}+film+trailer" target="_blank" rel="noopener" class="btn-stream" style="border-color:#ff0000"><i class="fab fa-youtube"></i> YouTube</a><a href="https://www.themoviedb.org/search?query=${searchQ}" target="_blank" rel="noopener" class="btn-stream"><i class="fas fa-film"></i> TMDB</a>`:""}${retryBtn}</div></div>`;
-  window.scrollTo({top:0,behavior:"smooth"});
+  document.getElementById("movie-cards").innerHTML = `
+<div style="grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:48px 24px;max-width:520px;margin:0 auto;gap:16px;">
+    <div style="font-size:3.5rem;line-height:1;">${icon}</div>
+    <h3 style="color:var(--text);font-size:1.2rem;margin:0;">${msg}</h3>
+    <p style="color:var(--muted);font-size:0.85rem;margin:0;line-height:1.6;">
+        ${d.search_manually || "Recherchez le film manuellement :"}
+    </p>
+
+    <div class="streaming-buttons" style="gap:10px;flex-wrap:wrap;justify-content:center;">
+        <button class="btn-stream"
+            onclick="document.getElementById('input_global').value='';document.getElementById('input_global').focus();">
+            <i class="fas fa-search"></i>
+            ${d.search_manually || "Rechercher"}
+        </button>
+
+        ${searchQ ? `
+        <a href="https://www.youtube.com/results?search_query=${encodeURIComponent(searchQ + ' film trailer')}"
+           target="_blank"
+           rel="noopener"
+           class="btn-stream"
+           style="border-color:#ff0000">
+            <i class="fab fa-youtube"></i> YouTube
+        </a>
+        ` : ""}
+
+        ${retryBtn}
+    </div>
+</div>`;
 }
 
 // ════ BARRE RECHERCHE ════
