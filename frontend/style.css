@@ -293,7 +293,7 @@ body {
   background: rgba(255, 255, 255, 0.04);
   color: var(--text);
   padding: 6px 14px;
-  border-radius: 50px;
+  border-radius: 2px;
   border: 1px solid var(--border);
   font-size: 0.78rem;
   font-family: var(--font-body);
@@ -301,6 +301,7 @@ body {
   cursor: pointer;
   transition: all 0.2s;
   white-space: nowrap;
+  text-decoration: none;
 }
 .btn-platform:hover,
 .btn-platform.active {
