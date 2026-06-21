@@ -54,25 +54,19 @@ body {
   border-bottom: 1px solid var(--border);
 }
 /* HEADER LOGO – plus grand et plus visible */
-/* HEADER LOGO – plus grand, plus visible */
 .logo {
   display: flex;
   align-items: center;
   cursor: pointer;
-  width: 300px;         /* plus large */
-  height: 70px;         /* hauteur contenue, ne fait pas grossir la barre */
+  height: 60px;          /* hauteur fixe modérée */
   flex-shrink: 0;
   transition: opacity 0.2s;
 }
-.logo:hover {
-  opacity: 0.85;
-}
 .logo img {
-  width: 100%;
   height: 100%;
-  object-fit: contain;  /* l'image s'adapte sans déformer */
+  width: auto;
   display: block;
-  filter: drop-shadow(0 0 12px rgba(0, 255, 204, 0.4)); /* effet lumineux */
+  filter: drop-shadow(0 0 12px rgba(0, 255, 204, 0.4));
 }
 
 @media (max-width: 480px) {
