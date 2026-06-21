@@ -54,29 +54,32 @@ body {
   border-bottom: 1px solid var(--border);
 }
 /* HEADER LOGO – plus grand et plus visible */
+/* HEADER LOGO – plus grand, plus visible */
 .logo {
   display: flex;
   align-items: center;
   cursor: pointer;
+  width: 300px;         /* plus large */
+  height: 70px;         /* hauteur contenue, ne fait pas grossir la barre */
   flex-shrink: 0;
-
-  font-family: var(--font-display);
-  font-size: 2.2rem;        /* ← plus grand */
-  font-weight: 800;
-  letter-spacing: 3px;
-  color: var(--primary);
-  text-shadow: 0 0 30px rgba(0, 255, 204, 0.5);
   transition: opacity 0.2s;
 }
 .logo:hover {
-  opacity: 0.8;
+  opacity: 0.85;
 }
-/* Si tu utilises une image à la place, garde cette partie */
 .logo img {
-  width: auto;
-  height: 60px;
-  object-fit: contain;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;  /* l'image s'adapte sans déformer */
   display: block;
+  filter: drop-shadow(0 0 12px rgba(0, 255, 204, 0.4)); /* effet lumineux */
+}
+
+@media (max-width: 480px) {
+  .logo {
+    width: 200px;
+    height: 55px;
+  }
 }
 
 /* SEARCH */
