@@ -718,9 +718,8 @@ function _hideAllPages(){
     const el=document.getElementById(id);if(el)el.style.display="none";
   });
 }
-function retourAccueil(){
-  if (pushHistory) _pushNav(`/film/${movieId}`, {type:"detail", id:movieId, mediaType});
-  
+function retourAccueil(pushHistory = true){
+  if (pushHistory) _pushNav('/', {type:"trending"});
   cacherErreur();_hideAllPages();
   document.getElementById("hero").style.display="block";
   document.getElementById("genre-nav").style.display="flex";
@@ -917,8 +916,8 @@ async function runLocalWhisper(audioBase64){try{if(!audioBase64||!window.getWhis
 function base64ToBlob(base64,mimeType){const byteChars=atob(base64);const byteArrays=[];for(let offset=0;offset<byteChars.length;offset+=512){const slice=byteChars.slice(offset,offset+512);const byteNumbers=new Array(slice.length);for(let i=0;i<slice.length;i++)byteNumbers[i]=slice.charCodeAt(i);byteArrays.push(new Uint8Array(byteNumbers));}return new Blob(byteArrays,{type:mimeType});}
 
 // ════ GENRES ════
-async function chargerGenre(genreName, page = 1, mediaType = "movie") {
-  if (pushHistory) _pushNav(`/film/${movieId}`, {type:"detail", id:movieId, mediaType});
+async function chargerGenre(genreName, page = 1, mediaType = "movie", pushHistory = true) {
+  if (pushHistory) _pushNav(`/genre/${genreName}`, {type:"genre", name:genreName, page, mediaType});
   hideHero(); cacherErreur();
   currentGenreName = genreName; currentPage = page;
   document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
@@ -947,8 +946,8 @@ async function chargerGenre(genreName, page = 1, mediaType = "movie") {
   } catch (e) { afficherVideGrid(`<i class="fas fa-wifi"></i> ${t("err_generic")}`); }
 }
 
-async function chargerSeries(page = 1) {
-  if (pushHistory) _pushNav(`/film/${movieId}`, {type:"detail", id:movieId, mediaType});
+async function chargerSeries(page = 1, pushHistory = true) {
+  if (pushHistory) _pushNav('/series', {type:"series", page});
   hideHero(); cacherErreur();
   currentGenreName = "series"; currentPage = page;
   document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
@@ -968,8 +967,8 @@ async function chargerSeries(page = 1) {
   } catch (e) { afficherVideGrid(t("err_generic")); }
 }
 
-async function chargerTrending() {
-  if (pushHistory) _pushNav(`/film/${movieId}`, {type:"detail", id:movieId, mediaType});
+async function chargerTrending(pushHistory = true) {
+  if (pushHistory) _pushNav('/', {type:"trending"});
   hideHero(); cacherErreur();
   currentGenreName = "trending";
   document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
@@ -992,8 +991,8 @@ async function chargerTrending() {
   } catch (e) { afficherVideGrid(t("err_generic")); }
 }
 
-async function chargerParPlateforme(platformKey, page = 1) {
-  if (pushHistory) _pushNav(`/film/${movieId}`, {type:"detail", id:movieId, mediaType});
+async function chargerParPlateforme(platformKey, page = 1, pushHistory = true) {
+  if (pushHistory) _pushNav(`/plateforme/${platformKey}`, {type:"platform", key:platformKey, page});
   hideHero(); cacherErreur();
   const nameMap = { netflix: "NETFLIX", amazon: "PRIME VIDEO", disney: "DISNEY+", apple: "APPLE TV+", paramount: "PARAMOUNT+", hulu: "HULU" };
   currentGenreName = platformKey; currentPage = page;
@@ -1123,8 +1122,8 @@ function _clearTempLayers() {
   if (_isochroneLayer) { try { _filmingMap.removeLayer(_isochroneLayer); } catch(e){} _isochroneLayer = null; }
 }
 
-async function chargerLieuxDeTournage(page = 1) {
-  if (pushHistory) _pushNav(`/film/${movieId}`, {type:"detail", id:movieId, mediaType});
+async function chargerLieuxDeTournage(page = 1, pushHistory = true) {
+  if (pushHistory) _pushNav('/lieux-de-tournage', {type:"filming", page});
   hideHero(); cacherErreur();
   currentGenreName = "filming"; _filmingCurrentPage = page;
   document.getElementById("genre-grid").style.display = "none";
@@ -1893,9 +1892,10 @@ function afficherNotFound(data){
 }
 
 // ════ DÉTAILS ════
-async function afficherDetails(movieId,mediaType="movie"){
+async function afficherDetails(movieId, mediaType="movie", pushHistory=true){
   if (pushHistory) _pushNav(`/film/${movieId}`, {type:"detail", id:movieId, mediaType});
   if(currentMovieId&&currentMovieId!==movieId)navStack.push({id:currentMovieId,type:currentMediaType});
+ 
   currentMovieId=movieId;currentMediaType=mediaType;cacherErreur();
   document.getElementById("genre-grid").style.display="none";
   document.getElementById("filming-page").style.display="none";
