@@ -307,12 +307,12 @@ const dict = {
     err_file_too_large:"Fichier trop volumineux. Essayez une vidéo plus courte.",
     err_video_blocked:"Vidéo bloquée pour droits d'auteur.",
     err_unsupported:"Plateforme ou format non supporté.",
-    step1:"Coller un lien d'extrait de film ou d'animé (TikTok, Reel, Short) ou importer une vidéo",
+    step1:"Coller un lien TikTok, Reel, Short..., ou importer une vidéo",
     step2:"Nous analysons la vidéo",step3:"Découvrir le film en secondes",
     step4:"Découvrir les lieux de tournage des films et séries",
     cta:"Identifier",hero_hint:"<i class=\"fas fa-hand-pointer\"></i> Cliquer sur une carte pour voir les détails, le streaming et les films similaires.",
     results:"résultats",
-    seo_summary:"Comment trouver un film depuis TikTok ?",
+    seo_summary:"Comment trouver un film depuis un extrait TikTok, instagram, youtube... ?",
     seo_h2:"Comment trouver un film à partir d'une vidéo TikTok, Instagram, YouTube ou tout autre réseau social ?",
     seo_intro:"Beaucoup de scènes virales sur TikTok, Instagram ou YouTube Shorts proviennent de films, séries ou animes inconnus. Avec Pelify, il suffit de coller le lien pour identifier le film en quelques secondes.",
     seo_li1:"Identifier un film depuis TikTok",seo_li2:"Trouver un film à partir d'une vidéo",
@@ -719,6 +719,7 @@ function _hideAllPages(){
   });
 }
 function retourAccueil(){
+  if (pushHistory) _pushNav(`/film/${movieId}`, {type:"detail", id:movieId, mediaType});
   
   cacherErreur();_hideAllPages();
   document.getElementById("hero").style.display="block";
@@ -917,6 +918,7 @@ function base64ToBlob(base64,mimeType){const byteChars=atob(base64);const byteAr
 
 // ════ GENRES ════
 async function chargerGenre(genreName, page = 1, mediaType = "movie") {
+  if (pushHistory) _pushNav(`/film/${movieId}`, {type:"detail", id:movieId, mediaType});
   hideHero(); cacherErreur();
   currentGenreName = genreName; currentPage = page;
   document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
@@ -946,6 +948,7 @@ async function chargerGenre(genreName, page = 1, mediaType = "movie") {
 }
 
 async function chargerSeries(page = 1) {
+  if (pushHistory) _pushNav(`/film/${movieId}`, {type:"detail", id:movieId, mediaType});
   hideHero(); cacherErreur();
   currentGenreName = "series"; currentPage = page;
   document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
@@ -966,6 +969,7 @@ async function chargerSeries(page = 1) {
 }
 
 async function chargerTrending() {
+  if (pushHistory) _pushNav(`/film/${movieId}`, {type:"detail", id:movieId, mediaType});
   hideHero(); cacherErreur();
   currentGenreName = "trending";
   document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
@@ -989,6 +993,7 @@ async function chargerTrending() {
 }
 
 async function chargerParPlateforme(platformKey, page = 1) {
+  if (pushHistory) _pushNav(`/film/${movieId}`, {type:"detail", id:movieId, mediaType});
   hideHero(); cacherErreur();
   const nameMap = { netflix: "NETFLIX", amazon: "PRIME VIDEO", disney: "DISNEY+", apple: "APPLE TV+", paramount: "PARAMOUNT+", hulu: "HULU" };
   currentGenreName = platformKey; currentPage = page;
@@ -1119,6 +1124,7 @@ function _clearTempLayers() {
 }
 
 async function chargerLieuxDeTournage(page = 1) {
+  if (pushHistory) _pushNav(`/film/${movieId}`, {type:"detail", id:movieId, mediaType});
   hideHero(); cacherErreur();
   currentGenreName = "filming"; _filmingCurrentPage = page;
   document.getElementById("genre-grid").style.display = "none";
@@ -1888,6 +1894,7 @@ function afficherNotFound(data){
 
 // ════ DÉTAILS ════
 async function afficherDetails(movieId,mediaType="movie"){
+  if (pushHistory) _pushNav(`/film/${movieId}`, {type:"detail", id:movieId, mediaType});
   if(currentMovieId&&currentMovieId!==movieId)navStack.push({id:currentMovieId,type:currentMediaType});
   currentMovieId=movieId;currentMediaType=mediaType;cacherErreur();
   document.getElementById("genre-grid").style.display="none";
@@ -2399,3 +2406,25 @@ window.onload=()=>{
     setTimeout(()=>{document.getElementById("cookie-consent").style.display="flex";},2000);
   }
 };
+// ════ HISTORY ROUTER ════
+function _pushNav(path, state) {
+  if (location.pathname === path) return;
+  history.pushState(state, "", path);
+}
+
+window.addEventListener("popstate", (e) => {
+  const s = e.state;
+  if (!s) { retourAccueil(false); return; }
+  if (s.type === "detail")   afficherDetails(s.id, s.mediaType, false);
+  else if (s.type === "genre")    chargerGenre(s.name, s.page||1, s.mediaType||"movie", false);
+  else if (s.type === "series")   chargerSeries(s.page||1, false);
+  else if (s.type === "trending") chargerTrending(false);
+  else if (s.type === "platform") chargerParPlateforme(s.key, s.page||1, false);
+  else if (s.type === "filming")  chargerLieuxDeTournage(s.page||1, false);
+  else retourAccueil(false);
+});
+
+function goBack(){
+  if (history.length > 1) history.back();
+  else retourAccueil();
+}

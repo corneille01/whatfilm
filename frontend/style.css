@@ -47,18 +47,18 @@ body {
   z-index: 100;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  background: rgba(5, 5, 8, 0.92);
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(5, 5, 8, 0.95);
   backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--border);
+  min-height: 64px;
 }
-/* HEADER LOGO – plus grand et plus visible */
 .logo {
   display: flex;
   align-items: center;
   cursor: pointer;
-  height: 60px;          /* hauteur fixe modérée */
+  height: 44px;
   flex-shrink: 0;
   transition: opacity 0.2s;
 }
@@ -66,13 +66,18 @@ body {
   height: 100%;
   width: auto;
   display: block;
-  filter: drop-shadow(0 0 12px rgba(0, 255, 204, 0.4));
+  filter: drop-shadow(0 0 10px rgba(0, 255, 204, 0.5));
 }
 
+/* Sur mobile : logo fixe à 120px de large */
 @media (max-width: 480px) {
   .logo {
-    width: 200px;
-    height: 55px;
+    height: 38px;
+    min-width: 100px;
+  }
+  #main-header {
+    padding: 8px 10px;
+    gap: 8px;
   }
 }
 
@@ -86,16 +91,17 @@ body {
 }
 .search-wrap input {
   width: 100%;
-  padding: 11px 86px 11px 16px;
-  background: rgba(255, 255, 255, 0.06);
+  padding: 11px 80px 11px 14px;
+  background: rgba(255, 255, 255, 0.07);
   color: var(--text);
   border: 1.5px solid var(--border);
-  border-radius: 2px;
+  border-radius: 8px;
   font-family: var(--font-body);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
   min-width: 0;
+  height: 44px;
 }
 .search-wrap input:focus {
   border-color: var(--primary);
@@ -103,7 +109,19 @@ body {
 }
 .search-wrap input::placeholder {
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: 0.78rem;
+}
+
+/* Mobile : placeholder court */
+@media (max-width: 600px) {
+  .search-wrap input {
+    font-size: 0.82rem;
+    padding: 10px 74px 10px 12px;
+    height: 42px;
+  }
+  .search-wrap input::placeholder {
+    font-size: 0.72rem;
+  }
 }
 .search-btns {
   position: absolute;
@@ -186,8 +204,8 @@ body {
   background: var(--select-bg);
   color: var(--primary);
   border: 1px solid var(--border);
-  padding: 7px 8px;
-  border-radius: 2px;
+  padding: 7px 6px;
+  border-radius: 8px;
   cursor: pointer;
   font-family: var(--font-body);
   font-size: 0.82rem;
@@ -195,6 +213,8 @@ body {
   appearance: none;
   -webkit-appearance: none;
   text-align: center;
+  height: 44px;
+  min-width: 52px;
 }
 
 /* HERO */
@@ -1156,6 +1176,12 @@ body {
     font-size: 1.2rem;
     letter-spacing: 1px;
   }
+   #lang-selector {
+    font-size: 0.75rem;
+    padding: 6px 4px;
+    min-width: 46px;
+    height: 40px;
+  }
   #main-header {
     padding: 8px 12px;
     gap: 8px;
@@ -2111,3 +2137,12 @@ body { font-weight: 500; }                  /* Rajdhani 400 est trop fin */
   margin-right: 4px;
 }
 .page-ellipsis { display:inline-flex; align-items:center; padding:0 6px; color:var(--muted); }
+
+#main-header { flex-wrap: nowrap; padding-top: max(8px, env(safe-area-inset-top)); }
+
+@media (orientation: landscape) and (max-height: 500px) {
+  #main-header   { min-height: 52px; padding: 6px 10px; }
+  .logo          { height: 34px; min-width: 0; }
+  #lang-selector { height: 36px; padding: 5px 4px; }
+  .search-wrap input { height: 36px; padding: 8px 70px 8px 12px; font-size: .78rem; }
+}
