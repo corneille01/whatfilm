@@ -27,9 +27,15 @@ from typing import Optional, Dict, Any, List
 import httpx
 
 # Configuration DashScope (international)
-import dashscope
-dashscope.base_http_api_url = "https://dashscope-intl.aliyuncs.com/api/v1"
-from dashscope import MultiModalConversation
+try:
+    import dashscope
+    dashscope.base_http_api_url = "https://dashscope-intl.aliyuncs.com/api/v1"
+    from dashscope import MultiModalConversation
+    _DASHSCOPE_AVAILABLE = True
+except ImportError:
+    print("⚠️ Module 'dashscope' non installé → fallback Qwen VL désactivé", flush=True)
+    MultiModalConversation = None
+    _DASHSCOPE_AVAILABLE = False
 
 from core.prompts import EXTRACTION_PROMPT
 
@@ -488,6 +494,8 @@ async def _extract_qwen_vl(video_path: str) -> Optional[dict]:
     Fallback Qwen VL via l'API DashScope internationale (SDK).
     Envoie la vidéo en base64 dans le contenu.
     """
+    if not _DASHSCOPE_AVAILABLE:   # ← cette ligne doit exister
+        return None
     if not os.environ.get("DASHSCOPE_API_KEY"):
         return None
     if not os.path.exists(video_path):
