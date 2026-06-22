@@ -2110,3 +2110,4 @@ body { font-weight: 500; }                  /* Rajdhani 400 est trop fin */
   object-fit: contain;
   margin-right: 4px;
 }
+.page-ellipsis { display:inline-flex; align-items:center; padding:0 6px; color:var(--muted); }
