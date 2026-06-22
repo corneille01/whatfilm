@@ -1122,6 +1122,7 @@ async def discover(genre_name: str, lang: str = "fr", page: int = 1, type: str =
     genre_id = GENRE_MAP.get(genre_name.lower())
     if not genre_id:
         return {"status": "error", "message": f"Genre '{genre_name}' introuvable."}
+    page = min(max(1, page), 500) 
 
     cache_key = f"discover:{genre_name.lower()}:{lang}:{type}:{page}"
     cached = cache_get_generic(cache_key)           # ← plus de await
@@ -1156,6 +1157,8 @@ async def discover_provider(provider_key: str, browser_lang: str = "fr", page: i
     provider_id = _PROVIDER_IDS.get(provider_key.lower())
     if not provider_id:
         return {"status": "error", "message": f"Plateforme '{provider_key}' inconnue."}
+    
+    page = min(max(1, page), 500)
 
     region = _get_region_from_lang(browser_lang)
     cache_key = f"provider:{provider_key.lower()}:{browser_lang}:{page}"

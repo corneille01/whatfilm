@@ -537,7 +537,7 @@ function getFoodLink(lang) {
 
 // ════ UTILITAIRES LANGUE ════
 function getLangCode(){const m={"en-US":"en-US","en-GB":"en-GB",fr:"fr-FR",es:"es-ES",de:"de-DE",zh:"zh-CN"};return m[currentLang]||"fr-FR";}
-
+// function getRegionCode(){return(dict[currentLang]||dict.fr).providers_country||"FR";}
 function getTMDBLang(){const m={"en-US":"en","en-GB":"en",fr:"fr",es:"es",de:"de",zh:"zh"};return m[currentLang]||"fr";}
 function t(key){return(dict[currentLang]||dict.fr)[key]||key;}
 function tg(key){return((dict[currentLang]||dict.fr).genres||{})[key]||key;}
@@ -1013,7 +1013,7 @@ function afficherVideGrid(msg){document.getElementById("filtres-bar").style.disp
 
 // ════ RENDER CARDS ════
 function renderCards(results, genreName, page, totalPages, mediaType = "movie") {
-  _allResults = results || []; _currentTotalPages = totalPages || 1;
+  _allResults = results || []; _currentTotalPages =  Math.min(totalPages || 1, 500);
   peuplerFiltreAnnee(_allResults);
   document.getElementById("filtres-bar").style.display = _allResults.length > 0 ? "flex" : "none";
   document.getElementById("filtre-count").textContent = `${_allResults.length} ${t("results")}`;
@@ -1035,6 +1035,8 @@ function renderCards(results, genreName, page, totalPages, mediaType = "movie") 
 }
 
 function _paginationHTML(name, page, totalPages) {
+  const MAX_PAGE = 500;
+  totalPages = Math.min(totalPages, MAX_PAGE);
   if (!totalPages || totalPages <= 1) return "";
   const PLATFORMS = ["netflix", "amazon", "disney", "apple", "paramount", "hulu"];
   const g = String(name).replace(/'/g, "\\'");
