@@ -43,6 +43,32 @@ from storage.cache import (
     get_cache_by_title, set_cache, purge_expired, cache_stats, cache_get_generic, cache_set_generic, 
 )
 
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+
+app = FastAPI()
+
+limiter = Limiter(key_func=get_remote_address)
+
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={
+            "success": False,
+            "message": "Trop de requêtes. Réessayez dans quelques instants."
+        },
+    )
+
+
 
 # ════════════════════════════════════════════════════════════════
 # NORMALISATION D'URL
@@ -53,7 +79,7 @@ _TRACKING_PARAMS = {
     "is_from_webapp", "is_copy_url", "sender_device", "q", "is",
 }
 
-
+@limiter.limit("5/minute")
 
 # ── Mapping langue → région (complet) ────────────────────────────
 def _get_region_from_lang(lang: str) -> str:

@@ -1,6 +1,6 @@
-# storage/cache.py
+# storage/cache_engine/__init__.py
 
-from storage.cache_engine import (
+from .domain_cache import (
     get_cache,
     get_cache_by_content,
     get_cache_by_film,
@@ -13,6 +13,6 @@ from storage.cache_engine import (
     cache_get_generic,
     cache_set_generic,
     cache_stats,
-    acquire_lock,
-    release_lock,
 )
+
+from .lock_manager import acquire_lock, release_lock

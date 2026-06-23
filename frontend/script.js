@@ -478,7 +478,7 @@ const STREAMING_META = {
 };
 const STREAMING_LINKS = {
   Netflix:"https://www.netflix.com/search?q=",
- "Amazon Prime Video":"https://www.amazon.fr/s?i=instant-video&tag=pelify-21&k=",
+
   "Disney+":"https://www.disneyplus.com/search/",
   "Apple TV+":"https://tv.apple.com/search?term=",
   "Canal+":"https://www.canalplus.com/recherche/",
@@ -2020,19 +2020,19 @@ if (providers.length > 0) {
     const logoUrl = p.logo_path ? `https://image.tmdb.org/t/p/w92${p.logo_path}` : '';
     
     // Construire l'URL de recherche pour chaque plateforme
-    let link = '#';
-    const searchTitle = encodeURIComponent(data.title || '');
-    if (STREAMING_LINKS[name]) {
-      link = STREAMING_LINKS[name] + searchTitle;
-    } else {
-      // Fallback : recherche Google
-      link = `https://www.google.com/search?q=${searchTitle}+${name}`;
-    }
-    
-    // Ajouter le tag d'affiliation pour Amazon
-    if (name === 'Amazon Prime Video') {
-      link = link.replace('&tag=', '&tag=pelify-21'); // ajuster si nécessaire
-    }
+   let link = '#';
+const searchTitle = encodeURIComponent(data.title || '');
+
+// Normaliser le nom pour matcher les variantes Amazon
+const isAmazon = name.toLowerCase().includes('amazon') || name.toLowerCase().includes('prime video');
+
+if (isAmazon) {
+  link = getAmazonSearch(data.title);
+} else if (STREAMING_LINKS[name]) {
+  link = STREAMING_LINKS[name] + searchTitle;
+} else {
+  link = `https://www.youtube.com/results?search_query=${searchTitle}+${encodeURIComponent(name)}`;
+}
     
     return `<a href="${link}" target="_blank" rel="sponsored noopener" class="streaming-badge" title="${name}">
       ${logoUrl ? `<img src="${logoUrl}" alt="${name}" loading="lazy">` : name}
