@@ -747,7 +747,7 @@ function afficherNavCategoriesFilms(active = "trending") {
     ["documentary", "fas fa-video", g.documentary || "Documentaire"],
     ["fantasy", "fas fa-hat-wizard", g.fantasy || "Fantastique"],
     ["family", "fas fa-users", g.family || "Famille"],
-    ["series", "fas fa-tv", g.series || "Séries TV"],
+    
     
   ];
 
@@ -758,6 +758,32 @@ function afficherNavCategoriesFilms(active = "trending") {
           ? "chargerTrending();"
           : `chargerGenre('${key}');`} return false;">
       <i class="${icon}"></i>
+      <span>${label}</span>
+    </a>
+  `).join("");
+
+  nav.classList.add("visible");
+}
+
+function afficherNavPlateformes(active = "amazon") {
+  const nav = document.getElementById("platform-nav");
+  if (!nav) return;
+
+  const items = [
+    ["netflix", "#e50914", "Netflix"],
+    ["amazon", "#00a8e0", "Prime Video"],
+    ["disney", "#113ccf", "Disney+"],
+    ["apple", "#a2aaad", "Apple TV+"],
+    ["paramount", "#0064ff", "Paramount+"],
+    ["hulu", "#1ce783", "Hulu"],
+  ];
+
+  nav.innerHTML = items.map(([key, color, label]) => `
+    <a class="btn-platform ${active === key ? "active" : ""}"
+       href="/plateforme/${key}"
+       onclick="chargerParPlateforme('${key}'); return false;"
+       style="border-color:${color}">
+      <span class="plat-dot" style="background:${color}"></span>
       <span>${label}</span>
     </a>
   `).join("");
@@ -1247,33 +1273,50 @@ function setContentMode() {
 }
 async function chargerSeries(page = 1, pushHistory = true) {
   setContentMode();
-  if (pushHistory) _pushNav('/series', {type:"series", page});
-  hideHero(); cacherErreur();
-  currentGenreName = "series"; currentPage = page;
+
+  if (pushHistory) _pushNav("/series", { type: "series", page });
+
+  hideHero();
+  cacherErreur();
+
+  currentGenreName = "series";
+  currentPage = page;
+
   document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
   document.querySelector(".btn-genre.series")?.classList.add("active");
+
   document.getElementById("page-film-detail").style.display = "none";
   document.getElementById("filming-page").style.display = "none";
   document.getElementById("genre-grid").style.display = "block";
-  afficherNavCategoriesFilms("series");
- 
+  document.getElementById("platform-nav").classList.remove("visible");
+
   document.getElementById("genre-title").innerText = tg("series").toUpperCase();
+
   document.getElementById("movie-cards").innerHTML =
-    `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
-  lastGrid = "series"; navStack = [];
+    `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">
+      <i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i>
+    </div>`;
+
+  lastGrid = "series";
+  navStack = [];
+
   try {
     const data = await safeFetch(`/trending?lang=${getTMDBLang()}&type=tv`);
+
     if (data.status === "success") {
-  renderCards(
-    data.results.map(r => ({ ...r, media_type: "tv" })),
-    "series",
-    1,
-    1,
-    "tv"
-  );
-}
-    else afficherVideGrid(data.message || "Impossible de charger les séries.");
-  } catch (e) { afficherVideGrid(t("err_generic")); }
+      renderCards(
+        data.results.map(r => ({ ...r, media_type: "tv" })),
+        "series",
+        page,
+        data.total_pages || 1,
+        "tv"
+      );
+    } else {
+      afficherVideGrid(data.message || "Impossible de charger les séries.");
+    }
+  } catch (e) {
+    afficherVideGrid(t("err_generic"));
+  }
 }
 
 async function chargerTrending(pushHistory = true) {
@@ -1359,7 +1402,7 @@ async function chargerParPlateforme(platformKey, page = 1, pushHistory = true) {
   document.getElementById("page-film-detail").style.display = "none";
   document.getElementById("filming-page").style.display = "none";
   document.getElementById("genre-grid").style.display = "block";
-  document.getElementById("platform-nav").classList.add("visible");
+ afficherNavPlateformes(platformKey);
   document.getElementById("genre-title").innerText = "📺 " + (nameMap[platformKey] || platformKey.toUpperCase());
   document.getElementById("movie-cards").innerHTML =
     `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
@@ -1491,11 +1534,27 @@ async function chargerLieuxDeTournage(pushHistory = true) {
   cacherErreur();
   _hideAllPages();
 
+  currentGenreName = "filming";
+
+  const filmingPage = document.getElementById("filming-page");
+
   document.getElementById("genre-nav").style.display = "flex";
-  document.getElementById("filming-page").style.display = "grid";
   document.getElementById("platform-nav").classList.remove("visible");
 
-  // Affiche d'abord l'interface, puis charge Leaflet après rendu
+  if (!filmingPage) return;
+
+  filmingPage.style.display = "grid";
+
+  // Affichage immédiat pour éviter une page vide
+  if (!filmingPage.querySelector(".filming-filters-wrap")) {
+    filmingPage.innerHTML = `
+      <div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">
+        <i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i>
+        <p style="margin-top:12px">${t("filming_title") || "Lieux de tournage"}</p>
+      </div>
+    `;
+  }
+
   requestAnimationFrame(() => {
     setTimeout(() => {
       _ensureLeafletFull(() => {
