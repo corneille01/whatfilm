@@ -797,12 +797,23 @@ function retourArriere(){
   else{document.getElementById("page-film-detail").style.display="none";if(lastGrid)document.getElementById("genre-grid").style.display="block";else retourAccueil();}
 }
 function hideHero(){document.getElementById("hero").style.display="none";document.getElementById("genre-nav").style.display="flex";}
+function chargerParPlateformeAsync(platform) {
+  deferInteraction(() => {
+    chargerParPlateforme(platform);
+  });
+}
 
+function retourAccueilAsync() {
+  deferInteraction(() => {
+    retourAccueil();
+  });
+}
 // ════ RECHERCHE GLOBALE ════
 async function gererRechercheGlobal(){
  
   const input=document.getElementById("input_global").value.trim();
   if(!input)return;
+  await new Promise(requestAnimationFrame);
   cacherErreur();
   document.getElementById("genre-grid").style.display="none";
   document.getElementById("page-film-detail").style.display="none";
@@ -816,13 +827,25 @@ if (isLink) { demarrerPub(); analyserVideo(input); }
   }
 }
 
-function rechercheHero(){
-  const el=document.getElementById("hero-search-input");
-  if(!el)return;
-  const v=el.value.trim();
-  if(!v)return;
-  document.getElementById("input_global").value=v;  // source unique
-  gererRechercheGlobal();
+
+
+function deferInteraction(callback) {
+  requestAnimationFrame(() => {
+    setTimeout(callback, 0);
+  });
+}
+function rechercheHero() {
+  const el = document.getElementById("hero-search-input");
+  if (!el) return;
+
+  const v = el.value.trim();
+  if (!v) return;
+
+  document.getElementById("input_global").value = v;
+
+  deferInteraction(() => {
+    gererRechercheGlobal();
+  });
 }
 
 // ════ ANNULER ANALYSE ════
@@ -1238,7 +1261,7 @@ function renderCardsFiltered(results){
     const poster=m.poster_path?`https://image.tmdb.org/t/p/w300${m.poster_path}`:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='450' fill='%231a1a24'%3E%3Crect width='300' height='450'/%3E%3Ctext x='50%25' y='50%25' fill='%23444' font-size='40' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E";
     const div=document.createElement("div");div.className="movie-card";div.setAttribute("role","button");div.setAttribute("tabindex","0");div.setAttribute("aria-label",title);
     div.onclick=()=>afficherDetails(m.id,isTv?"tv":"movie");div.onkeydown=e=>{if(e.key==="Enter")afficherDetails(m.id,isTv?"tv":"movie");};
-    div.innerHTML=`${isTv?`<span class="card-type-badge">TV</span>`:""}<img src="${poster}" alt="${title}" ${index < 3 ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"'}><div class="card-body"><h4>${title}</h4><div class="card-meta"><span><i class="fas fa-calendar" style="font-size:.65rem;opacity:.5"></i> ${year}</span><span class="rating"><i class="fas fa-star" style="font-size:.65rem"></i> ${rating}</span></div></div>`;
+    div.innerHTML=`${isTv?`<span class="card-type-badge">TV</span>`:""}<img src="${poster}" alt="${title}" ${index === 0 ? 'loading="eager" fetchpriority="high"' : 'loading="lazy" fetchpriority="low"'}><div class="card-body"><h4>${title}</h4><div class="card-meta"><span><i class="fas fa-calendar" style="font-size:.65rem;opacity:.5"></i> ${year}</span><span class="rating"><i class="fas fa-star" style="font-size:.65rem"></i> ${rating}</span></div></div>`;
     fragment.appendChild(div);
   });
   if(oldPag)container.insertBefore(fragment,oldPag);else container.appendChild(fragment);
@@ -2558,8 +2581,13 @@ function routerInit(){
 window.onload=()=>{
   initLang();
  if (!routerInit()) {
-    chargerTrending().then(()=>{document.getElementById("hero").style.display="block";document.getElementById("genre-nav").style.display="flex";});
-  }
+  document.getElementById("hero").style.display = "block";
+  document.getElementById("genre-nav").style.display = "flex";
+
+  setTimeout(() => {
+    chargerTrending(false);
+  }, 1200);
+}
   document.addEventListener("keydown",e=>{if(e.code==="Space"&&document.getElementById("loading-overlay")?.classList.contains("active")){e.preventDefault();gameJump();}});
 
   const gc=document.getElementById("game-canvas");

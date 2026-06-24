@@ -202,15 +202,18 @@
     />
     <!-- HEADER -->
     <header id="main-header">
-      <div class="logo" onclick="retourAccueil()">
-        <img
-          src="/frontend/images/logo.png"
-          alt="Pelify"
-          width="132"
-          height="44"
-          decoding="async"
-          fetchpriority="high"
-        />
+      <div class="logo" onclick="retourAccueilAsync()">
+        <picture>
+          <source srcset="/frontend/images/logo.webp" type="image/webp" />
+          <img
+            src="/frontend/images/logo.png"
+            alt="Pelify"
+            width="132"
+            height="44"
+            decoding="async"
+            fetchpriority="high"
+          />
+        </picture>
       </div>
       <div class="search-wrap">
         <input
@@ -220,7 +223,12 @@
           autocomplete="off"
           spellcheck="false"
           oninput="majBtnClear()"
-          onkeydown="if (event.key === 'Enter') gererRechercheGlobal();"
+          onkeydown="
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              gererRechercheGlobal();
+            }
+          "
         />
         <div class="search-btns">
           <button
@@ -332,7 +340,12 @@
             autocomplete="off"
             spellcheck="false"
             aria-label="Rechercher"
-            onkeydown="if (event.key === 'Enter') rechercheHero();"
+            onkeydown="
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                rechercheHero();
+              }
+            "
           />
           <button
             class="hero-search-btn"
@@ -362,42 +375,42 @@
     <nav id="platform-nav" aria-label="Filtrer par plateforme">
       <button
         class="btn-platform"
-        onclick="chargerParPlateforme('netflix')"
+        onclick="chargerParPlateformeAsyncAsync('netflix')"
         style="border-color: #e50914"
       >
         <span class="plat-dot" style="background: #e50914"></span> Netflix
       </button>
       <button
         class="btn-platform"
-        onclick="chargerParPlateforme('amazon')"
+        onclick="chargerParPlateformeAsyncAsync('amazon')"
         style="border-color: #00a8e0"
       >
         <span class="plat-dot" style="background: #00a8e0"></span> Prime Video
       </button>
       <button
         class="btn-platform"
-        onclick="chargerParPlateforme('disney')"
+        onclick="chargerParPlateformeAsync('disney')"
         style="border-color: #113ccf"
       >
         <span class="plat-dot" style="background: #113ccf"></span> Disney+
       </button>
       <button
         class="btn-platform"
-        onclick="chargerParPlateforme('apple')"
+        onclick="chargerParPlateformeAsyncAsync('apple')"
         style="border-color: #a2aaad"
       >
         <span class="plat-dot" style="background: #a2aaad"></span> Apple TV+
       </button>
       <button
         class="btn-platform"
-        onclick="chargerParPlateforme('paramount')"
+        onclick="chargerParPlateformeAsyncAsync('paramount')"
         style="border-color: #0064ff"
       >
         <span class="plat-dot" style="background: #0064ff"></span> Paramount+
       </button>
       <button
         class="btn-platform"
-        onclick="chargerParPlateforme('hulu')"
+        onclick="chargerParPlateformeAsync('hulu')"
         style="border-color: #1ce783"
       >
         <span class="plat-dot" style="background: #1ce783"></span> Hulu
@@ -827,8 +840,7 @@
           font-size: 0.7rem;
           text-transform: uppercase;
         "
-        >Publicité</span
-      >
+      ></span>
       <a
         href="https://www.amazon.fr/amazonprime?tag=pelify-21"
         target="_blank"
@@ -878,7 +890,7 @@
       "
     >
       <!-- EMPLACEMENT ADSENSE -->
-      <span style="color: var(--muted); font-size: 0.7rem">Publicité</span>
+
       <a
         href="https://www.ubereats.com/?utm_source=pelify-21"
         target="_blank"

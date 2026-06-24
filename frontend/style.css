@@ -230,6 +230,7 @@ body {
   color: var(--primary);
   text-shadow: 3px 3px 0 var(--accent), 6px 6px 0 rgba(69, 8, 146, 0.6);
   margin-bottom: 10px;
+  
 }
 #hero .tagline {
   color: var(--muted);
@@ -429,7 +430,8 @@ body {
 }
 .movie-card img {
   width: 100%;
-  aspect-ratio: 2/3;
+  aspect-ratio: 2 / 3;
+  height: auto;
   object-fit: cover;
   display: block;
   background: #111;
@@ -2073,7 +2075,7 @@ body {
 body { font-weight: 500; }                  /* Rajdhani 400 est trop fin */
 
 .logo            { letter-spacing: 2px;   font-weight: 800; }
-#hero h1         { letter-spacing: 2px;   font-weight: 800; }
+#hero h1         { letter-spacing: 2px;   font-weight: 800; font-display: swap; }
 #genre-title     { letter-spacing: 1.5px; font-weight: 700; }
 .detail-info h2  { letter-spacing: 1px;   font-weight: 700; }
 #seasons_section h3,
@@ -2188,10 +2190,28 @@ body { font-weight: 500; }                  /* Rajdhani 400 est trop fin */
 }
 
 /* ════ FIX CLS — valeurs prudentes ════ */
-#genre-nav    { min-height: 44px; }
-.hero-steps   { min-height: 46px; }
-#movie-cards  { min-height: 380px; }
-#genre-grid   { min-height: 400px; }
+#genre-nav    { min-height: 96px; }
+.hero-steps   { min-height: 70px; }
+#movie-cards  { min-height: 560px; }
+#genre-grid   { min-height: 720px; }
 #affiche_film { aspect-ratio: 2/3; object-fit: cover; background: #111; }
 .streaming-badge img { width: 40px; height: 20px; object-fit: contain; }
 .logo img     { width: 132px; height: 44px; }
+
+@media (max-width: 600px) {
+  #genre-nav {
+    min-height: 150px;
+  }
+
+  #genre-grid {
+    min-height: 760px;
+  }
+
+  #movie-cards {
+    min-height: 620px;
+  }
+
+  .hero-steps {
+    min-height: 160px;
+  }
+}
