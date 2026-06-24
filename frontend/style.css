@@ -2234,3 +2234,52 @@ body { font-weight: 500; }                  /* Rajdhani 400 est trop fin */
     min-height: 160px;
   }
 }
+
+/* Corrige centrage des boutons nav */
+.btn-genre,
+.btn-platform {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  vertical-align: middle;
+  line-height: 1;
+  min-height: 40px;
+  gap: 7px;
+}
+
+.btn-genre i,
+.btn-platform i,
+.btn-platform .plat-dot {
+  flex: 0 0 auto;
+}
+
+.btn-genre span,
+.btn-platform span:not(.plat-dot) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+#platform-nav {
+  display: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  justify-content: center;
+  align-items: center;
+  min-height: 58px;
+}
+
+#platform-nav.visible {
+  display: flex;
+}
+
+body.home-mode .seo-intent {
+  display: none;
+}
+
+body.content-mode .seo-intent {
+  display: block;
+}

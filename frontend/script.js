@@ -242,6 +242,13 @@ function playImmersiveSound() {
 // ════ DICTIONNAIRE INTERNATIONAL ════
 const dict = {
   "en-US": {
+    filming_no_result: "No result.",
+filming_load_error: "Loading error.",
+filming_no_movie: "No movie found.",
+filming_see_one: "View filming location",
+filming_see_many: "View locations",
+filming_you_are_here: "You are here",
+filming_geo_denied: "Geolocation denied",
     title:"WHICH MOVIE?",tagline:"Paste a TikTok, Reel or YouTube link — AI identifies the film in seconds",
     placeholder:"Paste TikTok/Insta link or type a movie name...",badge:"Shazam for movies",
     back_home:"Home",back_list:"Back to list",ai_conf:"Confidence",reset:"Reset",
@@ -288,8 +295,16 @@ const dict = {
     seo_li1:"Identify a movie from TikTok",seo_li2:"Find a movie from a video",
     seo_li3:"Recognize a movie scene",seo_li4:"What movie is in this video?",
     genres:{horror:"Horror",action:"Action",comedy:"Comedy",scifi:"Sci-Fi",trending:"Trending",romance:"Romance",animation:"Animation",thriller:"Thriller",drama:"Drama",crime:"Crime",documentary:"Documentary",fantasy:"Fantasy",series:"TV Series",family:"Family"}
+    
   },
   "en-GB": {
+    filming_no_result: "No result.",
+filming_load_error: "Loading error.",
+filming_no_movie: "No movie found.",
+filming_see_one: "View filming location",
+filming_see_many: "View locations",
+filming_you_are_here: "You are here",
+filming_geo_denied: "Geolocation denied",
     title:"WHICH MOVIE?",tagline:"Paste a TikTok, Reel or YouTube link — AI identifies the film in seconds",
     placeholder:"Paste TikTok/Insta link or type a movie name...",badge:"Shazam for movies",
     back_home:"Home",back_list:"Back to list",ai_conf:"AI Confidence",reset:"Reset",
@@ -338,6 +353,13 @@ const dict = {
     genres:{horror:"Horror",action:"Action",comedy:"Comedy",scifi:"Sci-Fi",trending:"Trending",romance:"Romance",animation:"Animation",thriller:"Thriller",drama:"Drama",crime:"Crime",documentary:"Documentary",fantasy:"Fantasy",series:"TV Series",family:"Family"}
   },
   fr: {
+    filming_no_result: "Aucun résultat.",
+filming_load_error: "Erreur de chargement.",
+filming_no_movie: "Aucun film trouvé.",
+filming_see_one: "Voir le lieu de tournage",
+filming_see_many: "Voir les lieux",
+filming_you_are_here: "Vous êtes ici",
+filming_geo_denied: "Géolocalisation refusée",
     title:"QUEL FILM ?",tagline:"Colle un lien TikTok, Reel ou YouTube — l'IA identifie le film en secondes",
     placeholder:"Coller un lien TikTok/Reel ou taper un titre de film...",badge:"Shazam pour les films",
     back_home:"Accueil",back_list:"Retour à la liste",ai_conf:"Confiance IA",reset:"Reset",
@@ -386,6 +408,13 @@ const dict = {
     genres:{horror:"Horreur",action:"Action",comedy:"Comédie",scifi:"Sci-Fi",trending:"Tendances",romance:"Romance",animation:"Animation",thriller:"Thriller",drama:"Drame",crime:"Crime",documentary:"Documentaire",fantasy:"Fantastique",series:"Séries TV",family:"Famille"}
   },
   es: {
+    filming_no_result: "Sin resultados.",
+filming_load_error: "Error de carga.",
+filming_no_movie: "No se encontró ninguna película.",
+filming_see_one: "Ver localización de rodaje",
+filming_see_many: "Ver localizaciones",
+filming_you_are_here: "Estás aquí",
+filming_geo_denied: "Geolocalización rechazada",
     title:"¿QUÉ PELÍCULA?",tagline:"Pega un enlace de TikTok o Reel — la IA identifica la película",
     placeholder:"Pegar enlace TikTok/Reel o escribir un título...",badge:"Shazam para películas",
     back_home:"Inicio",back_list:"Volver a la lista",ai_conf:"Confianza IA",reset:"Restablecer",
@@ -434,6 +463,13 @@ const dict = {
     genres:{horror:"Terror",action:"Acción",comedy:"Comedia",scifi:"Ciencia Ficción",trending:"Tendencias",romance:"Romance",animation:"Animación",thriller:"Thriller",drama:"Drama",crime:"Crimen",documentary:"Documental",fantasy:"Fantasía",series:"Series TV",family:"Familia"}
   },
   de: {
+  filming_no_result: "Kein Ergebnis.",
+filming_load_error: "Fehler beim Laden.",
+filming_no_movie: "Kein Film gefunden.",
+filming_see_one: "Drehort ansehen",
+filming_see_many: "Drehorte ansehen",
+filming_you_are_here: "Sie sind hier",
+filming_geo_denied: "Geolokalisierung abgelehnt",
     title:"WELCHER FILM?",tagline:"TikTok- oder Reel-Link einfügen — KI erkennt den Film in Sekunden",
     placeholder:"TikTok/Insta Link oder Filmtitel eingeben...",badge:"Shazam für Filme",
     back_home:"Startseite",back_list:"Zurück zur Liste",ai_conf:"KI-Konfidenz",reset:"Zurücksetzen",
@@ -482,6 +518,13 @@ const dict = {
     genres:{horror:"Horror",action:"Action",comedy:"Komödie",scifi:"Science-Fiction",trending:"Trends",romance:"Romantik",animation:"Animation",thriller:"Thriller",drama:"Drama",crime:"Krimi",documentary:"Dokumentarfilm",fantasy:"Fantasy",series:"TV-Serien",family:"Familie"}
   },
   zh: {
+  filming_no_result: "没有结果。",
+filming_load_error: "加载错误。",
+filming_no_movie: "未找到电影。",
+filming_see_one: "查看拍摄地点",
+filming_see_many: "查看拍摄地点",
+filming_you_are_here: "您在这里",
+filming_geo_denied: "地理位置访问被拒绝",
     title:"什么电影？",tagline:"粘贴 TikTok 或 Reel 链接 — AI 即刻识别电影",
     placeholder:"粘贴链接或输入电影名...",badge:"电影识别神器",
     back_home:"首页",back_list:"返回列表",ai_conf:"AI 置信度",reset:"重置",
@@ -646,84 +689,97 @@ function genererNav() {
   const ld = dict[currentLang] || dict.fr;
 
   const genreNav = document.getElementById("genre-nav");
-  const platNav = document.getElementById("platform-nav");
+  const secondNav = document.getElementById("platform-nav");
 
-  if (!genreNav || !platNav) return;
+  if (!genreNav || !secondNav) return;
 
-  // NAV ACCUEIL : seulement 5 boutons
   genreNav.innerHTML = `
     <a class="btn-genre home-action prime" href="/plateforme/amazon"
        onclick="chargerParPlateformeAsync('amazon'); return false;">
-      <i class="fas fa-play"></i> Prime Video
+      <i class="fas fa-play"></i>
+      <span>Prime Video</span>
     </a>
 
     <a class="btn-genre home-action animation" href="/genre/animation"
-       onclick="chargerGenre('animation'); return false;">
-      <i class="fas fa-dragon"></i> ${g.animation || "Animation"}
+       onclick="ouvrirCategorieAccueil('animation'); return false;">
+      <i class="fas fa-dragon"></i>
+      <span>${g.animation || "Animation"}</span>
     </a>
 
-    <a class="btn-genre home-action films" href="/genre/trending"
-       onclick="chargerFilms(); return false;">
-      <i class="fas fa-film"></i> Films
+    <a class="btn-genre home-action films" href="/genre/films"
+       onclick="ouvrirFilmsAccueil(); return false;">
+      <i class="fas fa-film"></i>
+      <span>Films</span>
     </a>
 
     <a class="btn-genre home-action series" href="/series"
-       onclick="chargerSeries(); return false;">
-      <i class="fas fa-tv"></i> ${g.series || "Séries"}
+       onclick="ouvrirCategorieAccueil('series'); return false;">
+      <i class="fas fa-tv"></i>
+      <span>${g.series || "Séries"}</span>
     </a>
 
     <a class="btn-genre home-action filming" href="/lieux-de-tournage"
        onclick="chargerLieuxDeTournage(); return false;">
-      <i class="fas fa-map-marker-alt"></i> ${ld.filming_btn || "Lieux de tournage"}
+      <i class="fas fa-map-marker-alt"></i>
+      <span>${ld.filming_btn || "Lieux de tournage"}</span>
     </a>
   `;
 
-  // NAV SECONDAIRE : cachée au départ, affichée après clic
-  platNav.innerHTML = `
-    <a class="btn-platform" href="/plateforme/netflix"
-       onclick="chargerParPlateformeAsync('netflix'); return false;"
-       style="border-color:#e50914">
-      <span class="plat-dot" style="background:#e50914"></span>
-      <span>Netflix</span>
-    </a>
+  secondNav.innerHTML = "";
+  secondNav.classList.remove("visible");
+}
 
-    <a class="btn-platform" href="/plateforme/amazon"
-       onclick="chargerParPlateformeAsync('amazon'); return false;"
-       style="border-color:#00a8e0">
-      <span class="plat-dot" style="background:#00a8e0"></span>
-      <span>Prime Video</span>
-    </a>
+function afficherNavCategoriesFilms(active = "trending") {
+  const g = dict[currentLang]?.genres || dict.fr.genres;
+  const nav = document.getElementById("platform-nav");
+  if (!nav) return;
 
-    <a class="btn-platform" href="/plateforme/disney"
-       onclick="chargerParPlateformeAsync('disney'); return false;"
-       style="border-color:#113ccf">
-      <span class="plat-dot" style="background:#113ccf"></span>
-      <span>Disney+</span>
-    </a>
+  const items = [
+    ["trending", "fas fa-bolt", g.trending || "Tendances"],
+    ["action", "fas fa-fire", g.action || "Action"],
+    ["horror", "fas fa-ghost", g.horror || "Horreur"],
+    ["scifi", "fas fa-rocket", g.scifi || "Sci-Fi"],
+    ["thriller", "fas fa-eye", g.thriller || "Thriller"],
+    ["drama", "fas fa-theater-masks", g.drama || "Drame"],
+    ["comedy", "fas fa-laugh", g.comedy || "Comédie"],
+    ["romance", "fas fa-heart", g.romance || "Romance"],
+    ["crime", "fas fa-user-secret", g.crime || "Crime"],
+    ["documentary", "fas fa-video", g.documentary || "Documentaire"],
+    ["fantasy", "fas fa-hat-wizard", g.fantasy || "Fantastique"],
+    ["family", "fas fa-users", g.family || "Famille"],
+    ["series", "fas fa-tv", g.series || "Séries TV"],
+    
+  ];
 
-    <a class="btn-platform" href="/plateforme/apple"
-       onclick="chargerParPlateformeAsync('apple'); return false;"
-       style="border-color:#a2aaad">
-      <span class="plat-dot" style="background:#a2aaad"></span>
-      <span>Apple TV+</span>
+  nav.innerHTML = items.map(([key, icon, label]) => `
+    <a class="btn-platform ${active === key ? "active" : ""}"
+       href="${key === "trending" ? "/" : `/genre/${key}`}"
+       onclick="${key === "trending"
+          ? "chargerTrending();"
+          : `chargerGenre('${key}');`} return false;">
+      <i class="${icon}"></i>
+      <span>${label}</span>
     </a>
+  `).join("");
 
-    <a class="btn-platform" href="/plateforme/paramount"
-       onclick="chargerParPlateformeAsync('paramount'); return false;"
-       style="border-color:#0064ff">
-      <span class="plat-dot" style="background:#0064ff"></span>
-      <span>Paramount+</span>
-    </a>
+  nav.classList.add("visible");
+}
+function ouvrirFilmsAccueil() {
+ 
+  chargerTrending();
+}
+function ouvrirCategorieAccueil(type) {
+  if (type === "animation") {
+    afficherNavCategoriesFilms("animation");
+    chargerGenre("animation");
+    return;
+  }
 
-    <a class="btn-platform" href="/plateforme/hulu"
-       onclick="chargerParPlateformeAsync('hulu'); return false;"
-       style="border-color:#1ce783">
-      <span class="plat-dot" style="background:#1ce783"></span>
-      <span>Hulu</span>
-    </a>
-  `;
-
-  platNav.classList.remove("visible");
+  if (type === "series") {
+    afficherNavCategoriesFilms("series");
+    chargerSeries();
+    return;
+  }
 }
 function changerLangueManuellement(){
   const newLang=document.getElementById("lang-selector").value;
@@ -739,7 +795,13 @@ function changerLangueManuellement(){
     else if(currentGenreName)chargerGenre(currentGenreName,currentPage);
     return;
   }
-  chargerTrending().then(()=>{document.getElementById("hero").style.display="block";document.getElementById("genre-nav").style.display="flex";});
+  setHomeMode();
+document.getElementById("hero").style.display = "block";
+document.getElementById("genre-nav").style.display = "flex";
+document.getElementById("platform-nav").classList.remove("visible");
+document.getElementById("genre-grid").style.display = "none";
+document.getElementById("filming-page").style.display = "none";
+document.getElementById("page-film-detail").style.display = "none";
 }
 
 // ════ ERREURS & TOAST ════
@@ -842,12 +904,14 @@ function _hideAllPages(){
   });
 }
 function retourAccueil(pushHistory = true){
+  setHomeMode();
   if (pushHistory) _pushNav("/", { type: "home" });
   cacherErreur();_hideAllPages();
   document.getElementById("hero").style.display="block";
   document.getElementById("genre-nav").style.display="flex";
   document.getElementById("platform-nav").classList.remove("visible");
   lastGrid=null;currentMovieId=null;navStack=[];
+  
 }
 function retourArriere(){
   if(navStack.length>0){const prev=navStack.pop();afficherDetails(prev.id,prev.type);}
@@ -1139,9 +1203,11 @@ function base64ToBlob(base64,mimeType){const byteChars=atob(base64);const byteAr
 
 // ════ GENRES ════
 async function chargerGenre(genreName, page = 1, mediaType = "movie", pushHistory = true) {
+  setContentMode();
   if (pushHistory) _pushNav(`/genre/${genreName}`, {type:"genre", name:genreName, page, mediaType});
   hideHero(); cacherErreur();
   currentGenreName = genreName; currentPage = page;
+  afficherNavCategoriesFilms(genreName);
   document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
   document.querySelector(`.btn-genre[href="/genre/${genreName}"]`)?.classList.add("active");
 
@@ -1150,8 +1216,8 @@ async function chargerGenre(genreName, page = 1, mediaType = "movie", pushHistor
   document.getElementById("page-film-detail").style.display = "none";
   document.getElementById("filming-page").style.display = "none";
   document.getElementById("genre-grid").style.display = "block";
-  document.getElementById("platform-nav").classList.add("visible");
-  document.getElementById("platform-nav").classList.remove("visible");
+
+ 
   document.getElementById("genre-title").innerText = genreName.toUpperCase();
   lastGrid = genreName; navStack = [];
 
@@ -1169,7 +1235,18 @@ async function chargerGenre(genreName, page = 1, mediaType = "movie", pushHistor
   } catch (e) { afficherVideGrid(`<i class="fas fa-wifi"></i> ${t("err_generic")}`); }
 }
 
+
+function setHomeMode() {
+  document.body.classList.add("home-mode");
+  document.body.classList.remove("content-mode");
+}
+
+function setContentMode() {
+  document.body.classList.remove("home-mode");
+  document.body.classList.add("content-mode");
+}
 async function chargerSeries(page = 1, pushHistory = true) {
+  setContentMode();
   if (pushHistory) _pushNav('/series', {type:"series", page});
   hideHero(); cacherErreur();
   currentGenreName = "series"; currentPage = page;
@@ -1178,20 +1255,29 @@ async function chargerSeries(page = 1, pushHistory = true) {
   document.getElementById("page-film-detail").style.display = "none";
   document.getElementById("filming-page").style.display = "none";
   document.getElementById("genre-grid").style.display = "block";
-  document.getElementById("platform-nav").classList.add("visible");
-  document.getElementById("platform-nav").classList.remove("visible");
+  afficherNavCategoriesFilms("series");
+ 
   document.getElementById("genre-title").innerText = tg("series").toUpperCase();
   document.getElementById("movie-cards").innerHTML =
     `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)"><i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i></div>`;
   lastGrid = "series"; navStack = [];
   try {
     const data = await safeFetch(`/trending?lang=${getTMDBLang()}&type=tv`);
-    if (data.status === "success") renderCards(data.results.map(r => ({ ...r, media_type: "tv" })), "series", 1, 1, "tv");
+    if (data.status === "success") {
+  renderCards(
+    data.results.map(r => ({ ...r, media_type: "tv" })),
+    "series",
+    1,
+    1,
+    "tv"
+  );
+}
     else afficherVideGrid(data.message || "Impossible de charger les séries.");
   } catch (e) { afficherVideGrid(t("err_generic")); }
 }
 
 async function chargerTrending(pushHistory = true) {
+  setContentMode();
   if (pushHistory) _pushNav('/', {type:"trending"});
   hideHero(); cacherErreur();
   currentGenreName = "trending";
@@ -1202,7 +1288,7 @@ async function chargerTrending(pushHistory = true) {
   document.getElementById("page-film-detail").style.display = "none";
   document.getElementById("filming-page").style.display = "none";
   document.getElementById("genre-grid").style.display = "block";
-  document.getElementById("platform-nav").classList.remove("visible");
+  afficherNavCategoriesFilms("trending");
   document.getElementById("genre-title").innerText = tg("trending").toUpperCase();
   if (cached) { renderCards(cached, "trending", 1, 1); return; }
   document.getElementById("movie-cards").innerHTML =
@@ -1265,6 +1351,7 @@ async function chargerFilms(page = 1, pushHistory = true) {
 }
 
 async function chargerParPlateforme(platformKey, page = 1, pushHistory = true) {
+  setContentMode();
   if (pushHistory) _pushNav(`/plateforme/${platformKey}`, {type:"platform", key:platformKey, page});
   hideHero(); cacherErreur();
   const nameMap = { netflix: "NETFLIX", amazon: "PRIME VIDEO", disney: "DISNEY+", apple: "APPLE TV+", paramount: "PARAMOUNT+", hulu: "HULU" };
@@ -1282,7 +1369,7 @@ async function chargerParPlateforme(platformKey, page = 1, pushHistory = true) {
   try {
     const data = await safeFetch(`/discover-provider/${platformKey}?browser_lang=${getBrowserLangShort()}&page=${page}`);
     if (data.status === "success" && data.results?.length) renderCards(data.results, platformKey, page, data.total_pages || 1);
-    else afficherVideGrid(data.message || "Aucun résultat.");
+    else afficherVideGrid(data.message || t("filming_no_result"));
   } catch (e) { afficherVideGrid(t("err_generic")); }
 }
 
@@ -1396,26 +1483,27 @@ function _clearTempLayers() {
   if (_isochroneLayer) { try { _filmingMap.removeLayer(_isochroneLayer); } catch(e){} _isochroneLayer = null; }
 }
 
-async function chargerLieuxDeTournage(page = 1, pushHistory = true) {
-  if (pushHistory) _pushNav('/lieux-de-tournage', {type:"filming", page});
-  hideHero(); cacherErreur();
-  currentGenreName = "filming"; _filmingCurrentPage = page;
-  document.getElementById("genre-grid").style.display = "none";
-  document.getElementById("page-film-detail").style.display = "none";
-  document.getElementById("hero").style.display = "none";
+async function chargerLieuxDeTournage(pushHistory = true) {
+  setContentMode();
+
+  if (pushHistory) _pushNav("/lieux-de-tournage", { type: "filming" });
+
+  cacherErreur();
+  _hideAllPages();
+
   document.getElementById("genre-nav").style.display = "flex";
-  document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
-  document.getElementById("btn-genre-filming")?.classList.add("active");
-  const filmingPage = document.getElementById("filming-page");
-  if (filmingPage) filmingPage.style.display = "";
-  navStack = [];
-  await Promise.allSettled([
-    _filmingStats ? Promise.resolve() : safeFetch("/films-tournes/stats").then(d => { _filmingStats = d; }).catch(() => {}),
-    _chargerMetaFiltres()
-  ]);
-  if (!filmingPage.querySelector(".filming-filters-wrap")) _renderFilmingPage(filmingPage);
-  else _updateFilmingFilters();
-  await _loadFilmingCatalogue();
+  document.getElementById("filming-page").style.display = "grid";
+  document.getElementById("platform-nav").classList.remove("visible");
+
+  // Affiche d'abord l'interface, puis charge Leaflet après rendu
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      _ensureLeafletFull(() => {
+        _initFilmingLeafletMap();
+        loadFilmingData();
+      });
+    }, 0);
+  });
 }
 
 function _renderFilmingPage(container){
@@ -2152,8 +2240,8 @@ function filmingNearMe(){
   navigator.geolocation.getCurrentPosition(pos=>{
     _filmingMap.flyTo([pos.coords.latitude,pos.coords.longitude],11,{duration:2});
     const pulseIcon=L.divIcon({html:`<div class="fmap-near-me-pulse"></div>`,className:"",iconSize:[24,24],iconAnchor:[12,12]});
-    L.marker([pos.coords.latitude,pos.coords.longitude],{icon:pulseIcon}).addTo(_filmingMap).bindPopup("📍 Vous êtes ici").openPopup();
-  },()=>toast("Géolocalisation refusée"),{timeout:5000});
+    L.marker([pos.coords.latitude,pos.coords.longitude],{icon:pulseIcon}).addTo(_filmingMap).bindPopup(`📍 ${t("filming_you_are_here")}`).openPopup();
+  },()=>toast(t("filming_geo_denied")),{timeout:5000});
 }
 function toggleFilmingMapFullscreen(){
   const wrap=document.getElementById("filming-map-wrap"),btn=document.getElementById("fmap-fullscreen");
@@ -2690,10 +2778,13 @@ function routerInit(){
 window.onload=()=>{
   initLang();
  if (!routerInit()) {
+  setHomeMode();
   document.getElementById("hero").style.display = "block";
   document.getElementById("genre-nav").style.display = "flex";
   document.getElementById("platform-nav").classList.remove("visible");
   document.getElementById("genre-grid").style.display = "none";
+  document.getElementById("filming-page").style.display = "none";
+  document.getElementById("page-film-detail").style.display = "none";
 }
   document.addEventListener("keydown",e=>{if(e.code==="Space"&&document.getElementById("loading-overlay")?.classList.contains("active")){e.preventDefault();gameJump();}});
 
