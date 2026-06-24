@@ -357,7 +357,8 @@
             <i class="fas fa-paperclip"></i>
           </button>
           <button class="hero-search-btn" onclick="rechercheHero()">
-            <i class="fas fa-bolt"></i> <span data-i18n="cta">Identifier</span>
+            <i class="fas fa-search"></i>
+            <span data-i18n="cta">Identifier</span>
           </button>
         </div>
       </div>
@@ -372,50 +373,7 @@
     ></nav>
 
     <!-- PLATFORM NAV -->
-    <nav id="platform-nav" aria-label="Filtrer par plateforme">
-      <button
-        class="btn-platform"
-        onclick="chargerParPlateformeAsyncAsync('netflix')"
-        style="border-color: #e50914"
-      >
-        <span class="plat-dot" style="background: #e50914"></span> Netflix
-      </button>
-      <button
-        class="btn-platform"
-        onclick="chargerParPlateformeAsyncAsync('amazon')"
-        style="border-color: #00a8e0"
-      >
-        <span class="plat-dot" style="background: #00a8e0"></span> Prime Video
-      </button>
-      <button
-        class="btn-platform"
-        onclick="chargerParPlateformeAsync('disney')"
-        style="border-color: #113ccf"
-      >
-        <span class="plat-dot" style="background: #113ccf"></span> Disney+
-      </button>
-      <button
-        class="btn-platform"
-        onclick="chargerParPlateformeAsyncAsync('apple')"
-        style="border-color: #a2aaad"
-      >
-        <span class="plat-dot" style="background: #a2aaad"></span> Apple TV+
-      </button>
-      <button
-        class="btn-platform"
-        onclick="chargerParPlateformeAsyncAsync('paramount')"
-        style="border-color: #0064ff"
-      >
-        <span class="plat-dot" style="background: #0064ff"></span> Paramount+
-      </button>
-      <button
-        class="btn-platform"
-        onclick="chargerParPlateformeAsync('hulu')"
-        style="border-color: #1ce783"
-      >
-        <span class="plat-dot" style="background: #1ce783"></span> Hulu
-      </button>
-    </nav>
+    <nav id="platform-nav" aria-label="Filtrer par plateforme"></nav>
 
     <!-- LOADING OVERLAY -->
     <div id="loading-overlay" role="status" aria-label="Analyse en cours">
