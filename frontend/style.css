@@ -304,12 +304,14 @@ body {
 
 /* PLATFORM NAV */
 #platform-nav {
-  display: flex;
+  display: none;
   flex-wrap: wrap;
   gap: 8px;
   padding: 12px 16px;
   justify-content: center;
+  min-height: 58px;
 }
+
 #platform-nav.visible {
   display: flex;
 }
@@ -1871,11 +1873,7 @@ body {
 }
 #hero .tagline { margin-bottom: 2px; }
 
-/* Étapes */
-.hero-steps {
-  display: flex; align-items: center; justify-content: center;
-  gap: 10px; flex-wrap: wrap;
-}
+
 .hero-step {
   display: inline-flex; align-items: center; gap: 7px;
   background: rgba(255,255,255,.04);
@@ -2146,3 +2144,54 @@ body { font-weight: 500; }                  /* Rajdhani 400 est trop fin */
   #lang-selector { height: 36px; padding: 5px 4px; }
   .search-wrap input { height: 36px; padding: 8px 70px 8px 12px; font-size: .78rem; }
 }
+
+/* ═══ CORE WEB VITALS FIXES ═══ */
+
+/* LCP — réserve l'espace des images avant chargement (élimine CLS) */
+.movie-card img,
+.filming-card-img-wrap img {
+  aspect-ratio: 2 / 3;
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+  display: block;
+  background: #111;
+}
+
+
+
+
+
+/* CLS — réserve la hauteur des étapes hero */
+.hero-steps {
+  min-height: 60px;
+}
+
+/* INP — supprime le délai 300ms sur mobile pour tous les boutons interactifs */
+.hero-search-btn,
+.btn-search,
+.btn-genre,
+.btn-platform,
+.btn-stream,
+.btn-page,
+.btn-back,
+.btn-reset,
+.fmap-btn,
+.filming-show-locations-btn,
+.fmedia-btn {
+  touch-action: manipulation;
+}
+
+/* INP — évite le recalcul de layout au hover sur les cards */
+.movie-card {
+  will-change: transform;
+}
+
+/* ════ FIX CLS — valeurs prudentes ════ */
+#genre-nav    { min-height: 44px; }
+.hero-steps   { min-height: 46px; }
+#movie-cards  { min-height: 380px; }
+#genre-grid   { min-height: 400px; }
+#affiche_film { aspect-ratio: 2/3; object-fit: cover; background: #111; }
+.streaming-badge img { width: 40px; height: 20px; object-fit: contain; }
+.logo img     { width: 132px; height: 44px; }

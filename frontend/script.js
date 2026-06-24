@@ -4,6 +4,69 @@ const CACHE_TTL = 300000;
 function getCached(key) { const e = apiCache[key]; if (e && (Date.now() - e.time) < CACHE_TTL) return e.data; return null; }
 function setCache(key, data) { apiCache[key] = { data, time: Date.now() }; }
 
+// ════ LAZY LOAD SCRIPT ════
+function loadScriptOnce(src, id) {
+  return new Promise((resolve, reject) => {
+    if (id && document.getElementById(id)) {
+      resolve();
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    if (id) script.id = id;
+
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("Impossible de charger : " + src));
+
+    document.head.appendChild(script);
+  });
+}
+
+async function ensureTesseractReady() {
+  if (window.Tesseract) return;
+
+  await loadScriptOnce(
+    "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js",
+    "tesseract-js"
+  );
+}
+
+let _whisperPromise = null;
+
+window.getWhisperPipeline = async function () {
+  if (_whisperPromise) return _whisperPromise;
+
+  _whisperPromise = import("https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1")
+    .then(async ({ pipeline, env }) => {
+      env.useBrowserCache = true;
+      env.allowLocalModels = false;
+
+      return pipeline(
+        "automatic-speech-recognition",
+        "Xenova/whisper-tiny"
+      );
+    });
+
+  return _whisperPromise;
+};
+
+async function ensureTurfReady() {
+  if (window.turf) return;
+
+  await loadScriptOnce(
+    "https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js",
+    "turf-js"
+  );
+}
+
+
+
+
+
+
+
 // ════ SAFE FETCH ════
 async function safeFetch(url, options = {}) {
     const res = await fetch(url, options);
@@ -11,6 +74,9 @@ async function safeFetch(url, options = {}) {
     if (!ct.includes("application/json")) throw new Error(`Réponse inattendue du serveur (${res.status}).`);
     return res.json();
 }
+
+
+
 
 function getRegionCode() {
   const navLang = navigator.language || navigator.userLanguage || 'fr';
@@ -742,7 +808,7 @@ async function gererRechercheGlobal(){
   document.getElementById("page-film-detail").style.display="none";
   document.getElementById("filming-page").style.display="none";
   const isLink=/^https?:\/\//i.test(input)&&(/tiktok\.com|vm\.tiktok\.com|vt\.tiktok\.com/.test(input)||/instagram\.com/.test(input)||/youtube\.com|youtu\.be/.test(input)||/twitter\.com|x\.com/.test(input)||/facebook\.com|fb\.watch/.test(input)||/dailymotion\.com|dai\.ly/.test(input)||/bilibili\.com/.test(input)||/snapchat\.com/.test(input)||/vimeo\.com/.test(input)||/twitch\.tv/.test(input)||/linkedin\.com/.test(input)||/reddit\.com|redd\.it/.test(input)||/pinterest\.|pin\.it/.test(input)||/bit\.ly|t\.co|tinyurl\.com|ow\.ly|buff\.ly|short\.io|lnk\.to/.test(input))||/^https?:\/\//i.test(input);
-  if(isLink){demarrerPub();analyserVideo(input);}
+if (isLink) { demarrerPub(); analyserVideo(input); }
   else{
     hideHero();
     try{const data=await safeFetch(`/rechercher?query=${encodeURIComponent(input)}&lang=${getTMDBLang()}`);if(data.status==="error"){afficherErreur(data.message||t("err_generic"));return;}afficherResultatsRecherche(data,input);}
@@ -883,17 +949,45 @@ async function analyserVideoUpload(file){
   }
 }
 
-async function _consumeAnalysis(data,signal){
-  if(data && data.status==="transcription_needed"){
-    const skipWhisper=data.skip_whisper===true;
-    const [ocrText,transcript]=await Promise.allSettled([
-      data.frames_base64?.length?runLocalOCR(data.frames_base64):Promise.resolve(""),
-      (!skipWhisper&&data.audio_base64)?runLocalWhisper(data.audio_base64):Promise.resolve("")
+async function _consumeAnalysis(data, signal) {
+  if (data && data.status === "transcription_needed") {
+    const skipWhisper = data.skip_whisper === true;
+
+    const [ocrText, transcript] = await Promise.allSettled([
+      data.frames_base64?.length
+        ? runLocalOCR(data.frames_base64)
+        : Promise.resolve(""),
+
+      (!skipWhisper && data.audio_base64)
+        ? runLocalWhisper(data.audio_base64)
+        : Promise.resolve("")
     ]);
-    const cr=await fetch("/analyser_continue",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:data.session_id,ocr_text:ocrText.status==="fulfilled"?ocrText.value:"",transcript:transcript.status==="fulfilled"?transcript.value:"",browser_lang:getBrowserLangShort()}),signal});
-    let fdata;try{fdata=await cr.json();}catch(e){afficherErreurRiche({code:"unexpected",message:t("err_generic")});return;}
-    _afficherResultatFinal(fdata);return;
+
+    const cr = await fetch("/analyser_continue", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        session_id: data.session_id,
+        ocr_text: ocrText.status === "fulfilled" ? ocrText.value : "",
+        transcript: transcript.status === "fulfilled" ? transcript.value : "",
+        browser_lang: getBrowserLangShort()
+      }),
+      signal
+    });
+
+    let finalData;
+    try {
+      finalData = await cr.json();
+    } catch (e) {
+      throw new Error("json_parse");
+    }
+
+    _afficherResultatFinal(finalData);
+    return;
   }
+
   _afficherResultatFinal(data);
 }
 async function pollAnalysisStatus(sessionId,signal,maxRetries=80){
@@ -911,8 +1005,56 @@ async function pollAnalysisStatus(sessionId,signal,maxRetries=80){
   }
   return{status:"error",code:"timeout",message:tErr("timeout")};
 }
-async function runLocalOCR(framesBase64){try{if(!window.Tesseract)return"";const worker=await Tesseract.createWorker('fra+eng');let fullText="";for(const b64 of framesBase64.slice(0,4)){try{const{data:{text}}=await worker.recognize(`data:image/jpeg;base64,${b64}`);fullText+=text+" ";}catch(e){}}await worker.terminate();return fullText.trim();}catch(e){return"";}}
-async function runLocalWhisper(audioBase64){try{if(!audioBase64||!window.getWhisperPipeline)return"";const audioBlob=base64ToBlob(audioBase64,'audio/mp3');const arrayBuffer=await audioBlob.arrayBuffer();const audioCtxLocal=new AudioContext();const audioBuffer=await audioCtxLocal.decodeAudioData(arrayBuffer);const pcm=audioBuffer.getChannelData(0);const pipeline=await window.getWhisperPipeline();const result=await pipeline(pcm,{language:'french'});return result.text||"";}catch(e){return"";}}
+async function runLocalOCR(framesBase64) {
+  try {
+    if (!framesBase64 || !framesBase64.length) return "";
+
+    await ensureTesseractReady();
+
+    if (!window.Tesseract) return "";
+
+    const worker = await Tesseract.createWorker("fra+eng");
+    let fullText = "";
+
+    for (const b64 of framesBase64.slice(0, 4)) {
+      try {
+        const { data: { text } } = await worker.recognize(
+          `data:image/jpeg;base64,${b64}`
+        );
+        fullText += text + " ";
+      } catch (e) {}
+    }
+
+    await worker.terminate();
+    return fullText.trim();
+  } catch (e) {
+    return "";
+  }
+}
+async function runLocalWhisper(audioBase64) {
+  try {
+    if (!audioBase64) return "";
+
+    const audioBlob = base64ToBlob(audioBase64, "audio/mp3");
+    const arrayBuffer = await audioBlob.arrayBuffer();
+
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const audioCtxLocal = new AudioCtx();
+
+    const audioBuffer = await audioCtxLocal.decodeAudioData(arrayBuffer);
+    const pcm = audioBuffer.getChannelData(0);
+
+    const pipeline = await window.getWhisperPipeline();
+
+    const result = await pipeline(pcm, {
+      language: "french"
+    });
+
+    return result.text || "";
+  } catch (e) {
+    return "";
+  }
+}
 function base64ToBlob(base64,mimeType){const byteChars=atob(base64);const byteArrays=[];for(let offset=0;offset<byteChars.length;offset+=512){const slice=byteChars.slice(offset,offset+512);const byteNumbers=new Array(slice.length);for(let i=0;i<slice.length;i++)byteNumbers[i]=slice.charCodeAt(i);byteArrays.push(new Uint8Array(byteNumbers));}return new Blob(byteArrays,{type:mimeType});}
 
 // ════ GENRES ════
@@ -1088,7 +1230,7 @@ function renderCardsFiltered(results){
   [...container.children].forEach(c=>{if(!c.classList.contains("pagination"))c.remove();});
   if(!results||results.length===0){const p=document.createElement("p");p.style.cssText="color:var(--muted);grid-column:1/-1;text-align:center;padding:40px";p.textContent="Aucun résultat avec ces filtres.";if(oldPag)container.insertBefore(p,oldPag);else container.appendChild(p);return;}
   const fragment=document.createDocumentFragment();
-  results.forEach(m=>{
+  results.forEach((m, index)=>{
     const year=(m.release_date||m.first_air_date||"N/A").split("-")[0];
     const rating=m.vote_average?m.vote_average.toFixed(1):"0";
     const title=m.title||m.name||"Titre inconnu";
@@ -1096,7 +1238,7 @@ function renderCardsFiltered(results){
     const poster=m.poster_path?`https://image.tmdb.org/t/p/w300${m.poster_path}`:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='450' fill='%231a1a24'%3E%3Crect width='300' height='450'/%3E%3Ctext x='50%25' y='50%25' fill='%23444' font-size='40' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E";
     const div=document.createElement("div");div.className="movie-card";div.setAttribute("role","button");div.setAttribute("tabindex","0");div.setAttribute("aria-label",title);
     div.onclick=()=>afficherDetails(m.id,isTv?"tv":"movie");div.onkeydown=e=>{if(e.key==="Enter")afficherDetails(m.id,isTv?"tv":"movie");};
-    div.innerHTML=`${isTv?`<span class="card-type-badge">TV</span>`:""}<img src="${poster}" alt="${title}" loading="lazy"><div class="card-body"><h4>${title}</h4><div class="card-meta"><span><i class="fas fa-calendar" style="font-size:.65rem;opacity:.5"></i> ${year}</span><span class="rating"><i class="fas fa-star" style="font-size:.65rem"></i> ${rating}</span></div></div>`;
+    div.innerHTML=`${isTv?`<span class="card-type-badge">TV</span>`:""}<img src="${poster}" alt="${title}" ${index < 3 ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"'}><div class="card-body"><h4>${title}</h4><div class="card-meta"><span><i class="fas fa-calendar" style="font-size:.65rem;opacity:.5"></i> ${year}</span><span class="rating"><i class="fas fa-star" style="font-size:.65rem"></i> ${rating}</span></div></div>`;
     fragment.appendChild(div);
   });
   if(oldPag)container.insertBefore(fragment,oldPag);else container.appendChild(fragment);
@@ -1704,7 +1846,10 @@ document.addEventListener("click",function(e){
 
 async function handleOSMAction(type,lat,lng){
   if(!_filmingMap)return;
-  if(type==="isochrone"){drawIsochrone(lat,lng,"foot",15);return;}
+  if (type === "isochrone") {
+  await drawIsochrone(lat, lng, "foot", 15);
+  return;
+}
 
   const layerMap={hotel:_filmingHotelLayer,restaurant:_filmingRestaurantLayer,transport:_filmingTransportLayer,service:_filmingTourismLayer};
   const labelMap={hotel:"hébergements",restaurant:"restaurants",transport:"transports",service:"services"};
@@ -1802,19 +1947,56 @@ function _findNearest(lat,lng,elements){let best=null,bestDist=Infinity;elements
 function _haversineM(lat1,lon1,lat2,lon2){const R=6371000;const dLat=(lat2-lat1)*Math.PI/180,dLon=(lon2-lon1)*Math.PI/180;const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));}
 
 // ════ ISOCHRONE — Turf uniquement (pas de backend) ════
-function drawIsochrone(lat,lng,mode="foot",minutes=15){
-  if(!_filmingMap)return;
-  // Nettoyer l'isochrone précédent
+async function drawIsochrone(lat, lng, mode = "foot", minutes = 15) {
+  if (!_filmingMap) return;
+
   _clearTempLayers();
-  if(!window.turf){toast("Turf.js non chargé");return;}
-  const speedKmh=mode==="foot"?5:15;
-  const distKm=speedKmh*(minutes/60)*0.85;
-  const circle=turf.circle([lng,lat],distKm,{steps:64,units:"kilometers"});
-  _isochroneLayer=L.geoJSON(circle,{style:{color:"#00ffcc",weight:2,dashArray:"6,4",fillColor:"#00ffcc",fillOpacity:0.07}}).addTo(_filmingMap);
-  // Label centré
-  const labelIcon=L.divIcon({html:`<div class="fmap-isochrone-label">🚶 ~${minutes} min</div>`,className:"",iconSize:[90,24],iconAnchor:[45,12]});
-  const labelMarker=L.marker([lat,lng],{icon:labelIcon,interactive:false,zIndexOffset:-100}).addTo(_filmingMap);
+
+  try {
+    await ensureTurfReady();
+  } catch (e) {
+    toast("Impossible de charger Turf.js");
+    return;
+  }
+
+  if (!window.turf) {
+    toast("Turf.js non chargé");
+    return;
+  }
+
+  const speedKmh = mode === "foot" ? 5 : 15;
+  const distKm = speedKmh * (minutes / 60) * 0.85;
+
+  const circle = turf.circle([lng, lat], distKm, {
+    steps: 64,
+    units: "kilometers"
+  });
+
+  _isochroneLayer = L.geoJSON(circle, {
+    style: {
+      color: "#00ffcc",
+      weight: 2,
+      dashArray: "6,4",
+      fillColor: "#00ffcc",
+      fillOpacity: 0.07
+    }
+  }).addTo(_filmingMap);
+
+  const labelIcon = L.divIcon({
+    html: `<div class="fmap-isochrone-label">🚶 ~${minutes} min</div>`,
+    className: "",
+    iconSize: [90, 24],
+    iconAnchor: [45, 12]
+  });
+
+  const labelMarker = L.marker([lat, lng], {
+    icon: labelIcon,
+    interactive: false,
+    zIndexOffset: -100
+  }).addTo(_filmingMap);
+
   _tempMapLayers.push(labelMarker);
+
   toast(`⏱️ Zone ~${minutes} min à pied tracée`);
 }
 
