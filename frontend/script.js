@@ -792,7 +792,7 @@ function afficherNavPlateformes(active = "amazon") {
 }
 function ouvrirFilmsAccueil() {
  
-  chargerTrending();
+  chargerFilms();
 }
 function ouvrirCategorieAccueil(type) {
   if (type === "animation") {
@@ -801,11 +801,11 @@ function ouvrirCategorieAccueil(type) {
     return;
   }
 
-  if (type === "series") {
-    afficherNavCategoriesFilms("series");
-    chargerSeries();
-    return;
-  }
+ if (type === "series") {
+  document.getElementById("platform-nav").classList.remove("visible");
+  chargerSeries();
+  return;
+}
 }
 function changerLangueManuellement(){
   const newLang=document.getElementById("lang-selector").value;
@@ -814,13 +814,14 @@ function changerLangueManuellement(){
   history.replaceState(null,"","/"+langPath);
   const detailPage=document.getElementById("page-film-detail"),gridPage=document.getElementById("genre-grid");
   if(currentMovieId&&detailPage.style.display!=="none"){afficherDetails(currentMovieId,currentMediaType);return;}
-  if(gridPage.style.display!=="none"){
-    if(currentGenreName==="trending")chargerTrending();
-    else if(currentGenreName==="series")chargerSeries();
-    else if(currentGenreName==="filming")chargerLieuxDeTournage();
-    else if(currentGenreName)chargerGenre(currentGenreName,currentPage);
-    return;
-  }
+  if (gridPage.style.display !== "none") {
+  if (currentGenreName === "trending") chargerTrending();
+  else if (currentGenreName === "films") chargerFilms(currentPage);
+  else if (currentGenreName === "series") chargerSeries();
+  else if (currentGenreName === "filming") chargerLieuxDeTournage();
+  else if (currentGenreName) chargerGenre(currentGenreName, currentPage);
+  return;
+}
   setHomeMode();
 document.getElementById("hero").style.display = "block";
 document.getElementById("genre-nav").style.display = "flex";
@@ -1346,6 +1347,7 @@ async function chargerTrending(pushHistory = true) {
 
 
 async function chargerFilms(page = 1, pushHistory = true) {
+  setContentMode();
   if (pushHistory) _pushNav("/genre/films", { type: "genre", name: "films", page });
 
   hideHero();
@@ -1362,7 +1364,7 @@ async function chargerFilms(page = 1, pushHistory = true) {
   document.getElementById("genre-grid").style.display = "block";
 
   // Quand on clique sur Film, on affiche le reste
-  document.getElementById("platform-nav").classList.add("visible");
+afficherNavCategoriesFilms("trending");
 
   document.getElementById("genre-title").innerText = "🎬 FILMS";
   document.getElementById("movie-cards").innerHTML =
@@ -1410,7 +1412,11 @@ async function chargerParPlateforme(platformKey, page = 1, pushHistory = true) {
   document.querySelector(`.btn-platform[href="/plateforme/${platformKey}"]`)?.classList.add("active");
   lastGrid = platformKey; navStack = [];
   try {
-    const data = await safeFetch(`/discover-provider/${platformKey}?browser_lang=${getBrowserLangShort()}&page=${page}`);
+    const providerLang = platformKey === "hulu" ? "en" : getBrowserLangShort();
+
+const data = await safeFetch(
+  `/discover-provider/${platformKey}?browser_lang=${providerLang}&page=${page}`
+);
     if (data.status === "success" && data.results?.length) renderCards(data.results, platformKey, page, data.total_pages || 1);
     else afficherVideGrid(data.message || t("filming_no_result"));
   } catch (e) { afficherVideGrid(t("err_generic")); }
@@ -1526,40 +1532,61 @@ function _clearTempLayers() {
   if (_isochroneLayer) { try { _filmingMap.removeLayer(_isochroneLayer); } catch(e){} _isochroneLayer = null; }
 }
 
-async function chargerLieuxDeTournage(pushHistory = true) {
+async function chargerLieuxDeTournage(page = 1, pushHistory = true) {
   setContentMode();
 
-  if (pushHistory) _pushNav("/lieux-de-tournage", { type: "filming" });
+  if (pushHistory) {
+    _pushNav("/lieux-de-tournage", { type: "filming", page });
+  }
 
   cacherErreur();
   _hideAllPages();
 
   currentGenreName = "filming";
+  _filmingCurrentPage = page;
 
   const filmingPage = document.getElementById("filming-page");
+  if (!filmingPage) return;
 
   document.getElementById("genre-nav").style.display = "flex";
   document.getElementById("platform-nav").classList.remove("visible");
 
-  if (!filmingPage) return;
-
   filmingPage.style.display = "grid";
+  navStack = [];
 
-  // Affichage immédiat pour éviter une page vide
-  if (!filmingPage.querySelector(".filming-filters-wrap")) {
-    filmingPage.innerHTML = `
-      <div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">
-        <i class="fas fa-circle-notch fa-spin" style="font-size:2rem"></i>
-        <p style="margin-top:12px">${t("filming_title") || "Lieux de tournage"}</p>
-      </div>
-    `;
-  }
+  // 1. Afficher l’interface tout de suite
+  _renderFilmingPage(filmingPage);
 
+  // 2. Charger rapidement la liste des films
+  const results = await _loadFilmingCatalogue();
+
+  // 3. Charger stats + filtres en arrière-plan
+  Promise.allSettled([
+    _filmingStats
+      ? Promise.resolve()
+      : safeFetch("/films-tournes/stats")
+          .then(d => { _filmingStats = d; })
+          .catch(() => {}),
+
+    typeof _chargerMetaFiltres === "function"
+      ? _chargerMetaFiltres()
+      : Promise.resolve()
+  ]).then(() => {
+    _updateFilmingFilters();
+  });
+
+  // 4. Initialiser la carte après affichage
   requestAnimationFrame(() => {
     setTimeout(() => {
       _ensureLeafletFull(() => {
         _initFilmingLeafletMap();
-        loadFilmingData();
+
+        setTimeout(() => {
+          if (_filmingMap) {
+            _filmingMap.invalidateSize();
+            _updateFilmingMapMarkers(results || []);
+          }
+        }, 300);
       });
     }, 0);
   });
@@ -1763,13 +1790,20 @@ async function _loadFilmingCatalogue(){
       cardsEl.innerHTML=`<p style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">Aucun résultat.</p>`;
       return;
     }
-    _renderFilmingCards(cardsEl,data.results||[]);
-    _renderFilmingPagination(data.page,data.total_pages);
-    _updateFilmingMapMarkers(data.results||[]);
+   const results = data.results || [];
+
+_renderFilmingCards(cardsEl, results);
+_renderFilmingPagination(data.page, data.total_pages);
+_updateFilmingMapMarkers(results);
+
+return results;
   }catch(e){
-    if(cardsEl)cardsEl.innerHTML=`<p style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">Erreur de chargement.</p>`;
+     if (cardsEl) {
+    cardsEl.innerHTML = `<p style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">Erreur de chargement.</p>`;
   }
+   return [];
 }
+} 
 
 function _renderFilmingCards(container,results){
   if(!results||results.length===0){container.innerHTML=`<p style="color:var(--muted);text-align:center;padding:60px;grid-column:1/-1">Aucun film trouvé.</p>`;return;}
@@ -2823,11 +2857,15 @@ window.addEventListener("scroll",()=>{document.getElementById("back-top")?.class
 function routerInit(){
   const p = decodeURIComponent(location.pathname);
   let m;
+
+  if (p === "/genre/films") { chargerFilms(); return true; }
+
   if ((m = p.match(/^\/genre\/([^\/]+)/)))      { chargerGenre(m[1]); return true; }
   if ((m = p.match(/^\/plateforme\/([^\/]+)/))) { chargerParPlateforme(m[1]); return true; }
   if ((m = p.match(/^\/film\/(\d+)/)))          { afficherDetails(parseInt(m[1]),"movie"); return true; }
-  if (p === "/series")                           { chargerSeries(); return true; }
-  if (p === "/lieux-de-tournage")                { chargerLieuxDeTournage(); return true; }
+  if (p === "/series")                          { chargerSeries(); return true; }
+  if (p === "/lieux-de-tournage")               { chargerLieuxDeTournage(); return true; }
+
   return false;
 }
 
