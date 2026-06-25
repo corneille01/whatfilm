@@ -130,34 +130,10 @@ let currentMovieId = null;
 let currentMediaType = "movie";
 let analysisAbortController = null;
 let navStack = [];
-let _filmingDetailMap = null;
-let _filmingDetailLayer = null;
-const _filmingFilmsCache = new Map();
 
 
-// ════ ÉTAT GLOBAL FILMING ════
-let _filmingMap = null;
-let _filmingMarkerClusterGroup = null;
-let _filmingHotelLayer = null;
-let _filmingTourismLayer = null;
-let _filmingFilmLayer = null;
-let _filmingHeatmapLayer = null;
-let _filmingRestaurantLayer = null;
-let _filmingTransportLayer = null;
-let _filmingCurrentPage = 1;
-let _filmingCurrentCountry = "";
-let _filmingCurrentYear = "";
-let _filmingCurrentType = "";
-let _filmingCurrentQ = "";
-let _filmingStats = null;
-let _filmingCountries = [];
-let _filmingAllMarkers = [];
-let _filmingLeafletReady = false;
-let _activeFilmMarkers = [];
-let _bounceInterval = null;
-let _isochroneLayer = null;
-let _routeLayer = null;
-let _filmingMoveTimeout = null;
+
+
 
 
 // ─── SON IMMERSIF (fond spatial) ──────────────────────────
@@ -252,7 +228,7 @@ filming_see_one: "View filming location",
 filming_see_many: "View locations",
 filming_you_are_here: "You are here",
 filming_geo_denied: "Geolocation denied",
-    title:"WHICH MOVIE?",tagline:"Paste a TikTok, Reel or YouTube link — AI identifies the film in seconds",
+    title:"WHICH MOVIE?",tagline:"Paste a TikTok, Reel or YouTube link — We identify the film in seconds",
     placeholder:"Paste TikTok/Insta link or type a movie name...",badge:"Shazam for movies",
     back_home:"Home",back_list:"Back to list",ai_conf:"Confidence",reset:"Reset",
     year:"Year",min_score:"Min score",sort_pop:"🔥 Popularity",sort_top:"⭐ Top rated",
@@ -308,9 +284,9 @@ filming_see_one: "View filming location",
 filming_see_many: "View locations",
 filming_you_are_here: "You are here",
 filming_geo_denied: "Geolocation denied",
-    title:"WHICH MOVIE?",tagline:"Paste a TikTok, Reel or YouTube link — AI identifies the film in seconds",
+    title:"WHICH MOVIE?",tagline:"Paste a TikTok, Reel or YouTube link — we identify the film in seconds",
     placeholder:"Paste TikTok/Insta link or type a movie name...",badge:"Shazam for movies",
-    back_home:"Home",back_list:"Back to list",ai_conf:"AI Confidence",reset:"Reset",
+    back_home:"Home",back_list:"Back to list",ai_conf:"Confidence",reset:"Reset",
     year:"Year",min_score:"Min score",sort_pop:"🔥 Popularity",sort_top:"⭐ Top rated",
     sort_asc:"Score ascending",sort_new:"🆕 Newest",sort_old:"📼 Oldest",
     no_streaming_country:"No streaming available in the UK currently.",cancel:"Cancel",
@@ -363,9 +339,9 @@ filming_see_one: "Voir le lieu de tournage",
 filming_see_many: "Voir les lieux",
 filming_you_are_here: "Vous êtes ici",
 filming_geo_denied: "Géolocalisation refusée",
-    title:"QUEL FILM ?",tagline:"Colle un lien TikTok, Reel ou YouTube — l'IA identifie le film en secondes",
+    title:"QUEL FILM ?",tagline:"Colle un lien TikTok, Reel ou YouTube — nous identifions le film en secondes",
     placeholder:"Coller un lien TikTok/Reel ou taper un titre de film...",badge:"Shazam pour les films",
-    back_home:"Accueil",back_list:"Retour à la liste",ai_conf:"Confiance IA",reset:"Reset",
+    back_home:"Accueil",back_list:"Retour à la liste",ai_conf:"Confiance",reset:"Reset",
     year:"Année",min_score:"Note min",sort_pop:"🔥 Popularité",sort_top:"⭐ Mieux notés",
     sort_asc:"Note croissante",sort_new:"🆕 Plus récents",sort_old:"📼 Plus anciens",
     no_streaming_country:"Pas de streaming disponible en France actuellement.",cancel:"Annuler",
@@ -418,9 +394,9 @@ filming_see_one: "Ver localización de rodaje",
 filming_see_many: "Ver localizaciones",
 filming_you_are_here: "Estás aquí",
 filming_geo_denied: "Geolocalización rechazada",
-    title:"¿QUÉ PELÍCULA?",tagline:"Pega un enlace de TikTok o Reel — la IA identifica la película",
+    title:"¿QUÉ PELÍCULA?",tagline:"Pega un enlace de TikTok o Reel — Hemos identificado la película",
     placeholder:"Pegar enlace TikTok/Reel o escribir un título...",badge:"Shazam para películas",
-    back_home:"Inicio",back_list:"Volver a la lista",ai_conf:"Confianza IA",reset:"Restablecer",
+    back_home:"Inicio",back_list:"Volver a la lista",ai_conf:"Confianza",reset:"Restablecer",
     year:"Año",min_score:"Nota mínima",sort_pop:"🔥 Popularidad",sort_top:"⭐ Mejor valoradas",
     sort_asc:"Nota ascendente",sort_new:"🆕 Más recientes",sort_old:"📼 Más antiguas",
     no_streaming_country:"Sin streaming disponible actualmente.",cancel:"Cancelar",
@@ -473,9 +449,9 @@ filming_see_one: "Drehort ansehen",
 filming_see_many: "Drehorte ansehen",
 filming_you_are_here: "Sie sind hier",
 filming_geo_denied: "Geolokalisierung abgelehnt",
-    title:"WELCHER FILM?",tagline:"TikTok- oder Reel-Link einfügen — KI erkennt den Film in Sekunden",
+    title:"WELCHER FILM?",tagline:"TikTok- oder Reel-Link einfügen — Wir haben den Film identifiziert.",
     placeholder:"TikTok/Insta Link oder Filmtitel eingeben...",badge:"Shazam für Filme",
-    back_home:"Startseite",back_list:"Zurück zur Liste",ai_conf:"KI-Konfidenz",reset:"Zurücksetzen",
+    back_home:"Startseite",back_list:"Zurück zur Liste",ai_conf:"Konfidenz",reset:"Zurücksetzen",
     year:"Jahr",min_score:"Mindestbewertung",sort_pop:"🔥 Beliebtheit",sort_top:"⭐ Bestbewertet",
     sort_asc:"Bewertung aufsteigend",sort_new:"🆕 Neueste",sort_old:"📼 Älteste",
     no_streaming_country:"Kein Streaming in Deutschland verfügbar.",cancel:"Abbrechen",
@@ -528,9 +504,9 @@ filming_see_one: "查看拍摄地点",
 filming_see_many: "查看拍摄地点",
 filming_you_are_here: "您在这里",
 filming_geo_denied: "地理位置访问被拒绝",
-    title:"什么电影？",tagline:"粘贴 TikTok 或 Reel 链接 — AI 即刻识别电影",
+    title:"什么电影？",tagline:"粘贴 TikTok 或 Reel 链接 — 我们已经识别出这部电影了。",
     placeholder:"粘贴链接或输入电影名...",badge:"电影识别神器",
-    back_home:"首页",back_list:"返回列表",ai_conf:"AI 置信度",reset:"重置",
+    back_home:"首页",back_list:"返回列表",ai_conf:"置信度",reset:"重置",
     year:"年份",min_score:"最低评分",sort_pop:"🔥 热度",sort_top:"⭐ 最高评分",
     sort_asc:"评分升序",sort_new:"🆕 最新",sort_old:"📼 最早",
     no_streaming_country:"暂无可用的流媒体。",cancel:"取消",
@@ -1535,556 +1511,28 @@ function _clearTempLayers() {
   if (_isochroneLayer) { try { _filmingMap.removeLayer(_isochroneLayer); } catch(e){} _isochroneLayer = null; }
 }
 
-async function chargerLieuxDeTournage(page = 1, pushHistory = true) {
-  setContentMode();
 
-  if (pushHistory) {
-    _pushNav("/lieux-de-tournage", { type: "filming", page });
-  }
 
-  cacherErreur();
-  _hideAllPages();
 
-  currentGenreName = "filming";
-  _filmingCurrentPage = page;
-
-  const filmingPage = document.getElementById("filming-page");
-  if (!filmingPage) return;
-
-  document.getElementById("genre-nav").style.display = "flex";
-  document.getElementById("platform-nav").classList.remove("visible");
-
-  filmingPage.style.display = "block";
-  filmingPage.classList.add("filming-catalogue-mode");
-
-  navStack = [];
-
-  // Affiche l’interface immédiatement
-  _renderFilmingPage(filmingPage);
-
-  // Charge seulement les cartes
-  await _loadFilmingCatalogue();
-
-  // Charge stats + filtres en arrière-plan, sans bloquer l’affichage
-  Promise.allSettled([
-    _filmingStats
-      ? Promise.resolve()
-      : safeFetch("/films-tournes/stats")
-          .then(d => { _filmingStats = d; })
-          .catch(() => {}),
-
-    typeof _chargerMetaFiltres === "function"
-      ? _chargerMetaFiltres()
-      : Promise.resolve()
-  ]).then(() => {
-    _updateFilmingFilters();
-  });
-}
-
-function _renderFilmingPage(container) {
-  const ld = dict[currentLang] || dict.fr;
-  const stats = _filmingStats;
-
-  const statsHtml = stats
-    ? `
-      <div class="filming-stats-bar">
-        <span><strong>${stats.total_films?.toLocaleString() || "—"}</strong> Films</span>
-        <span class="filming-stats-sep">·</span>
-        <span><strong>${stats.total_locations?.toLocaleString() || "—"}</strong> lieux</span>
-      </div>
-    `
-    : "";
-
-  container.innerHTML = `
-    <section class="filming-catalogue">
-      <div class="filming-catalogue-head">
-        <h1 class="filming-title">
-          <i class="fas fa-map-marked-alt"></i>
-          ${ld.filming_title || "LIEUX DE TOURNAGE"}
-        </h1>
-
-        <p class="filming-subtitle">
-          ${ld.filming_subtitle || "Explorez les vrais décors du cinéma mondial"}
-        </p>
-
-        ${statsHtml}
-      </div>
-
-      <div class="filming-filters-wrap">
-        <div class="filming-search-box">
-          <i class="fas fa-search"></i>
-          <input
-            type="text"
-            id="filming-search-input"
-            placeholder="${ld.filming_search || "Rechercher un film…"}"
-            value="${escapeHtml(_filmingCurrentQ || "")}"
-            oninput="debounceFilmingSearch(this.value)"
-          >
-        </div>
-
-        <div class="filming-filter-row">
-          <button class="fmedia-btn ${_filmingCurrentType === "" ? "active" : ""}"
-                  onclick="setFilmingType('')">
-            ${ld.filming_all_media || "Tout"}
-          </button>
-
-          <button class="fmedia-btn ${_filmingCurrentType === "movie" ? "active" : ""}"
-                  onclick="setFilmingType('movie')">
-            ${ld.filming_movies_only || "Films"}
-          </button>
-
-          <select id="filming-filter-country" onchange="setFilmingCountry(this.value)">
-            <option value="">Tous les lieux</option>
-          </select>
-
-          <select id="filming-filter-year" onchange="setFilmingYear(this.value)">
-            <option value="">Toutes les années</option>
-          </select>
-
-          <button class="btn-reset filming-reset-btn" onclick="resetFilmingFilters()">
-            <i class="fas fa-times"></i> Reset
-          </button>
-        </div>
-      </div>
-
-      <div id="filming-cards" class="filming-cards-grid"></div>
-
-      <div id="filming-pagination" class="filming-pagination"></div>
-
-      <div id="filming-detail-zone" class="filming-detail-zone" style="display:none"></div>
-    </section>
-  `;
-
-  _updateFilmingFilters();
-}
 
 // ════ CACHE GLOBAL ANNÉES & PAYS ════
 let _filmingAllYears = [];
 let _filmingAllCountries = [];
 
-async function _chargerMetaFiltres() {
-  if (_filmingAllYears.length > 0 && _filmingAllCountries.length > 0) return;
 
-  // Essai 1 : endpoint /films-tournes/meta (lit le JSON complet côté serveur)
-  try {
-    const meta = await safeFetch(`/films-tournes/meta`);
-    if (meta.years && meta.years.length > 0) {
-      _filmingAllYears     = [...new Set(meta.years)].map(Number).sort((a,b)=>b-a);
-      // L'endpoint retourne "locations" (noms de villes/pays depuis name)
-      const locs = meta.locations || meta.countries || [];
-      _filmingAllCountries = [...new Set(locs)].filter(Boolean).sort((a,b)=>a.localeCompare(b));
-      console.log(`✅ Meta filtres: ${_filmingAllYears.length} années, ${_filmingAllCountries.length} lieux`);
-      return;
-    }
-  } catch(e) { /* endpoint absent, fallback */ }
 
-  // Essai 2 : charger page par page et extraire depuis les résultats
-  console.log("📥 Chargement meta filtres page par page…");
-  const yearsSet = new Set();
-  const locsSet  = new Set();
 
-  const extractFromResults = (results) => {
-    (results||[]).forEach(f => {
-      if (f.year) yearsSet.add(Number(f.year));
-      (f.locations||[]).forEach(l => {
-        // country est toujours "Inconnu" → vrai nom dans l.name
-        const nom = (l.country && l.country !== "Inconnu") ? l.country : l.name;
-        if (nom && nom.length > 1 && nom !== "Non spécifié" && nom !== "Inconnu") locsSet.add(nom);
-      });
-    });
-  };
 
-  try {
-    // Première page avec per_page max
-    const first = await safeFetch(`/films-tournes?per_page=500&sort=count_locations&page=1`);
-    if (first.status !== "success") return;
-    extractFromResults(first.results);
 
-    // Pages suivantes si nécessaire
-    const totalPages = first.total_pages || 1;
-    if (totalPages > 1) {
-      const pages = [];
-      for (let p = 2; p <= totalPages; p++) {
-        pages.push(safeFetch(`/films-tournes?per_page=500&sort=count_locations&page=${p}`).catch(()=>null));
-      }
-      const settled = await Promise.allSettled(pages);
-      settled.forEach(r => {
-        if (r.status === "fulfilled" && r.value?.results) extractFromResults(r.value.results);
-      });
-    }
-
-    _filmingAllYears     = [...yearsSet].sort((a,b)=>b-a);
-    _filmingAllCountries = [...locsSet].sort((a,b)=>a.localeCompare(b));
-    console.log(`✅ Meta filtres (fallback): ${_filmingAllYears.length} années, ${_filmingAllCountries.length} lieux`);
-  } catch(e) {
-    console.warn("Meta filtres KO:", e);
-  }
-}
-
-// ════ PAYS — extraits depuis le cache global ════
-function _peuplerFiltresPays(){
-  const sel = document.getElementById("filming-filter-country");
-  if (!sel) return;
-  const cv = sel.value;
-  sel.innerHTML = `<option value="">Tous</option>` +
-    _filmingAllCountries.map(c => `<option value="${escapeHtml(c)}" ${cv===c?'selected':''}>${escapeHtml(c)}</option>`).join("");
-}
-
-// ════ ANNÉES — depuis le cache global ════
-function _peuplerFiltresAnnees(){
-  const sel = document.getElementById("filming-filter-year");
-  if (!sel) return;
-  const cv = sel.value;
-  sel.innerHTML = `<option value="">Toutes</option>` +
-    _filmingAllYears.map(y => `<option value="${y}" ${cv==y?'selected':''}>${y}</option>`).join("");
-}
-function _updateFilmingFilters(){
-  const btns=document.querySelectorAll(".fmedia-btn");
-  const types=['','movie'];
-  btns.forEach((btn,idx)=>btn.classList.toggle("active",_filmingCurrentType===(types[idx]??'')));
-  // Re-peupler depuis le cache si déjà chargé
-  _peuplerFiltresPays();
-  _peuplerFiltresAnnees();
-  // Restaurer la valeur sélectionnée
-  const fy=document.getElementById("filming-filter-year");if(fy)fy.value=_filmingCurrentYear;
-  const cs=document.getElementById("filming-filter-country");if(cs)cs.value=_filmingCurrentCountry;
-  const si=document.getElementById("filming-search-input");if(si)si.value=_filmingCurrentQ;
-}
 
 let _filmingSearchTimeout=null;
-function debounceFilmingSearch(val){_filmingCurrentQ=val;clearTimeout(_filmingSearchTimeout);_filmingSearchTimeout=setTimeout(()=>chargerLieuxDeTournage(1),500);}
-function setFilmingType(type){_filmingCurrentType=type;_updateFilmingFilters();_loadFilmingCatalogue();}
-async function setFilmingCountry(country){_filmingCurrentCountry=country;_updateFilmingFilters();_loadFilmingCatalogue();}
-function setFilmingYear(year){_filmingCurrentYear=year;_filmingCurrentPage=1;_loadFilmingCatalogue();}
-function resetFilmingFilters(){_filmingCurrentCountry="";_filmingCurrentYear="";_filmingCurrentType="";_filmingCurrentQ="";_filmingCurrentPage=1;_updateFilmingFilters();_loadFilmingCatalogue();}
-
-async function _loadFilmingCatalogue() {
-  const cardsEl = document.getElementById("filming-cards");
-  if (!cardsEl) return [];
-
-  cardsEl.innerHTML = `
-    <div class="filming-loading">
-      <i class="fas fa-circle-notch fa-spin"></i> Chargement…
-    </div>
-  `;
-
-  const params = new URLSearchParams({
-    page: _filmingCurrentPage,
-    per_page: 24,
-    sort: "count_locations"
-  });
-
-  if (_filmingCurrentType) params.set("media_type", _filmingCurrentType);
-  if (_filmingCurrentQ) params.set("q", _filmingCurrentQ);
-  if (_filmingCurrentYear) params.set("year", _filmingCurrentYear);
-  if (_filmingCurrentCountry) params.set("city", _filmingCurrentCountry);
-
-  try {
-    const data = await safeFetch(`/films-tournes?${params}`);
-
-    if (data.status !== "success") {
-      cardsEl.innerHTML = `
-        <p style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">
-          Aucun résultat.
-        </p>
-      `;
-      return [];
-    }
-
-    const results = data.results || [];
-
-    _renderFilmingCards(cardsEl, results);
-    _renderFilmingPagination(data.page, data.total_pages);
-
-    return results;
-  } catch (e) {
-    cardsEl.innerHTML = `
-      <p style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">
-        Erreur de chargement.
-      </p>
-    `;
-    return [];
-  }
-}
-
-function _renderFilmingCards(container, results) {
-  if (!results || results.length === 0) {
-    container.innerHTML = `
-      <p style="color:var(--muted);text-align:center;padding:60px;grid-column:1/-1">
-        Aucun film trouvé.
-      </p>
-    `;
-    return;
-  }
-
-  container.innerHTML = results.map(f => {
-    const tmdbId = Number(f.tmdb_id);
-    const mediaType = f.media_type || f.type || "movie";
-
-    _filmingFilmsCache.set(`${tmdbId}_${mediaType}`, f);
-
-    const poster = f.poster_path
-      ? `https://image.tmdb.org/t/p/w300${f.poster_path}`
-      : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='450' fill='%231a1a24'%3E%3Crect width='300' height='450'/%3E%3Ctext x='50%25' y='50%25' fill='%23444' font-size='40' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E";
-
-    const rating = f.vote_average ? Number(f.vote_average).toFixed(1) : "—";
-    const year = f.year || "—";
-    const locCount = f.location_count || (f.locations || []).length || 0;
-
-    const countryNames = [
-      ...new Set(
-        (f.locations || [])
-          .map(l => l.country && l.country !== "Inconnu" ? l.country : l.name)
-          .filter(Boolean)
-      )
-    ].slice(0, 2).join(", ");
-
-    const primaryLoc = f.primary_location || (f.locations && f.locations[0]) || null;
-
-    const btnLabel = locCount === 1
-      ? "Voir le lieu de tournage"
-      : `Voir les ${locCount} lieux`;
-
-    return `
-      <article class="filming-card" tabindex="0">
-        <div class="filming-card-img-wrap"
-             onclick="ouvrirDetailLieuxTournage(${tmdbId}, '${mediaType}')">
-          <img src="${poster}" alt="${escapeHtml(f.title || "Film")}" loading="lazy">
-          <div class="filming-card-loc-badge">
-            <i class="fas fa-map-marker-alt"></i> ${locCount}
-          </div>
-        </div>
-
-        <div class="filming-card-body">
-          <h4 onclick="ouvrirDetailLieuxTournage(${tmdbId}, '${mediaType}')">
-            ${escapeHtml(f.title || "Titre inconnu")}
-          </h4>
-
-          <div class="filming-card-meta">
-            <span class="filming-card-year">${year}</span>
-            <span class="filming-card-rating">
-              <i class="fas fa-star"></i> ${rating}
-            </span>
-          </div>
-
-          ${countryNames ? `
-            <div class="filming-card-countries">
-              <i class="fas fa-globe-europe"></i> ${escapeHtml(countryNames)}
-            </div>
-          ` : ""}
-
-          ${primaryLoc ? `
-            <div class="filming-card-primary-loc">
-              <i class="fas fa-map-pin"></i> ${escapeHtml(primaryLoc.name)}
-            </div>
-          ` : ""}
-
-          ${locCount > 0 ? `
-            <button class="filming-show-locations-btn"
-                    onclick="ouvrirDetailLieuxTournage(${tmdbId}, '${mediaType}')">
-              <i class="fas fa-map-marked-alt"></i> ${btnLabel}
-            </button>
-          ` : ""}
-        </div>
-      </article>
-    `;
-  }).join("");
-}
-
-async function ouvrirDetailLieuxTournage(tmdbId, mediaType = "movie") {
-  const detailZone = document.getElementById("filming-detail-zone");
-  if (!detailZone) return;
-
-  const cacheKey = `${tmdbId}_${mediaType}`;
-  const film = _filmingFilmsCache.get(cacheKey) || {};
-
-  detailZone.style.display = "block";
-  detailZone.innerHTML = `
-    <div class="filming-detail-loading">
-      <i class="fas fa-circle-notch fa-spin"></i>
-      <span>Chargement des lieux de tournage…</span>
-    </div>
-  `;
-
-  detailZone.scrollIntoView({ behavior: "smooth", block: "start" });
-
-  let locations = _filmLocationsCache.get(tmdbId) || [];
-
-  if (!locations.length) {
-    try {
-      const data = await safeFetch(`/movie/${tmdbId}/locations?type=${mediaType}`);
-      locations = (data.locations || []).filter(l => l.lat != null && l.lng != null);
-
-      if (locations.length) {
-        _filmLocationsCache.set(tmdbId, locations);
-      }
-    } catch (e) {
-      locations = [];
-    }
-  }
-
-  const title = film.title || film.name || "Film";
-  const poster = film.poster_path
-    ? `https://image.tmdb.org/t/p/w300${film.poster_path}`
-    : "";
-
-  if (!locations.length) {
-    detailZone.innerHTML = `
-      <div class="filming-detail-panel">
-        <button class="filming-detail-close" onclick="fermerDetailLieuxTournage()">
-          <i class="fas fa-times"></i>
-        </button>
-
-        <div class="filming-detail-empty">
-          <h2>${escapeHtml(title)}</h2>
-          <p>Aucun point GPS disponible pour ce film.</p>
-        </div>
-      </div>
-    `;
-    return;
-  }
-
-  detailZone.innerHTML = `
-    <div class="filming-detail-panel">
-      <button class="filming-detail-close" onclick="fermerDetailLieuxTournage()">
-        <i class="fas fa-times"></i>
-      </button>
-
-      <div class="filming-detail-header">
-        ${poster ? `<img src="${poster}" alt="${escapeHtml(title)}" loading="lazy">` : ""}
-
-        <div>
-          <h2>${escapeHtml(title)}</h2>
-          <p>
-            <i class="fas fa-map-marker-alt"></i>
-            ${locations.length} lieu${locations.length > 1 ? "x" : ""} de tournage
-          </p>
-
-          <button class="btn-stream" onclick="afficherDetails(${tmdbId}, '${mediaType}')">
-            <i class="fas fa-film"></i> Voir la fiche complète
-          </button>
-        </div>
-      </div>
-
-      <div class="filming-detail-grid">
-        <div id="filming-detail-map" class="filming-detail-map"></div>
-
-        <div class="filming-detail-locations">
-          ${locations.map((loc, idx) => `
-            <button class="filming-location-row"
-                    onclick="focusFilmingDetailMarker(${idx})">
-              <span class="filming-location-num">${idx + 1}</span>
-              <span>
-                <strong>${escapeHtml(loc.name || "Lieu de tournage")}</strong>
-                <small>
-                  ${escapeHtml([loc.city, loc.country].filter(Boolean).join(", ") || "Lieu non précisé")}
-                </small>
-              </span>
-            </button>
-          `).join("")}
-        </div>
-      </div>
-    </div>
-  `;
-
-  _ensureLeafletFull(() => {
-    setTimeout(() => {
-      _initFilmingDetailMap(locations);
-    }, 100);
-  });
-}
 
 let _filmingDetailMarkers = [];
 
-function _initFilmingDetailMap(locations) {
-  const mapEl = document.getElementById("filming-detail-map");
-  if (!mapEl || !window.L) return;
 
-  if (_filmingDetailMap) {
-    try {
-      _filmingDetailMap.remove();
-    } catch (e) {}
-    _filmingDetailMap = null;
-  }
 
-  _filmingDetailMarkers = [];
 
-  _filmingDetailMap = L.map(mapEl, {
-    scrollWheelZoom: false,
-    zoomControl: true
-  });
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "&copy; OpenStreetMap"
-  }).addTo(_filmingDetailMap);
-
-  const bounds = L.latLngBounds();
-
-  locations.forEach((loc, idx) => {
-    if (loc.lat == null || loc.lng == null) return;
-
-    const icon = L.divIcon({
-      className: "",
-      html: `
-        <div class="filming-detail-marker">
-          <span>${idx + 1}</span>
-        </div>
-      `,
-      iconSize: [34, 34],
-      iconAnchor: [17, 34],
-      popupAnchor: [0, -34]
-    });
-
-    const marker = L.marker([Number(loc.lat), Number(loc.lng)], { icon })
-      .addTo(_filmingDetailMap)
-      .bindPopup(`
-        <strong>${escapeHtml(loc.name || "Lieu de tournage")}</strong><br>
-        <small>${escapeHtml([loc.city, loc.country].filter(Boolean).join(", "))}</small>
-      `);
-
-    _filmingDetailMarkers.push(marker);
-    bounds.extend([Number(loc.lat), Number(loc.lng)]);
-  });
-
-  setTimeout(() => {
-    _filmingDetailMap.invalidateSize();
-
-    if (bounds.isValid()) {
-      _filmingDetailMap.fitBounds(bounds, {
-        padding: [35, 35],
-        maxZoom: 13
-      });
-    }
-  }, 250);
-}
-
-function focusFilmingDetailMarker(index) {
-  const marker = _filmingDetailMarkers[index];
-  if (!marker || !_filmingDetailMap) return;
-
-  _filmingDetailMap.flyTo(marker.getLatLng(), 14, {
-    duration: 0.8
-  });
-
-  marker.openPopup();
-}
-
-function fermerDetailLieuxTournage() {
-  const detailZone = document.getElementById("filming-detail-zone");
-  if (detailZone) {
-    detailZone.style.display = "none";
-    detailZone.innerHTML = "";
-  }
-
-  if (_filmingDetailMap) {
-    try {
-      _filmingDetailMap.remove();
-    } catch (e) {}
-    _filmingDetailMap = null;
-  }
-
-  _filmingDetailMarkers = [];
-}
 function _renderFilmingPagination(page,totalPages){
   const pag=document.getElementById("filming-pagination");
   if(!pag||totalPages<=1){if(pag)pag.innerHTML="";return;}
@@ -2138,76 +1586,10 @@ function _ensureLeafletFull(callback){
 // ════ CACHE LOCAL DES LOCATIONS PAR FILM ════
 const _filmLocationsCache = new Map();
 
-// ════ MARQUEURS FILMS (cluster général) ════
-function _updateFilmingMapMarkers(films){
-  if(!_filmingLeafletReady||!_filmingMap)return;
-  if(_filmingMarkerClusterGroup)_filmingMarkerClusterGroup.clearLayers();
-  _filmingAllMarkers=[];
-  const bounds=L.latLngBounds();
 
-  films.forEach(f=>{
-    // Stocker locations en cache local
-    const locs=(f.locations||[]).filter(l=>l.lat!=null&&l.lng!=null);
-    if(locs.length>0)_filmLocationsCache.set(f.tmdb_id,locs);
-
-    const loc=f.primary_location||locs[0]||null;
-    if(!loc||loc.lat==null)return;
-
-    const posterUrl=f.poster_path?`https://image.tmdb.org/t/p/w92${f.poster_path}`:null;
-
-    // Marqueur SVG inline — visible quelle que soit la police chargée
-    const bgStyle=posterUrl
-      ?`background-image:url('${posterUrl}');background-size:cover;background-position:center;`
-      :`background:#1a1a2e;`;
-    const iconHtml=`<div style="${bgStyle}width:36px;height:36px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2.5px solid #00ffcc;box-shadow:0 3px 10px rgba(0,255,204,.4);overflow:hidden;"></div>`;
-
-    const icon=L.divIcon({html:iconHtml,className:"",iconSize:[36,36],iconAnchor:[18,36],popupAnchor:[0,-40]});
-    const marker=L.marker([loc.lat,loc.lng],{icon});
-
-    marker.on('contextmenu',e=>{
-      navigator.clipboard.writeText(`${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`)
-        .then(()=>toast("📍 Coordonnées copiées"));
-    });
-
-    const bookQ=encodeURIComponent(loc.name);
-    const safeT=escapeHtml(f.title).replace(/'/g,"\\'");
-    marker.bindPopup(
-      `<div class="fmap-popup">
-        ${posterUrl?`<img src="${posterUrl}" class="fmap-popup-poster" alt="">`:""}
-        <div class="fmap-popup-body">
-          <div class="fmap-popup-title">${escapeHtml(f.title)}</div>
-          <div class="fmap-popup-meta">${f.year||""}${f.vote_average?` · ⭐ ${f.vote_average.toFixed(1)}`:""}</div>
-          <div class="fmap-popup-loc">📍 ${escapeHtml(loc.name)}</div>
-          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;">
-            <button class="fmap-popup-btn" onclick="afficherDetails(${f.tmdb_id},'movie')">🎬 Détails</button>
-            <button class="fmap-popup-btn" onclick="showFilmLocationsOnMap(${f.tmdb_id},'${safeT}','movie')">🗺 Voir lieux</button>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:4px;">
-            <button class="fmap-popup-btn btn-osm-action" data-type="hotel" data-lat="${loc.lat}" data-lng="${loc.lng}">🏨 Hôtels</button>
-            <button class="fmap-popup-btn btn-osm-action" data-type="restaurant" data-lat="${loc.lat}" data-lng="${loc.lng}">🍽 Restos</button>
-            <button class="fmap-popup-btn btn-osm-action" data-type="transport" data-lat="${loc.lat}" data-lng="${loc.lng}">🚆 Transports</button>
-            <button class="fmap-popup-btn btn-osm-action" data-type="isochrone" data-lat="${loc.lat}" data-lng="${loc.lng}">🚶 15 min</button>
-          </div>
-          <a href="https://www.booking.com/searchresults.html?ss=${bookQ}&aid=Pelify"
-             target="_blank" rel="sponsored noopener"
-             class="fmap-popup-btn fmap-popup-booking"
-             style="margin-top:6px;display:inline-flex;">🛏 Booking.com</a>
-        </div>
-      </div>`,
-      {maxWidth:300}
-    );
-
-    if(_filmingMarkerClusterGroup)_filmingMarkerClusterGroup.addLayer(marker);
-    _filmingAllMarkers.push({lat:loc.lat,lng:loc.lng,marker,film:f});
-    bounds.extend([loc.lat,loc.lng]);
-  });
-
-  if(bounds.isValid())_filmingMap.flyToBounds(bounds,{padding:[50,50],duration:1.5});
-}
 
 // ════ LIEUX D'UN FILM ════
-// Utilise le cache local (données déjà dans le JSON catalogue) en priorité
-// Fallback vers l'API Wikidata seulement si pas en cache
+
 async function showFilmLocationsOnMap(tmdbId,title,mediaType='movie'){
   if(!_filmingMap||!_filmingLeafletReady)return;
   _stopBounce();
