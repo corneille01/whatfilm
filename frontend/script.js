@@ -69,10 +69,28 @@ async function ensureTurfReady() {
 
 // ════ SAFE FETCH ════
 async function safeFetch(url, options = {}) {
-    const res = await fetch(url, options);
-    const ct = res.headers.get("content-type") || "";
-    if (!ct.includes("application/json")) throw new Error(`Réponse inattendue du serveur (${res.status}).`);
-    return res.json();
+  const method = (options.method || "GET").toUpperCase();
+  const useCache = method === "GET";
+
+  if (useCache) {
+    const cached = getCached(url);
+    if (cached) return cached;
+  }
+
+  const res = await fetch(url, options);
+  const ct = res.headers.get("content-type") || "";
+
+  if (!ct.includes("application/json")) {
+    throw new Error(`Réponse inattendue du serveur (${res.status}).`);
+  }
+
+  const data = await res.json();
+
+  if (useCache && data && data.status !== "error") {
+    setCache(url, data);
+  }
+
+  return data;
 }
 
 
@@ -130,7 +148,10 @@ let currentMovieId = null;
 let currentMediaType = "movie";
 let analysisAbortController = null;
 let navStack = [];
-
+let _detailTourismMap = null;
+let _detailTourismMarkers = [];
+let _detailTourismAmenityLayer = null;
+let _detailTourismIsoLayer = null;
 
 
 
@@ -142,82 +163,203 @@ let _immersiveGain = null;
 let _immersiveOsc = null;
 let _immersiveInterval = null;
 
-function playImmersiveSound() {
-  try {
-    if (_immersiveAudioCtx) return; // déjà joué
 
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    _immersiveAudioCtx = ctx;
 
-    // Créer un gain pour contrôler le volume
-    const gain = ctx.createGain();
-    gain.gain.value = 0.04; // très bas, ambiance
-    gain.connect(ctx.destination);
 
-    // Oscillateur principal (basse fréquence, type sine)
-    const osc = ctx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.value = 80; // grave
-    osc.connect(gain);
-    osc.start();
+function afficherTourismeTournage(container, locApiLocations = [], wdLocations = [], context = {}) {
+  const all = [...(locApiLocations || []), ...(wdLocations || [])];
 
-    // Un second oscillateur pour créer un effet de battement spatial (désaccord léger)
-    const osc2 = ctx.createOscillator();
-    osc2.type = 'sine';
-    osc2.frequency.value = 82; // légèrement désaccordé
-    const gain2 = ctx.createGain();
-    gain2.gain.value = 0.03;
-    osc2.connect(gain2);
-    gain2.connect(ctx.destination);
-    osc2.start();
+  const locations = all
+    .map(normalizeDetailLocation)
+    .filter(l => l && Number.isFinite(l.lat) && Number.isFinite(l.lng));
 
-    // Ajouter un peu de bruit blanc en fond (faible)
-    const bufferSize = 2 * ctx.sampleRate;
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = (Math.random() * 2 - 1) * 0.01; // très faible
+  if (!locations.length) {
+    container.innerHTML = "";
+    return;
+  }
+
+  container.innerHTML = `
+    <section class="detail-tourism-block">
+      <div class="detail-tourism-head">
+        <div>
+          <h3>
+            <i class="fas fa-map-marked-alt"></i>
+            Lieux de tournage & guide touristique
+          </h3>
+          <p>
+            Explore les vrais lieux de tournage, les restaurants, hôtels,
+            transports et activités proches.
+          </p>
+        </div>
+      </div>
+
+      <div class="detail-tourism-grid">
+        <div id="detail-tourism-map" class="detail-tourism-map"></div>
+
+        <div class="detail-tourism-side">
+          <div class="detail-tourism-locations">
+            ${locations.map((loc, index) => `
+              <button class="detail-location-card"
+                      onclick="selectDetailFilmingLocation(${index})">
+                <span class="detail-location-num">${index + 1}</span>
+                <span>
+                  <strong>${escapeHtml(loc.name)}</strong>
+                  <small>${escapeHtml([loc.city, loc.country].filter(Boolean).join(", ") || "Lieu non précisé")}</small>
+                </span>
+              </button>
+            `).join("")}
+          </div>
+
+          <div id="detail-nearby-panel" class="detail-nearby-panel">
+            <p>Sélectionne un lieu pour voir les commodités proches.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+
+  window._detailTourismLocations = locations;
+  window._detailTourismContext = context;
+
+  ensureDetailMapLibs(() => {
+    initDetailTourismMap(locations);
+  });
+}
+
+function normalizeDetailLocation(l) {
+  if (!l) return null;
+
+  const lat = Number(l.lat ?? l.latitude);
+  const lng = Number(l.lng ?? l.lon ?? l.longitude);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  return {
+    id: l.id || l.location_id || null,
+    name: l.name || l.label || l.title || "Lieu de tournage",
+    city: l.city || "",
+    country: l.country && l.country !== "Inconnu" ? l.country : "",
+    address: l.address || "",
+    scene: l.scene || l.scene_description || l.description || "",
+    lat,
+    lng
+  };
+}
+
+function ensureDetailMapLibs(callback) {
+  const loadLeaflet = () => {
+    if (window.L) return Promise.resolve();
+
+    if (!document.querySelector('link[href*="leaflet.css"]')) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      document.head.appendChild(link);
     }
-    const noise = ctx.createBufferSource();
-    noise.buffer = buffer;
-    noise.loop = true;
-    const gainNoise = ctx.createGain();
-    gainNoise.gain.value = 0.02;
-    noise.connect(gainNoise);
-    gainNoise.connect(ctx.destination);
-    noise.start();
 
-    // Variation lente de la fréquence pour un effet spatial (modulation)
-    let freq = 80;
-    _immersiveInterval = setInterval(() => {
-      freq += (Math.random() - 0.5) * 0.3;
-      freq = Math.max(78, Math.min(84, freq));
-      osc.frequency.setTargetAtTime(freq, ctx.currentTime, 0.1);
-      osc2.frequency.setTargetAtTime(freq + 2, ctx.currentTime, 0.1);
-    }, 500);
+    return loadScriptOnce(
+      "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+      "leaflet-js-detail"
+    );
+  };
+loadLeaflet()
+  .then(callback)
+  .catch(err => {
+    console.warn("Carte touristique impossible à charger:", err);
+  });
+}
 
-    // Garder une référence pour nettoyer
-    _immersiveOsc = osc;
-    _immersiveGain = gain;
+function initDetailTourismMap(locations) {
+  const mapEl = document.getElementById("detail-tourism-map");
+  if (!mapEl || !window.L) return;
 
-    // Augmenter progressivement le volume (effet fade-in)
-    gain.gain.setTargetAtTime(0.04, ctx.currentTime, 2);
-    gain2.gain.setTargetAtTime(0.03, ctx.currentTime, 2);
-    gainNoise.gain.setTargetAtTime(0.02, ctx.currentTime, 2);
+  if (_detailTourismMap) {
+    try {
+      _detailTourismMap.remove();
+    } catch (e) {}
+    _detailTourismMap = null;
+  }
 
-    // Arrêter automatiquement après 8 secondes (pour ne pas gêner)
-    setTimeout(() => {
-      if (_immersiveAudioCtx) {
-        _immersiveAudioCtx.close();
-        _immersiveAudioCtx = null;
-        clearInterval(_immersiveInterval);
-        _immersiveInterval = null;
-      }
-    }, 8000);
-  } catch (e) {
-    // Silencieux (API Audio non supportée)
+  _detailTourismMarkers = [];
+
+  _detailTourismMap = L.map(mapEl, {
+    scrollWheelZoom: false,
+    zoomControl: true
+  });
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "&copy; OpenStreetMap contributors"
+  }).addTo(_detailTourismMap);
+
+  const bounds = L.latLngBounds();
+
+  locations.forEach((loc, index) => {
+    const marker = L.marker([loc.lat, loc.lng])
+      .addTo(_detailTourismMap)
+      .bindPopup(`
+        <strong>${escapeHtml(loc.name)}</strong><br>
+        <small>${escapeHtml([loc.city, loc.country].filter(Boolean).join(", "))}</small>
+      `);
+
+    marker.on("click", () => selectDetailFilmingLocation(index));
+
+    _detailTourismMarkers.push(marker);
+    bounds.extend([loc.lat, loc.lng]);
+  });
+
+  setTimeout(() => {
+    _detailTourismMap.invalidateSize();
+
+    if (bounds.isValid()) {
+      _detailTourismMap.fitBounds(bounds, {
+        padding: [35, 35],
+        maxZoom: 13
+      });
+    }
+  }, 250);
+}
+async function selectDetailFilmingLocation(index) {
+  const locations = window._detailTourismLocations || [];
+  const loc = locations[index];
+
+  if (!loc || !_detailTourismMap) return;
+
+  const marker = _detailTourismMarkers[index];
+
+  _detailTourismMap.flyTo([loc.lat, loc.lng], 15, {
+    duration: 0.8
+  });
+
+  if (marker) marker.openPopup();
+
+  const panel = document.getElementById("detail-nearby-panel");
+  if (panel) {
+    panel.innerHTML = `
+      <div class="tourism-coming-soon">
+        <strong>Guide touristique bientôt disponible</strong>
+        <p>
+          Les hôtels, restaurants, transports et activités proches seront ajoutés
+          dans une prochaine version.
+        </p>
+        <a class="btn-stream"
+           href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(loc.lat + "," + loc.lng)}"
+           target="_blank"
+           rel="noopener">
+          <i class="fas fa-map-location-dot"></i>
+          Ouvrir ce lieu sur Google Maps
+        </a>
+      </div>
+    `;
   }
 }
+
+
+
+
+
+
+
+
 // ════ DICTIONNAIRE INTERNATIONAL ════
 const dict = {
   "en-US": {
@@ -1834,17 +1976,78 @@ function afficherPrivacy(){document.getElementById("hero").style.display="none";
 function cacherPrivacy(){document.getElementById("privacy-page").style.display="none";retourAccueil();}
 
 // ════ WIKIDATA ENRICHMENT ════
-async function chargerEnrichissementWikidata(tmdb_id,media_type="movie"){
-  const sections={crew:document.getElementById("crew_section"),locations:document.getElementById("locations_section"),finance:document.getElementById("finance_section"),eidr:document.getElementById("eidr_badge")};
-  if(sections.crew)sections.crew.innerHTML=`<div class="wd-loading"><i class="fas fa-circle-notch fa-spin"></i><span style="color:var(--muted);font-size:.82rem">Chargement équipe créative…</span></div>`;
-  try{
-    const[wdData,locData]=await Promise.allSettled([safeFetch(`/movie/${tmdb_id}/wikidata?type=${media_type}`),safeFetch(`/movie/${tmdb_id}/locations?type=${media_type}`)]);
-    const wd=wdData.status==="fulfilled"?wdData.value:null;const loc=locData.status==="fulfilled"?locData.value:null;
-    if(sections.crew)afficherCrewWikidata(sections.crew,wd);
-    if(sections.locations)afficherLocationsWikidata(sections.locations,loc?.locations||[],wd?.locations||[]);
-    if(sections.finance)afficherFinanceWikidata(sections.finance,wd);
-    if(sections.eidr&&wd?.eidr_id){sections.eidr.innerHTML=`<span class="eidr-badge" title="Identifiant EIDR standard industrie audiovisuelle"><i class="fas fa-fingerprint"></i>EIDR <code>${wd.eidr_id}</code></span>`;sections.eidr.style.display="flex";}
-  }catch(e){console.warn("Wikidata enrichment KO:",e);if(sections.crew)sections.crew.innerHTML="";}
+async function chargerEnrichissementWikidata(tmdb_id, media_type = "movie") {
+  const sections = {
+    crew: document.getElementById("crew_section"),
+    locations: document.getElementById("locations_section"),
+    finance: document.getElementById("finance_section"),
+    eidr: document.getElementById("eidr_badge")
+  };
+
+  if (sections.crew) {
+    sections.crew.innerHTML = `
+      <div class="wd-loading">
+        <i class="fas fa-circle-notch fa-spin"></i>
+        <span style="color:var(--muted);font-size:.82rem">
+          Chargement équipe créative…
+        </span>
+      </div>
+    `;
+  }
+
+  if (sections.locations) {
+    sections.locations.innerHTML = `
+      <div class="wd-loading">
+        <i class="fas fa-circle-notch fa-spin"></i>
+        <span style="color:var(--muted);font-size:.82rem">
+          Chargement des lieux de tournage…
+        </span>
+      </div>
+    `;
+  }
+
+  try {
+    const [wdData, locData] = await Promise.allSettled([
+      safeFetch(`/movie/${tmdb_id}/wikidata?type=${media_type}`),
+      safeFetch(`/movie/${tmdb_id}/locations?type=${media_type}`)
+    ]);
+
+    const wd = wdData.status === "fulfilled" ? wdData.value : null;
+    const loc = locData.status === "fulfilled" ? locData.value : null;
+
+    if (sections.crew) {
+      afficherCrewWikidata(sections.crew, wd);
+    }
+
+    if (sections.finance) {
+      afficherFinanceWikidata(sections.finance, wd);
+    }
+
+    if (sections.locations) {
+      afficherTourismeTournage(
+        sections.locations,
+        loc?.locations || [],
+        wd?.locations || [],
+        { tmdb_id, media_type }
+      );
+    }
+
+    if (sections.eidr && wd?.eidr_id) {
+      sections.eidr.innerHTML = `
+        <span class="eidr-badge" title="Identifiant EIDR standard industrie audiovisuelle">
+          <i class="fas fa-fingerprint"></i>
+          EIDR <code>${wd.eidr_id}</code>
+        </span>
+      `;
+      sections.eidr.style.display = "flex";
+    }
+  } catch (e) {
+    console.warn("Wikidata enrichment KO:", e);
+
+    if (sections.crew) sections.crew.innerHTML = "";
+    if (sections.finance) sections.finance.innerHTML = "";
+    if (sections.locations) sections.locations.innerHTML = "";
+  }
 }
 function afficherCrewWikidata(container,wd){
   if(!wd||wd.status==="error"){container.innerHTML="";return;}
@@ -1859,110 +2062,7 @@ function afficherCrewWikidata(container,wd){
 
 
 
-function initFilmingMap(locations) {
-  try {
-    const mapEl = document.getElementById("filming-map-inner");
-    if (!mapEl || !window.L) {
-      console.warn("Leaflet ou conteneur manquant");
-      return;
-    }
 
-    // Nettoyer l'ancienne carte
-    if (window._filmingMapDetail) {
-      window._filmingMapDetail.remove();
-      window._filmingMapDetail = null;
-    }
-
-    // Créer la carte
-    const center = [locations[0].lat, locations[0].lng];
-    const map = L.map(mapEl, { zoomControl: true, scrollWheelZoom: false });
-    window._filmingMapDetail = map;
-
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-      attribution: '© OpenStreetMap © CARTO',
-      subdomains: 'abcd',
-      maxZoom: 19
-    }).addTo(map);
-
-    // Vérifier que le plugin markerCluster est disponible
-    const clusterGroup = (window.L.markerClusterGroup)
-      ? L.markerClusterGroup({
-          maxClusterRadius: 60,
-          showCoverageOnHover: false,
-          iconCreateFunction: function(cluster) {
-            const count = cluster.getChildCount();
-            const size = count > 100 ? 50 : count > 30 ? 40 : 32;
-            return L.divIcon({
-              html: `<div class="fmap-cluster" style="width:${size}px;height:${size}px;border-radius:50%;background:rgba(0,255,204,0.2);border:2px solid #00ffcc;color:#00ffcc;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:${size>40?'14px':'12px'}">${count}</div>`,
-              className: '',
-              iconSize: [size, size],
-              iconAnchor: [size/2, size/2]
-            });
-          }
-        })
-      : L.layerGroup(); // fallback si cluster non disponible
-
-    const icon = L.divIcon({
-      className: '',
-      html: `<div style="background:var(--primary,#00ffcc);width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #000;box-shadow:0 2px 8px rgba(0,255,204,.4)"></div>`,
-      iconSize: [28, 28],
-      iconAnchor: [14, 28]
-    });
-
-    const points = locations.map(loc => [loc.lat, loc.lng]);
-    const firstPoint = points[0];
-    const bounds = [];
-
-    locations.forEach((loc, index) => {
-      const marker = L.marker([loc.lat, loc.lng], { icon }).addTo(clusterGroup);
-      
-      let distanceText = '';
-      if (index > 0 && window.turf) {
-        const from = turf.point(firstPoint);
-        const to = turf.point([loc.lng, loc.lat]);
-        const distance = turf.distance(from, to, { units: 'kilometers' });
-        distanceText = ` <span style="font-size:0.7rem;color:var(--muted)">(${distance.toFixed(1)} km depuis le premier lieu)</span>`;
-      }
-
-      marker.bindPopup(`
-        <strong>${loc.name}</strong>
-        ${distanceText}
-        <br>
-        <a href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(loc.name)}&aid=Pelify" target="_blank" style="color:#00ffcc;font-size:.8rem">🛏 Hôtels →</a> · 
-        <a href="https://www.expedia.com/search?q=${encodeURIComponent(loc.name)}" target="_blank" style="color:#00ffcc;font-size:.8rem">🏨 Expedia →</a> · 
-        <a href="https://www.airbnb.com/s/${encodeURIComponent(loc.name)}" target="_blank" style="color:#00ffcc;font-size:.8rem">🏡 Airbnb →</a> · 
-        <a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank" style="color:#00ffcc;font-size:.8rem">🗺 Maps →</a>
-      `);
-
-      bounds.push([loc.lat, loc.lng]);
-    });
-
-    map.addLayer(clusterGroup);
-
-    if (bounds.length === 1) {
-      map.setView(center, 12);
-    } else {
-      map.fitBounds(bounds, { padding: [30, 30] });
-    }
-
-    if (points.length > 1 && window.L.polyline) {
-      const line = L.polyline(points, {
-        color: '#00ffcc',
-        weight: 2,
-        opacity: 0.5,
-        dashArray: '6,8'
-      }).addTo(map);
-    }
-
-    // 🔥 FORCER L'AFFICHAGE – Invalider la taille après un court délai
-    setTimeout(() => {
-      map.invalidateSize();
-    }, 250);
-
-  } catch (e) {
-    console.warn("Leaflet map KO:", e);
-  }
-}
 function afficherFinanceWikidata(container,wd){
   if(!wd||(!wd.budget_usd&&!wd.box_office_usd)){container.innerHTML="";return;}
   const fmt=n=>n?"$"+(n>=1e9?(n/1e9).toFixed(2)+" Md":n>=1e6?Math.round(n/1e6)+" M":n.toLocaleString()):null;

@@ -7,6 +7,8 @@ import base64
 import time
 import asyncio
 import re
+import httpx
+
 from core import extraction
 from routes_filming import router as filming_router
 from typing import Optional
@@ -14,6 +16,8 @@ from contextlib import asynccontextmanager
 from collections import defaultdict
 
 from fastapi import FastAPI, Request, UploadFile, File, Form
+
+
 
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -255,6 +259,33 @@ async def render_head_fix(request: Request, call_next):
         return Response(status_code=200)
     return await call_next(request)
 
+
+@app.middleware("http")
+async def static_cache_headers(request: Request, call_next):
+    response: Response = await call_next(request)
+
+    path = request.url.path
+
+    static_exts = (
+        ".js",
+        ".css",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".svg",
+        ".ico",
+        ".woff2",
+        ".webmanifest"
+    )
+
+    if path.startswith("/frontend/") and path.endswith(static_exts):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+
+    elif path in {"/", "/fr", "/en", "/es", "/de", "/zh"}:
+        response.headers["Cache-Control"] = "public, max-age=300"
+
+    return response
 app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
 
 def cleanup_files(video_path, audio_path, frame_dir, audio_exists):
@@ -268,6 +299,14 @@ def cleanup_files(video_path, audio_path, frame_dir, audio_exists):
     except Exception as e:
         print(f"⚠️ Cleanup: {e}", flush=True)
 
+
+
+@app.get("/sw.js")
+async def service_worker():
+    response = FileResponse("frontend/sw.js", media_type="application/javascript")
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["Service-Worker-Allowed"] = "/"
+    return response
 # ════════════════════════════════════════════════════════════════
 # MODÈLES
 # ════════════════════════════════════════════════════════════════
@@ -1095,7 +1134,6 @@ async def process_analysis(
 # ════════════════════════════════════════════════════════════════
 # ROUTES PUBLIQUES
 # ════════════════════════════════════════════════════════════════
-
 
 @app.get("/trending")
 async def trending(lang: str = "fr", type: str = "movie"):

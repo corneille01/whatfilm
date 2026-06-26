@@ -22,7 +22,10 @@
 
     <meta name="author" content="Pelify" />
     <meta name="theme-color" content="#0d0d14" />
-
+    <link rel="manifest" href="/frontend/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Pelify" />
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎬%3C/text%3E%3C/svg%3E"
@@ -185,7 +188,7 @@
       />
     </noscript>
 
-    <link rel="stylesheet" href="/frontend/style.css?v=18" />
+    <link rel="stylesheet" href="/frontend/style.css?v=19" />
   </head>
   <body>
     <input
@@ -292,32 +295,32 @@
         <h1><span data-i18n="title">PELIFY</span></h1>
 
         <!-- Étapes -->
-      
-<ol class="hero-steps" aria-label="Fonctionnement de Pelify">
-  <li class="hero-step">
-    <span class="hero-step-num">1</span>
-    <span data-i18n="step1">
-      Coller un lien TikTok, Reel, Short..., ou importer une vidéo
-    </span>
-  </li>
 
-  <li class="hero-step">
-    <span class="hero-step-num">2</span>
-    <span data-i18n="step2">Nous analysons la vidéo</span>
-  </li>
+        <ol class="hero-steps" aria-label="Fonctionnement de Pelify">
+          <li class="hero-step">
+            <span class="hero-step-num">1</span>
+            <span data-i18n="step1">
+              Coller un lien TikTok, Reel, Short..., ou importer une vidéo
+            </span>
+          </li>
 
-  <li class="hero-step">
-    <span class="hero-step-num">3</span>
-    <span data-i18n="step3">Découvrir le film en secondes</span>
-  </li>
+          <li class="hero-step">
+            <span class="hero-step-num">2</span>
+            <span data-i18n="step2">Nous analysons la vidéo</span>
+          </li>
 
-  <li class="hero-step">
-    <span class="hero-step-num">4</span>
-    <span data-i18n="step4">
-      Découvrir les lieux de tournage des films et séries
-    </span>
-  </li>
-</ol>
+          <li class="hero-step">
+            <span class="hero-step-num">3</span>
+            <span data-i18n="step3">Découvrir le film en secondes</span>
+          </li>
+
+          <li class="hero-step">
+            <span class="hero-step-num">4</span>
+            <span data-i18n="step4">
+              Découvrir les lieux de tournage des films et séries
+            </span>
+          </li>
+        </ol>
         <!-- Barre de recherche centrale -->
         <div class="hero-search-wrap">
           <i class="fas fa-search hero-search-icon"></i>
@@ -504,6 +507,8 @@
         </button>
       </div>
 
+      <!-- ── Lieux de tournage ─────────────────────────────────────── -->
+      <div id="locations_section" style="margin-top: 24px"></div>
       <div id="streaming_section" style="margin-top: 20px"></div>
 
       <div id="seasons_section"></div>
@@ -515,9 +520,6 @@
 
       <!-- ── Équipe créative Wikidata ──────────────────────────────── -->
       <div id="crew_section" style="margin-top: 24px"></div>
-
-      <!-- ── Lieux de tournage ─────────────────────────────────────── -->
-      <div id="locations_section" style="margin-top: 24px"></div>
 
       <!-- ── Finance (budget / box-office) ─────────────────────────── -->
       <div id="finance_section" style="margin-top: 24px"></div>
@@ -658,10 +660,10 @@
     </div>
 
     <!-- Notre script principal -->
-    <script src="/frontend/script.js?v=18" defer></script>
-    <script src="/frontend/filming.js?v=2" defer></script>
+    <script src="/frontend/script.js?v=19" defer></script>
+    <script src="/frontend/filming.js?v=3" defer></script>
     <!-- MODALE PUBLICITÉ -->
-    <divsss
+    <div
       id="ad-modal"
       style="
         display: none;
@@ -921,5 +923,14 @@
         </ul>
       </section>
     </details>
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker
+            .register("/sw.js", { scope: "/" })
+            .catch(() => {});
+        });
+      }
+    </script>
   </body>
 </html>
