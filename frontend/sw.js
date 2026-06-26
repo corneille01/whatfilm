@@ -2,9 +2,9 @@ const CACHE_NAME = "pelify-app-v2";
 
 const APP_SHELL = [
   "/",
-  "/frontend/style.css?v=19",
-  "/frontend/script.js?v=19",
-  "/frontend/filming.js?v=3",
+  "/frontend/style.css?v=20",
+  "/frontend/script.js?v=20",
+  "/frontend/filming.js?v=4",
   "/frontend/manifest.webmanifest",
 
   "/frontend/images/logo.webp",
@@ -74,7 +74,16 @@ self.addEventListener("fetch", event => {
     url.pathname.startsWith("/discover/") ||
     url.pathname.startsWith("/discover-provider/") ||
     url.pathname.startsWith("/movie/") ||
-    url.pathname.startsWith("/films-tournes")
+    url.pathname.startsWith("/films-tournes")||
+    url.pathname.startsWith("/film")||
+    url.pathname.startsWith("/genre")||
+    url.pathname.startsWith("/")||
+    url.pathname.startsWith("/fr")||
+    url.pathname.startsWith("/es")||
+    url.pathname.startsWith("/de")||
+    url.pathname.startsWith("/us")||
+    url.pathname.startsWith("/zh")||
+    url.pathname.startsWith("/gb")
   ) {
     event.respondWith(
       caches.open(CACHE_NAME).then(async cache => {

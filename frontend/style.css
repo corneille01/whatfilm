@@ -659,13 +659,7 @@ body {
   color: var(--muted);
   font-weight: 400;
 }
-#synopsis_film {
-  color: #aab;
-  line-height: 1.7;
-  font-size: 0.9rem;
-  margin-bottom: 20px;
-  text-align: justify;
-}
+
 
 /* STREAMING */
 #streaming_section {
@@ -2100,7 +2094,7 @@ body { font-weight: 500; }                  /* Rajdhani 400 est trop fin */
 @media (max-width: 380px) {
   #hero h1 { font-size: clamp(1.8rem, 8vw, 2.4rem); letter-spacing: 1px; }
 }
-@media (max-width: 560px) { #synopsis_film { text-align: left; } }
+@media (max-width: 560px) { #synopsis_film { text-align: justify; } }
 
 
 
@@ -2926,4 +2920,12 @@ body.content-mode .seo-intent {
     width: 64px;
     height: 96px;
   }
+}
+
+#synopsis_film {
+  color: #aab;
+  line-height: 1.7;
+  font-size: 0.9rem;
+  margin-bottom: 20px;
+  text-align: justify;
 }
