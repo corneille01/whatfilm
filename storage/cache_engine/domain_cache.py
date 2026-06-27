@@ -20,7 +20,7 @@ from .hash_utils import (
     key_title,
 )
 
-from .ttl import TTL_URL, TTL_CONTENT
+from .ttl import TTL_URL, TTL_CONTENT, TTL_FILM_PERMANENT, TTL_TITLE_PERMANENT
 
 
 def get_cache(url: str) -> Optional[dict]:
@@ -98,9 +98,11 @@ def set_cache(
     if confidence >= 50 and tmdb_id:
         film_key = key_film(tmdb_id, lang)
 
-        cache_set(film_key, data, ttl=None)
+        # Conformité TMDB API Terms of Use : pas de cache > 6 mois.
+        # TTL_FILM_PERMANENT = 150 jours (marge de sécurité sous la limite des 180 jours).
+        cache_set(film_key, data, ttl=TTL_FILM_PERMANENT)
 
-        print(f"💾 Cache film permanent: {tmdb_id}:{lang}", flush=True)
+        print(f"💾 Cache film (150j max, conforme TMDB): {tmdb_id}:{lang}", flush=True)
 
         content_key = key_content(transcript, ocr_text)
 
@@ -120,7 +122,8 @@ def set_cache_title(title: str, tmdb_id: int) -> None:
     if not title_key:
         return
 
-    cache_set(title_key, tmdb_id, ttl=None)
+    # Même contrainte de conformité TMDB que pour le cache film.
+    cache_set(title_key, tmdb_id, ttl=TTL_TITLE_PERMANENT)
 
 
 def delete_cache(url: str) -> bool:

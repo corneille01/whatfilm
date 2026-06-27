@@ -16,6 +16,15 @@ Cas "candidat unique" (v2) :
   (titre extrait par Gemini qui matche, ou acteur connu) avant d'accorder un
   score de confiance. Sans corroboration → score abaissé sous le seuil LLM,
   pour éviter de mettre en cache un faux positif avec une confiance artificielle.
+
+Parsing JSON tolérant (v3) :
+  Gemini (et parfois Qwen/Groq) ignore occasionnellement l'instruction de
+  réponse JSON stricte et préfixe sa réponse d'un préambule en langage naturel
+  ("Here is the JSON response:", "He..." tronqué par maxOutputTokens trop
+  serré, etc.). _clean_json_fences cherche maintenant la première accolade
+  ouvrante ET la dernière fermante n'importe où dans le texte plutôt que de
+  supposer un format propre, et maxOutputTokens a été augmenté pour laisser
+  de la marge à un préambule that le modèle ajouterait malgré l'instruction.
 """
 
 import json
@@ -45,6 +54,13 @@ GROQ_CONFIDENCE_THRESHOLD = 40
 # Score plancher pour un candidat unique sans aucune corroboration
 # (titre/acteur extrait par Gemini qui ne matche pas le candidat trouvé)
 UNCORROBORATED_SINGLE_CANDIDATE_SCORE = 25
+
+# maxOutputTokens pour les appels de rerank. Augmenté de 100 → 200 :
+# un préambule du type "Here is the JSON response: " ajouté malgré
+# l'instruction stricte peut consommer 15-20 tokens, ce qui, combiné
+# à un budget de 100 tokens, peut tronquer le JSON avant la fermeture
+# de l'accolade et le rendre invalide même avec un parsing tolérant.
+RERANK_MAX_OUTPUT_TOKENS = 200
 
 # ═══════════════════════════ UTILITAIRES ═══════════════════════════
 
@@ -80,16 +96,68 @@ def _normalize(s: str) -> str:
     return s
 
 def _clean_json_fences(text: str) -> str:
+    """
+    Extrait un objet JSON d'une réponse LLM potentiellement "sale" :
+      - bloc markdown ```json ... ```
+      - préambule en langage naturel avant le JSON ("Here is the JSON: {...}")
+      - texte après le JSON
+    Cherche la première '{' et la dernière '}' dans tout le texte plutôt que
+    de supposer un format propre dès le premier caractère.
+    """
     text = text.strip()
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
+
+    if "```" in text:
+        parts = text.split("```")
+        for part in parts:
+            part = part.strip()
+            if part.startswith("json"):
+                part = part[4:].strip()
+            start = part.find("{")
+            end   = part.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                candidate = part[start:end + 1]
+                try:
+                    json.loads(candidate)
+                    return candidate
+                except Exception:
+                    continue
+
+    # Pas de bloc markdown (ou aucun bloc valide trouvé) : on cherche
+    # la première accolade ouvrante et la dernière fermante dans le
+    # texte brut entier, peu importe ce qui les précède ou les suit.
     start = text.find("{")
     end   = text.rfind("}")
     if start != -1 and end != -1 and end > start:
-        text = text[start:end + 1]
-    return text.strip()
+        return text[start:end + 1]
+
+    return text
+
+
+def _try_extract_id_score_regex(text: str) -> Optional[Dict[str, Any]]:
+    """
+    Dernier recours si le JSON est tronqué/invalide même après nettoyage
+    (ex: maxOutputTokens a coupé la réponse avant la fermeture de l'accolade).
+    Extrait "id" et "score" directement par regex depuis le texte brut.
+    Retourne None si même ce filet de sécurité ne trouve rien d'exploitable.
+    """
+    result: Dict[str, Any] = {}
+
+    m_id = re.search(r'"id"\s*:\s*(\d+)', text)
+    if m_id:
+        result["id"] = int(m_id.group(1))
+
+    m_score = re.search(r'"score"\s*:\s*(\d+)', text)
+    if m_score:
+        result["score"] = int(m_score.group(1))
+
+    m_titre = re.search(r'"meilleur_titre"\s*:\s*"([^"]*)"', text)
+    if m_titre:
+        result["meilleur_titre"] = m_titre.group(1)
+
+    if "id" not in result:
+        return None
+
+    return result
 
 def _candidates_for_prompt(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [
@@ -105,12 +173,23 @@ def _candidates_for_prompt(candidates: List[Dict[str, Any]]) -> List[Dict[str, A
     ]
 
 def _parse_rerank_response(text: str, candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
-    text = _clean_json_fences(text)
+    cleaned = _clean_json_fences(text)
     try:
-        result = json.loads(text)
+        result = json.loads(cleaned)
     except json.JSONDecodeError as e:
-        print(f"⚠️ Rerank JSON KO: {e} | raw={(text or 'N/A')[:120]}", flush=True)
-        raise ValueError("Impossible de parser le JSON")
+        # Filet de sécurité : extraction regex avant d'abandonner complètement.
+        # Utile quand maxOutputTokens tronque le JSON après "id" et "score"
+        # mais avant la fermeture de l'accolade.
+        fallback = _try_extract_id_score_regex(text)
+        if fallback is not None:
+            print(
+                f"⚠️ Rerank JSON invalide mais extraction regex réussie: {fallback}",
+                flush=True,
+            )
+            result = fallback
+        else:
+            print(f"⚠️ Rerank JSON KO: {e} | raw={(text or 'N/A')[:120]}", flush=True)
+            raise ValueError("Impossible de parser le JSON")
 
     candidate_ids = {c["id"] for c in candidates}
     result_id     = result.get("id")
@@ -314,7 +393,7 @@ async def _rerank_gemini(extraction: dict, candidates: list) -> Optional[dict]:
                     "contents": [{"role": "user", "parts": [{"text": forced_prompt}]}],
                     "generationConfig": {
                         "temperature":      0.0,
-                        "maxOutputTokens":  100,
+                        "maxOutputTokens":  RERANK_MAX_OUTPUT_TOKENS,
                         "responseMimeType": "application/json",
                     },
                 },
@@ -354,7 +433,7 @@ async def _rerank_qwen(extraction: dict, candidates: list) -> Optional[dict]:
                     "model":           QWEN_TEXT_MODEL,
                     "messages":        _build_groq_messages(prompt, candidates),
                     "temperature":     0.0,
-                    "max_tokens":      100,
+                    "max_tokens":      RERANK_MAX_OUTPUT_TOKENS,
                     "response_format": {"type": "json_object"},
                 },
             )
@@ -386,7 +465,7 @@ async def _rerank_groq(extraction: dict, candidates: list) -> Optional[dict]:
                     "model":       GROQ_TEXT_MODEL,
                     "messages":    _build_groq_messages(prompt, candidates),
                     "temperature": 0.0,
-                    "max_tokens":  100,
+                    "max_tokens":  RERANK_MAX_OUTPUT_TOKENS,
                 },
                 headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
             )
