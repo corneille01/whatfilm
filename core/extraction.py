@@ -12,6 +12,11 @@ Fonctions préservées :
   - Normalisation avancée des champs (acteurs_certitude, is_ai_generated, etc.)
   - Parsing partiel JSON tronqué
   - Upload résumable avec polling
+
+Résilience Gemini (v2) :
+  - Retry + backoff exponentiel + jitter sur 429 uniquement (3 tentatives max)
+  - Sémaphore global pour limiter la concurrence des appels Gemini
+    (évite les pics RPM quand plusieurs analyses tournent en parallèle)
 """
 
 import json
@@ -19,6 +24,7 @@ import os
 import re
 import base64
 import asyncio
+import random
 import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
@@ -52,6 +58,62 @@ GEMINI_FILES_BASE = "https://generativelanguage.googleapis.com"
 TRANSCRIPT_THRESHOLD  = 80
 MAX_TRANSCRIPT_CHARS  = 80000
 MAX_OCR_CHARS         = 3000
+
+# ═══════════════ RETRY / CONCURRENCE GEMINI ═══════════════
+
+# Limite le nombre d'appels Gemini simultanés pour éviter les pics RPM
+# quand plusieurs analyses tournent en parallèle (plusieurs vidéos en même temps).
+# Réglable sur Render via la variable d'environnement GEMINI_MAX_CONCURRENT.
+GEMINI_MAX_CONCURRENT = int(os.environ.get("GEMINI_MAX_CONCURRENT", "3"))
+_gemini_semaphore = asyncio.Semaphore(GEMINI_MAX_CONCURRENT)
+
+GEMINI_MAX_RETRIES = 3
+GEMINI_BASE_DELAY  = 1.0  # secondes
+
+
+async def _gemini_post_with_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    **kwargs,
+) -> httpx.Response:
+    """
+    POST avec retry + backoff exponentiel + jitter, uniquement sur 429.
+    Toute autre erreur (4xx hors 429, 5xx, timeout) est relayée immédiatement
+    pour ne pas ralentir les vrais échecs (le code appelant gère déjà ses
+    propres fallbacks : Qwen, frames, modèle Lite, etc.).
+
+    Passe par un sémaphore global pour limiter la concurrence Gemini.
+    """
+    async with _gemini_semaphore:
+        last_exc: Optional[Exception] = None
+        for attempt in range(GEMINI_MAX_RETRIES):
+            try:
+                resp = await client.post(url, **kwargs)
+                if resp.status_code == 429:
+                    if attempt < GEMINI_MAX_RETRIES - 1:
+                        delay = GEMINI_BASE_DELAY * (2 ** attempt) + random.uniform(0, 0.5)
+                        print(
+                            f"⏳ 429 reçu, retry {attempt + 1}/{GEMINI_MAX_RETRIES} "
+                            f"dans {delay:.1f}s...",
+                            flush=True,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                resp.raise_for_status()
+                return resp
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429 and attempt < GEMINI_MAX_RETRIES - 1:
+                    delay = GEMINI_BASE_DELAY * (2 ** attempt) + random.uniform(0, 0.5)
+                    print(
+                        f"⏳ 429 reçu, retry {attempt + 1}/{GEMINI_MAX_RETRIES} "
+                        f"dans {delay:.1f}s...",
+                        flush=True,
+                    )
+                    await asyncio.sleep(delay)
+                    last_exc = e
+                    continue
+                raise
+        raise last_exc
 
 # ═══════════════ HELPERS CACHE (import optionnel, jamais bloquant) ═══════════════
 
@@ -229,8 +291,9 @@ async def _ocr_frames(frames: list) -> str:
     try:
         lite_url = GEMINI_URLS[1]
         async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.post(f"{lite_url}?key={GEMINI_API_KEY}", json=payload)
-            resp.raise_for_status()
+            resp = await _gemini_post_with_retry(
+                client, f"{lite_url}?key={GEMINI_API_KEY}", json=payload
+            )
         text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
         if not text or text.upper() == "AUCUN":
             return ""
@@ -254,8 +317,9 @@ async def _call_gemini(url: str, parts: list, max_output_tokens: int = 3000) -> 
     }
     try:
         async with httpx.AsyncClient(timeout=40) as client:
-            resp = await client.post(f"{url}?key={GEMINI_API_KEY}", json=payload)
-            resp.raise_for_status()
+            resp = await _gemini_post_with_retry(
+                client, f"{url}?key={GEMINI_API_KEY}", json=payload
+            )
         raw           = resp.json()
         candidate     = raw.get("candidates", [{}])[0]
         finish_reason = candidate.get("finishReason", "")
@@ -346,8 +410,9 @@ async def _gemini_video_generate(
     print(f"🎬 Gemini {label}: {file_uri[:70]}", flush=True)
     try:
         async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(f"{GEMINI_URLS[0]}?key={GEMINI_API_KEY}", json=payload)
-            resp.raise_for_status()
+            resp = await _gemini_post_with_retry(
+                client, f"{GEMINI_URLS[0]}?key={GEMINI_API_KEY}", json=payload
+            )
         candidate = resp.json()["candidates"][0]
         text      = candidate["content"]["parts"][0]["text"].strip()
         if not text:
@@ -381,7 +446,8 @@ async def _gemini_upload_file(path: str, mime: str = "video/mp4") -> Optional[di
     size = os.path.getsize(path)
     try:
         async with httpx.AsyncClient(timeout=120) as client:
-            start = await client.post(
+            start = await _gemini_post_with_retry(
+                client,
                 f"{GEMINI_FILES_BASE}/upload/v1beta/files?key={GEMINI_API_KEY}",
                 headers={
                     "X-Goog-Upload-Protocol":             "resumable",
@@ -392,14 +458,14 @@ async def _gemini_upload_file(path: str, mime: str = "video/mp4") -> Optional[di
                 },
                 json={"file": {"display_name": os.path.basename(path)}},
             )
-            start.raise_for_status()
             upload_url = start.headers.get("x-goog-upload-url")
             if not upload_url:
                 print("⚠️ Files API: pas d'upload URL", flush=True)
                 return None
             with open(path, "rb") as fh:
                 content = fh.read()
-            up = await client.post(
+            up = await _gemini_post_with_retry(
+                client,
                 upload_url,
                 headers={
                     "Content-Length":        str(size),
@@ -408,7 +474,6 @@ async def _gemini_upload_file(path: str, mime: str = "video/mp4") -> Optional[di
                 },
                 content=content,
             )
-            up.raise_for_status()
             return up.json().get("file") or {}
     except Exception as e:
         print(f"⚠️ Files API upload KO: {str(e)[:160]}", flush=True)

@@ -8,6 +8,14 @@ Cascade :
   3. Comparaison des résultats LLM sous le seuil → on garde le meilleur
   4. Match direct     → correspondance titre (0 API), après échec de tous les LLM
   5. Heuristique popularité TMDB (0 API)
+
+Cas "candidat unique" (v2) :
+  Un seul candidat ne signifie pas un bon candidat. Si la cascade de recherche
+  n'a remonté qu'un seul résultat via une requête peu fiable (mot générique,
+  reste de transcript mal traduit, etc.), on vérifie une corroboration minimale
+  (titre extrait par Gemini qui matche, ou acteur connu) avant d'accorder un
+  score de confiance. Sans corroboration → score abaissé sous le seuil LLM,
+  pour éviter de mettre en cache un faux positif avec une confiance artificielle.
 """
 
 import json
@@ -15,6 +23,8 @@ import os
 import re
 import httpx
 from typing import Optional, List, Dict, Any
+import asyncio
+import random
 
 from core.prompts import RERANK_PROMPT
 
@@ -32,7 +42,36 @@ GROQ_TEXT_MODEL = "llama-3.3-70b-versatile"
 QWEN_TEXT_MODEL = "qwen-plus"
 GROQ_CONFIDENCE_THRESHOLD = 40
 
+# Score plancher pour un candidat unique sans aucune corroboration
+# (titre/acteur extrait par Gemini qui ne matche pas le candidat trouvé)
+UNCORROBORATED_SINGLE_CANDIDATE_SCORE = 25
+
 # ═══════════════════════════ UTILITAIRES ═══════════════════════════
+
+GEMINI_RERANK_MAX_RETRIES = 3
+GEMINI_RERANK_BASE_DELAY  = 1.0
+
+
+async def _post_with_retry_429(client: httpx.AsyncClient, url: str, **kwargs):
+    last_exc = None
+    for attempt in range(GEMINI_RERANK_MAX_RETRIES):
+        try:
+            resp = await client.post(url, **kwargs)
+            if resp.status_code == 429 and attempt < GEMINI_RERANK_MAX_RETRIES - 1:
+                delay = GEMINI_RERANK_BASE_DELAY * (2 ** attempt) + random.uniform(0, 0.5)
+                print(f"⏳ Rerank 429, retry {attempt + 1}/{GEMINI_RERANK_MAX_RETRIES} dans {delay:.1f}s...", flush=True)
+                await asyncio.sleep(delay)
+                continue
+            resp.raise_for_status()
+            return resp
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429 and attempt < GEMINI_RERANK_MAX_RETRIES - 1:
+                delay = GEMINI_RERANK_BASE_DELAY * (2 ** attempt) + random.uniform(0, 0.5)
+                await asyncio.sleep(delay)
+                last_exc = e
+                continue
+            raise
+    raise last_exc
 
 def _normalize(s: str) -> str:
     s = s.lower().strip()
@@ -129,6 +168,74 @@ def _best_by_popularity(candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
         "media_type":     best.get("media_type", "movie"),
     }
 
+# ═══════════════════════════ CORROBORATION CANDIDAT UNIQUE ═══════════════════
+
+def _has_corroboration(extraction: dict, candidate: Dict[str, Any]) -> bool:
+    """
+    Vérifie si un candidat unique est corroboré par l'extraction Gemini :
+      - un titre certain (sans '?') de l'extraction matche le titre du candidat
+      - OU un acteur extrait avec confiance correspond (signal indirect, on ne
+        vérifie pas le cast ici pour rester sans appel API supplémentaire —
+        la présence d'acteurs fiables suffit à indiquer une extraction réussie,
+        contrairement à un mot générique seul comme 'Prenons')
+
+    Objectif : distinguer un vrai titre extrait par Gemini (signal fort) d'un
+    reste de transcript/mot isolé qui a eu la chance de matcher un titre TMDB
+    existant.
+    """
+    candidate_title = _normalize(candidate.get("title") or candidate.get("name") or "")
+    if not candidate_title:
+        return False
+
+    titres_certains = [
+        _normalize(str(t))
+        for t in extraction.get("titres_possibles", [])
+        if t and not str(t).startswith("?")
+    ]
+    if candidate_title in titres_certains:
+        return True
+
+    # Titre incertain mais précis (ex: "?Love, Death & Robots") qui matche quand même
+    titres_incertains = [
+        _normalize(str(t)[1:])
+        for t in extraction.get("titres_possibles", [])
+        if str(t).startswith("?") and len(str(t)) > 3
+    ]
+    if candidate_title in titres_incertains:
+        return True
+
+    # Acteurs avec certitude élevée (≥70, seuil fixé par le prompt d'extraction)
+    acteurs    = extraction.get("acteurs", []) or []
+    certitudes = extraction.get("acteurs_certitude", []) or []
+    if acteurs and any(
+        (c if isinstance(c, (int, float)) else 0) >= 70 for c in certitudes
+    ):
+        return True
+
+    return False
+
+
+def _single_candidate_result(extraction: dict, candidate: Dict[str, Any]) -> Dict[str, Any]:
+    corroborated = _has_corroboration(extraction, candidate)
+    score = 55 if corroborated else UNCORROBORATED_SINGLE_CANDIDATE_SCORE
+    raison = "candidat unique corroboré" if corroborated else "candidat unique non corroboré"
+
+    if not corroborated:
+        print(
+            f"⚠️ Candidat unique SANS corroboration — "
+            f"{candidate.get('title') or candidate.get('name')} "
+            f"(score abaissé à {score})",
+            flush=True,
+        )
+
+    return {
+        "id":             candidate.get("id"),
+        "meilleur_titre": candidate.get("title") or candidate.get("name") or "Inconnu",
+        "score":          score,
+        "raison":         raison,
+        "media_type":     candidate.get("media_type", "movie"),
+    }
+
 # ═══════════════════════════ MATCH DIRECT ═══════════════════════════
 
 def _direct_match(extraction: dict, candidates: list) -> Optional[dict]:
@@ -194,8 +301,7 @@ async def _rerank_gemini(extraction: dict, candidates: list) -> Optional[dict]:
     text = None
     try:
         async with httpx.AsyncClient(timeout=25) as client:
-            resp = await client.post(
-                f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+            resp = await _post_with_retry_429(client, f"{GEMINI_URL}?key={GEMINI_API_KEY}",
                 json={
                     "system_instruction": {
                         "parts": [{"text": (
@@ -304,14 +410,7 @@ async def rerank(extraction: dict, candidates: list) -> dict:
         return {"meilleur_titre": "Inconnu", "id": None, "score": 0, "media_type": "movie"}
 
     if len(candidates) == 1:
-        c = candidates[0]
-        return {
-            "id":             c.get("id"),
-            "meilleur_titre": c.get("title") or c.get("name") or "Inconnu",
-            "score":          55,
-            "raison":         "candidat unique",
-            "media_type":     c.get("media_type", "movie"),
-        }
+        return _single_candidate_result(extraction, candidates[0])
 
     # ── 0. Gemini Flash (désactivable) ──
     gemini_result = None
