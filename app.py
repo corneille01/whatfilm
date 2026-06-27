@@ -250,7 +250,7 @@ async def lifespan(app: FastAPI):
     # ── Redis keepalive (évite "Connection closed by server" sur Render free tier) ──
     async def _redis_keepalive():
         while True:
-            await asyncio.sleep(55)
+            await asyncio.sleep(50)  # toutes les 50s, avant le timeout serveur
             try:
                 from storage.cache_engine.redis_client import get_redis
                 r = get_redis()

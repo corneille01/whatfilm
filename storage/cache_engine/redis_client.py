@@ -8,19 +8,26 @@ from config.config import REDIS_URL
 _client: Optional[redis.Redis] = None
 _available: bool = False
 _last_attempt: float = 0.0
-_RETRY_INTERVAL: int = 30  # secondes entre deux tentatives de reconnexion
+_RETRY_INTERVAL: int = 30
 
 
 def get_redis() -> Optional[redis.Redis]:
     global _client, _available, _last_attempt
 
-    # Connexion déjà active
+    # Si connexion active, on vérifie qu'elle est toujours vivante
     if _available and _client is not None:
-        return _client
+        try:
+            _client.ping()
+            return _client
+        except Exception:
+            # Connexion morte → on remet à zéro
+            _client = None
+            _available = False
+            print("⚠️ Redis connexion perdue → reconnexion...", flush=True)
 
     # Trop tôt pour retenter
     now = time.time()
-    if not _available and (now - _last_attempt) < _RETRY_INTERVAL:
+    if (now - _last_attempt) < _RETRY_INTERVAL:
         return None
 
     _last_attempt = now
