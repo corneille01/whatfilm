@@ -2,7 +2,7 @@
 core/extraction.py — Extraction multimodale avec cascade complète.
 
 Cascade :
-  1. Vidéo entière uploadée → Gemini 2.5 Flash (Files API)
+  1. Vidéo entière uploadée → Gemini 2.5 Flash (Files API) + cache hash vidéo
   2. Si échec → Qwen VL (DashScope international, SDK)
   3. Si échec → 6 frames extraites + OCR + transcript → Gemini vision (Flash/Lite)
 
@@ -40,7 +40,7 @@ except ImportError:
 from core.prompts import EXTRACTION_PROMPT
 
 # ═══════════════ CONFIGURATION ═══════════════
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_API_KEY    = os.environ.get("GEMINI_API_KEY", "")
 DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
 
 GEMINI_URLS = [
@@ -49,11 +49,49 @@ GEMINI_URLS = [
 ]
 GEMINI_FILES_BASE = "https://generativelanguage.googleapis.com"
 
-TRANSCRIPT_THRESHOLD = 80
-MAX_TRANSCRIPT_CHARS = 80000
-MAX_OCR_CHARS = 3000
+TRANSCRIPT_THRESHOLD  = 80
+MAX_TRANSCRIPT_CHARS  = 80000
+MAX_OCR_CHARS         = 3000
 
-# ═══════════════ UTILITAIRES EXISTANTS ═══════════════
+# ═══════════════ HELPERS CACHE (import optionnel, jamais bloquant) ═══════════════
+
+def _cache_get(key: str):
+    try:
+        from storage.cache_engine.cache_manager import cache_get
+        return cache_get(key)
+    except Exception:
+        return None
+
+def _cache_set(key: str, data, ttl=None):
+    try:
+        from storage.cache_engine.cache_manager import cache_set
+        cache_set(key, data, ttl)
+    except Exception:
+        pass
+
+def _video_hash(path: str) -> Optional[str]:
+    try:
+        from storage.cache_engine.hash_utils import video_sha256
+        return video_sha256(path)
+    except Exception:
+        return None
+
+def _gemini_cache_key(video_hash: str) -> str:
+    try:
+        from storage.cache_engine.hash_utils import key_gemini
+        return key_gemini(video_hash)
+    except Exception:
+        return f"gemini:{video_hash}"
+
+def _gemini_ttl() -> Optional[int]:
+    try:
+        from storage.cache_engine.ttl import TTL_GEMINI
+        return TTL_GEMINI
+    except Exception:
+        return 90 * 24 * 3600  # 90 jours fallback
+
+# ═══════════════ UTILITAIRES ═══════════════
+
 def _clean_json_fences(text: str) -> str:
     text = text.strip()
     if "```" in text:
@@ -68,9 +106,9 @@ def _clean_json_fences(text: str) -> str:
             except Exception:
                 continue
     start = text.find("{")
-    end = text.rfind("}")
+    end   = text.rfind("}")
     if start != -1 and end != -1 and end > start:
-        return text[start:end+1]
+        return text[start:end + 1]
     return text
 
 def _try_parse_partial_json(text: str) -> Optional[Dict[str, Any]]:
@@ -134,7 +172,7 @@ def _encode_image(path: str) -> Optional[str]:
         return None
 
 def _normalize_acteurs_certitude(data: dict, default_certitude: int = 50) -> dict:
-    acteurs = data.get("acteurs", []) or []
+    acteurs    = data.get("acteurs", []) or []
     certitudes = data.get("acteurs_certitude", []) or []
     while len(certitudes) < len(acteurs):
         certitudes.append(default_certitude)
@@ -163,6 +201,7 @@ def _normalize_all_fields(data: dict, default_certitude: int = 50) -> dict:
     return data
 
 # ═══════════════ OCR AUTOMATIQUE ═══════════════
+
 async def _ocr_frames(frames: list) -> str:
     if not GEMINI_API_KEY or not frames:
         return ""
@@ -185,7 +224,7 @@ async def _ocr_frames(frames: list) -> str:
         return ""
     payload = {
         "contents": [{"role": "user", "parts": parts}],
-        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 300}
+        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 300},
     }
     try:
         lite_url = GEMINI_URLS[1]
@@ -202,22 +241,23 @@ async def _ocr_frames(frames: list) -> str:
         return ""
 
 # ═══════════════ APPEL GEMINI GÉNÉRIQUE ═══════════════
+
 async def _call_gemini(url: str, parts: list, max_output_tokens: int = 3000) -> Optional[dict]:
     model_name = url.split("/models/")[1].split(":")[0]
     payload = {
         "contents": [{"role": "user", "parts": parts}],
         "generationConfig": {
-            "temperature": 0.1,
-            "maxOutputTokens": max_output_tokens,
+            "temperature":      0.1,
+            "maxOutputTokens":  max_output_tokens,
             "responseMimeType": "application/json",
-        }
+        },
     }
     try:
         async with httpx.AsyncClient(timeout=40) as client:
             resp = await client.post(f"{url}?key={GEMINI_API_KEY}", json=payload)
             resp.raise_for_status()
-        raw = resp.json()
-        candidate = raw.get("candidates", [{}])[0]
+        raw           = resp.json()
+        candidate     = raw.get("candidates", [{}])[0]
         finish_reason = candidate.get("finishReason", "")
         if finish_reason in ("SAFETY", "RECITATION", "OTHER"):
             print(f"⚠️ Gemini ({model_name}) bloqué : {finish_reason}", flush=True)
@@ -235,7 +275,7 @@ async def _call_gemini(url: str, parts: list, max_output_tokens: int = 3000) -> 
                 print(f"⚠️ Gemini ({model_name}) JSON invalide", flush=True)
                 return None
         else:
-            print(f"⚠️ Gemini ({model_name}) réponse tronquée (MAX_TOKENS) — tentative parse partiel", flush=True)
+            print(f"⚠️ Gemini ({model_name}) tronqué (MAX_TOKENS) — parse partiel", flush=True)
             clean = _clean_json_fences(text)
             try:
                 data = json.loads(clean)
@@ -251,17 +291,22 @@ async def _call_gemini(url: str, parts: list, max_output_tokens: int = 3000) -> 
 
         data["source"] = "gemini_vision"
         data = _normalize_all_fields(data, default_certitude=50)
-        acteurs = data.get("acteurs", [])
-        certitudes = data.get("acteurs_certitude", [])
-        titres = data.get("titres_possibles", [])
-        is_ai = data.get("is_ai_generated", False)
-        print(f"✅ Gemini OK ({model_name}) — titres={titres}, acteurs={list(zip(acteurs, certitudes))}, is_ai={is_ai}", flush=True)
+        titres    = data.get("titres_possibles", [])
+        acteurs   = data.get("acteurs", [])
+        certitudes= data.get("acteurs_certitude", [])
+        is_ai     = data.get("is_ai_generated", False)
+        print(
+            f"✅ Gemini OK ({model_name}) — titres={titres}, "
+            f"acteurs={list(zip(acteurs, certitudes))}, is_ai={is_ai}",
+            flush=True,
+        )
         return data
     except Exception as e:
         print(f"⚠️ Gemini KO ({model_name}): {str(e)[:200]}", flush=True)
         return None
 
 # ═══════════════ YOUTUBE / URL DIRECTE ═══════════════
+
 _YOUTUBE_DOMAINS = re.compile(r"youtube\.com|youtu\.be", re.IGNORECASE)
 
 def _video_prompt() -> str:
@@ -279,7 +324,9 @@ def _video_prompt() -> str:
         ),
     )
 
-async def _gemini_video_generate(file_uri: str, label: str, mime: str = "video/mp4") -> Optional[dict]:
+async def _gemini_video_generate(
+    file_uri: str, label: str, mime: str = "video/mp4"
+) -> Optional[dict]:
     if not GEMINI_API_KEY:
         return None
     payload = {
@@ -287,14 +334,14 @@ async def _gemini_video_generate(file_uri: str, label: str, mime: str = "video/m
             "role": "user",
             "parts": [
                 {"text": _video_prompt()},
-                {"file_data": {"mime_type": mime, "file_uri": file_uri}}
-            ]
+                {"file_data": {"mime_type": mime, "file_uri": file_uri}},
+            ],
         }],
         "generationConfig": {
-            "temperature": 0.1,
-            "maxOutputTokens": 4096,
+            "temperature":      0.1,
+            "maxOutputTokens":  4096,
             "responseMimeType": "application/json",
-        }
+        },
     }
     print(f"🎬 Gemini {label}: {file_uri[:70]}", flush=True)
     try:
@@ -302,7 +349,7 @@ async def _gemini_video_generate(file_uri: str, label: str, mime: str = "video/m
             resp = await client.post(f"{GEMINI_URLS[0]}?key={GEMINI_API_KEY}", json=payload)
             resp.raise_for_status()
         candidate = resp.json()["candidates"][0]
-        text = candidate["content"]["parts"][0]["text"].strip()
+        text      = candidate["content"]["parts"][0]["text"].strip()
         if not text:
             return None
         try:
@@ -322,9 +369,12 @@ async def _extract_gemini_url_direct(video_url: str) -> Optional[dict]:
     if not GEMINI_API_KEY:
         return None
     is_yt = bool(_YOUTUBE_DOMAINS.search(video_url))
-    return await _gemini_video_generate(video_url, "YouTube direct" if is_yt else "URL directe")
+    return await _gemini_video_generate(
+        video_url, "YouTube direct" if is_yt else "URL directe"
+    )
 
-# ═══════════════ UPLOAD VIDÉO LOCAL + EXTRACTION ═══════════════
+# ═══════════════ UPLOAD FICHIER GEMINI ═══════════════
+
 async def _gemini_upload_file(path: str, mime: str = "video/mp4") -> Optional[dict]:
     if not GEMINI_API_KEY or not os.path.exists(path):
         return None
@@ -334,11 +384,11 @@ async def _gemini_upload_file(path: str, mime: str = "video/mp4") -> Optional[di
             start = await client.post(
                 f"{GEMINI_FILES_BASE}/upload/v1beta/files?key={GEMINI_API_KEY}",
                 headers={
-                    "X-Goog-Upload-Protocol": "resumable",
-                    "X-Goog-Upload-Command": "start",
+                    "X-Goog-Upload-Protocol":             "resumable",
+                    "X-Goog-Upload-Command":              "start",
                     "X-Goog-Upload-Header-Content-Length": str(size),
-                    "X-Goog-Upload-Header-Content-Type": mime,
-                    "Content-Type": "application/json",
+                    "X-Goog-Upload-Header-Content-Type":   mime,
+                    "Content-Type":                        "application/json",
                 },
                 json={"file": {"display_name": os.path.basename(path)}},
             )
@@ -352,15 +402,14 @@ async def _gemini_upload_file(path: str, mime: str = "video/mp4") -> Optional[di
             up = await client.post(
                 upload_url,
                 headers={
-                    "Content-Length": str(size),
-                    "X-Goog-Upload-Offset": "0",
+                    "Content-Length":        str(size),
+                    "X-Goog-Upload-Offset":  "0",
                     "X-Goog-Upload-Command": "upload, finalize",
                 },
                 content=content,
             )
             up.raise_for_status()
-            file_info = up.json().get("file") or {}
-            return file_info
+            return up.json().get("file") or {}
     except Exception as e:
         print(f"⚠️ Files API upload KO: {str(e)[:160]}", flush=True)
         return None
@@ -369,7 +418,9 @@ async def _gemini_wait_active(name: str, max_attempts: int = 30) -> bool:
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             for _ in range(max_attempts):
-                r = await client.get(f"{GEMINI_FILES_BASE}/v1beta/{name}?key={GEMINI_API_KEY}")
+                r = await client.get(
+                    f"{GEMINI_FILES_BASE}/v1beta/{name}?key={GEMINI_API_KEY}"
+                )
                 r.raise_for_status()
                 state = r.json().get("state", "")
                 if state == "ACTIVE":
@@ -384,30 +435,68 @@ async def _gemini_wait_active(name: str, max_attempts: int = 30) -> bool:
 async def _gemini_delete_file(name: str) -> None:
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            await client.delete(f"{GEMINI_FILES_BASE}/v1beta/{name}?key={GEMINI_API_KEY}")
+            await client.delete(
+                f"{GEMINI_FILES_BASE}/v1beta/{name}?key={GEMINI_API_KEY}"
+            )
     except Exception:
         pass
 
+# ═══════════════ EXTRACTION VIDÉO LOCALE (avec cache hash) ═══════════════
+
 async def _extract_gemini_video_file(video_path: str) -> Optional[dict]:
+    """
+    Uploade la vidéo vers Gemini Files API et retourne l'extraction.
+    Avant l'upload, vérifie le cache par hash SHA256 de la vidéo.
+    Après succès, sauvegarde le résultat dans le cache.
+    """
     if not GEMINI_API_KEY or not os.path.exists(video_path):
         return None
+
+    # ── 1. Cache par hash vidéo ───────────────────────────────────────────────
+    video_hash = _video_hash(video_path)
+    gemini_key = _gemini_cache_key(video_hash) if video_hash else None
+
+    if gemini_key:
+        cached = _cache_get(gemini_key)
+        if cached:
+            print(f"✅ Cache Gemini hit (hash={video_hash[:12]}…)", flush=True)
+            return cached
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # ── 2. Upload vers Gemini Files API ──────────────────────────────────────
     info = await _gemini_upload_file(video_path, "video/mp4")
     if not info:
         return None
+
     name = info.get("name")
-    uri = info.get("uri")
+    uri  = info.get("uri")
     if not uri:
         return None
+
     if info.get("state") != "ACTIVE" and not await _gemini_wait_active(name):
         print("⚠️ Fichier jamais ACTIVE", flush=True)
         await _gemini_delete_file(name)
         return None
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # ── 3. Appel Gemini ───────────────────────────────────────────────────────
     result = await _gemini_video_generate(uri, "vidéo fichier")
     await _gemini_delete_file(name)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # ── 4. Mise en cache si résultat utile ───────────────────────────────────
+    if result and gemini_key:
+        _cache_set(gemini_key, result, _gemini_ttl())
+        print(f"💾 Cache Gemini sauvegardé (hash={video_hash[:12]}…)", flush=True)
+    # ─────────────────────────────────────────────────────────────────────────
+
     return result
 
-# ═══════════════ EXTRACTION FRAMES + OCR + TRANSCRIPT (existante) ═══════════════
-async def _extract_gemini_vision(frames: list, ocr_text: str, transcript: str) -> Optional[dict]:
+# ═══════════════ EXTRACTION FRAMES + OCR + TRANSCRIPT ═══════════════
+
+async def _extract_gemini_vision(
+    frames: list, ocr_text: str, transcript: str
+) -> Optional[dict]:
     if not GEMINI_API_KEY:
         return None
     effective_ocr = ocr_text.strip()
@@ -422,7 +511,7 @@ async def _extract_gemini_vision(frames: list, ocr_text: str, transcript: str) -
         ocr_text=effective_ocr[:MAX_OCR_CHARS],
         transcript=transcript[:MAX_TRANSCRIPT_CHARS],
     )
-    parts = [{"text": prompt}]
+    parts        = [{"text": prompt}]
     frames_added = 0
     for fp in frames[:6]:
         if os.path.exists(fp) and os.path.getsize(fp) > 0:
@@ -455,6 +544,7 @@ async def _extract_gemini_vision(frames: list, ocr_text: str, transcript: str) -
     result = await _call_gemini(flash_url, parts, max_output_tokens=3000)
     if result:
         return result
+
     if len(frames) > 3:
         print("🔄 Retry Flash avec 3 frames seulement...", flush=True)
         parts_reduced = [parts[0]]
@@ -468,15 +558,14 @@ async def _extract_gemini_vision(frames: list, ocr_text: str, transcript: str) -
         result = await _call_gemini(flash_url, parts_reduced, max_output_tokens=3000)
         if result:
             return result
+
     print("🔄 Fallback Flash Lite...", flush=True)
-    lite_url = GEMINI_URLS[1]
-    result = await _call_gemini(lite_url, parts, max_output_tokens=3000)
-    return result
+    return await _call_gemini(GEMINI_URLS[1], parts, max_output_tokens=3000)
 
 async def multimodal_extract(frames, ocr_text, transcript):
-    ocr_text = (ocr_text or "").strip()
+    ocr_text   = (ocr_text   or "").strip()
     transcript = (transcript or "").strip()
-    combined = f"{transcript} {ocr_text}".strip()
+    combined   = f"{transcript} {ocr_text}".strip()
     if not frames and len(combined) < TRANSCRIPT_THRESHOLD:
         return _minimal_fallback("insufficient_data")
     result = await _extract_gemini_vision(frames, ocr_text, transcript)
@@ -487,14 +576,10 @@ async def multimodal_extract(frames, ocr_text, transcript):
     fallback["description_courte"] = combined[:500]
     return fallback
 
-# ═══════════════ FALLBACK QWEN VL (DashScope International) ═══════════════
+# ═══════════════ FALLBACK QWEN VL ═══════════════
 
 async def _extract_qwen_vl(video_path: str) -> Optional[dict]:
-    """
-    Fallback Qwen VL via l'API DashScope internationale (SDK).
-    Envoie la vidéo en base64 dans le contenu.
-    """
-    if not _DASHSCOPE_AVAILABLE:   # ← cette ligne doit exister
+    if not _DASHSCOPE_AVAILABLE:
         return None
     if not os.environ.get("DASHSCOPE_API_KEY"):
         return None
@@ -514,18 +599,15 @@ async def _extract_qwen_vl(video_path: str) -> Optional[dict]:
         transcript=(
             "Analyse cette vidéo complète. Extrais tous les dialogues audibles, "
             "textes visibles, noms d'acteurs reconnaissables, titre apparent, etc."
-        )
+        ),
     )
-
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"video": f"data:video/mp4;base64,{video_b64}"},
-                {"text": prompt}
-            ]
-        }
-    ]
+    messages = [{
+        "role": "user",
+        "content": [
+            {"video": f"data:video/mp4;base64,{video_b64}"},
+            {"text": prompt},
+        ],
+    }]
 
     try:
         loop = asyncio.get_running_loop()
@@ -537,56 +619,51 @@ async def _extract_qwen_vl(video_path: str) -> Optional[dict]:
                     messages=messages,
                     api_key=os.getenv("DASHSCOPE_API_KEY"),
                     stream=False,
-                )
+                ),
             )
-
         output = response.output
         if not output or not output.choices:
             print("⚠️ Qwen VL – pas de réponse", flush=True)
             return None
-
         text = output.choices[0].message.content[0]["text"]
         if not text:
             return None
-
         try:
             data = json.loads(_clean_json_fences(text))
         except json.JSONDecodeError:
             data = _try_parse_partial_json(text)
-
         if not data:
             print("⚠️ Qwen VL – JSON inexploitable", flush=True)
             return None
-
         data["source"] = "qwen_vl"
         data = _normalize_all_fields(data, default_certitude=75)
         print(f"✅ Qwen VL OK – titres={data.get('titres_possibles')}", flush=True)
         return data
-
     except Exception as e:
         print(f"⚠️ Qwen VL KO : {e}", flush=True)
         return None
 
 # ═══════════════ EXTRACTION FRAMES (FFMPEG) ═══════════════
+
 def _extract_frames(video_path: str, num_frames: int = 6) -> List[str]:
-    """Extrait num_frames frames à intervalles réguliers avec ffmpeg."""
     if not os.path.exists(video_path):
         return []
     try:
         probe = subprocess.run(
             ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", video_path],
-            capture_output=True, text=True, check=True
+            capture_output=True, text=True, check=True,
         )
         duration = float(json.loads(probe.stdout)["format"]["duration"])
         interval = duration / (num_frames + 1)
-        tmpdir = tempfile.mkdtemp(prefix="frames_")
-        frames = []
+        tmpdir   = tempfile.mkdtemp(prefix="frames_")
+        frames   = []
         for i in range(1, num_frames + 1):
-            t = interval * i
+            t        = interval * i
             out_path = os.path.join(tmpdir, f"frame_{i:02d}.jpg")
             subprocess.run(
-                ["ffmpeg", "-ss", str(t), "-i", video_path, "-frames:v", "1", "-q:v", "2", out_path, "-y"],
-                capture_output=True, check=True
+                ["ffmpeg", "-ss", str(t), "-i", video_path,
+                 "-frames:v", "1", "-q:v", "2", out_path, "-y"],
+                capture_output=True, check=True,
             )
             if os.path.exists(out_path):
                 frames.append(out_path)
@@ -595,33 +672,30 @@ def _extract_frames(video_path: str, num_frames: int = 6) -> List[str]:
         print(f"⚠️ Erreur extraction frames: {e}", flush=True)
         return []
 
-# ═══════════════ NOUVEAU POINT D'ENTRÉE AVEC CASCADE ═══════════════
+# ═══════════════ POINT D'ENTRÉE AVEC CASCADE COMPLÈTE ═══════════════
 
 async def extract(
     video_path: str,
     transcript: str = "",
-    ocr_text: str = "",
-    frames: Optional[List[str]] = None
+    ocr_text:   str = "",
+    frames:     Optional[List[str]] = None,
 ) -> dict:
     """
     Cascade complète :
-      1. Vidéo entière → Gemini Files API
+      1. Vidéo entière → Gemini Files API (avec cache hash)
       2. Échec → Qwen VL (DashScope)
       3. Échec → 6 frames + OCR + Gemini vision
     """
-    # 1. Gemini vidéo directe
     print(f"🎬 Tentative Gemini vidéo : {video_path}", flush=True)
     result = await _extract_gemini_video_file(video_path)
     if result:
         return result
 
-    # 2. Qwen VL (DashScope)
     print("🔄 Fallback Qwen VL...", flush=True)
     result = await _extract_qwen_vl(video_path)
     if result:
         return result
 
-    # 3. Frames (6 extraites automatiquement si non fournies)
     print("🔄 Fallback frames + Gemini vision...", flush=True)
     if not frames:
         frames = _extract_frames(video_path, num_frames=6)
@@ -633,6 +707,6 @@ async def extract(
     return await multimodal_extract(frames, ocr_text, transcript)
 
 
-# Alias pour compatibilité
+# ── Alias compatibilité ───────────────────────────────────────────────────────
 async def _extract_gemini_youtube(url: str) -> Optional[dict]:
     return await _extract_gemini_url_direct(url)

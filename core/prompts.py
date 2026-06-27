@@ -207,4 +207,4 @@ RÈGLES STRICTES :
 - Tu DOIS toujours retourner un id valide parmi les candidats listés. JAMAIS null.
 
 Réponds UNIQUEMENT avec ce JSON minifié sur UNE SEULE LIGNE sans espace superflu, sans markdown :
-{{"id":<id>,"meilleur_titre":"<titre>","score":<0-100>,"raison":"<court>"}}"""
+{{"id":<id>,"meilleur_titre":"<titre>","score":<0-100>,"raison":"<max 15 mots>"}}"""

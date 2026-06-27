@@ -229,6 +229,9 @@ async def purge_cache_loop():
         purge_expired()
 
 
+# ── À INSÉRER dans le bloc lifespan de main.py, AVANT le yield ──
+# Remplace le lifespan existant par celui-ci :
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
@@ -237,13 +240,26 @@ async def lifespan(app: FastAPI):
         if purged:
             print(f"🧹 Cache empoisonné purgé: {purged} entrée(s) video_private", flush=True)
     except Exception as e:
-        print(f" Purge cache démarrage: {e}", flush=True)
+        print(f"⚠️ Purge cache démarrage: {e}", flush=True)
 
     asyncio.create_task(cleanup_sessions())
     asyncio.create_task(purge_cache_loop())
     asyncio.create_task(filming_catalogue.ensure_catalogue_loaded())
     start_loading()
-    print(" Pelify démarré", flush=True)
+
+    # ── Redis keepalive (évite "Connection closed by server" sur Render free tier) ──
+    async def _redis_keepalive():
+        while True:
+            await asyncio.sleep(55)
+            try:
+                from storage.cache_engine.redis_client import get_redis
+                r = get_redis()
+                if r:
+                    r.ping()
+            except Exception:
+                pass
+
+    asyncio.create_task(_redis_keepalive())
     yield
 
 app = FastAPI(title="Pelify", lifespan=lifespan)
@@ -1354,7 +1370,61 @@ async def index():
 async def health():
     return Response(status_code=200)
 
+@app.get("/cache-debug")
+async def cache_debug():
+    from storage.cache_engine.cache_manager import cache_stats, ram_items
+    from storage.cache_engine.redis_client import get_redis
+    
+    stats = cache_stats()
+    
+    # Aperçu des 20 premières clés RAM
+    ram_preview = [
+        {
+            "key": k,
+            "type": type(v.get("data")).__name__,
+            "expires": v.get("expires"),
+        }
+        for k, v in list(ram_items())[:20]
+    ]
+    
+    # Aperçu des 20 premières clés Redis
+    redis_preview = []
+    redis_client = get_redis()
+    if redis_client:
+        try:
+            keys = list(redis_client.scan_iter("*", count=20))[:20]
+            for k in keys:
+                ttl = redis_client.ttl(k)
+                redis_preview.append({"key": k, "ttl_seconds": ttl})
+        except Exception as e:
+            redis_preview = [{"error": str(e)}]
+    
+    return {
+        "stats": stats,
+        "ram_preview": ram_preview,
+        "redis_preview": redis_preview,
+    }
 
+@app.get("/cache-debug/key/{key_type}/{value}")
+async def cache_debug_key(key_type: str, value: str, lang: str = "fr"):
+    """
+    Lit une entrée de cache précise.
+    key_type: url | film | title | content_hash
+    """
+    from storage.cache_engine.cache_manager import cache_get
+    from storage.cache_engine.hash_utils import key_url, key_film, key_title
+    
+    if key_type == "url":
+        key = key_url(value)
+    elif key_type == "film":
+        key = key_film(int(value), lang)
+    elif key_type == "title":
+        key = key_title(value)
+    else:
+        key = value  # clé brute
+    
+    data = cache_get(key)
+    return {"key": key, "found": data is not None, "data": data}
 
 @app.get("/genre/{genre_name}")
 async def page_genre(genre_name: str):
