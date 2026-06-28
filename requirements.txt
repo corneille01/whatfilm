@@ -18,7 +18,7 @@ curl-cffi
 aiofiles
 jinja2
 ffmpeg-python
-redis>=5.0.0
+upstash-redis
 deepgram-sdk
 assemblyai
 pytubefix

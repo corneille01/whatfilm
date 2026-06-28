@@ -119,13 +119,33 @@ def ram_items():
 
 
 def redis_scan(pattern: str):
+    """
+    Scanne les clés Redis correspondant à un motif.
+
+    Le client REST Upstash n'expose pas scan_iter() (générateur), seulement
+    scan(cursor, match, count) qui retourne (nouveau_curseur, clés_du_batch),
+    comme le protocole Redis natif. On boucle ici sur les curseurs jusqu'à
+    revenir à 0 pour reconstituer une liste complète, en gardant la même
+    signature de sortie qu'avant (liste de clés) pour ne rien casser côté
+    domain_cache.py.
+    """
     redis_client = get_redis()
 
     if not redis_client:
         return []
 
     try:
-        return list(redis_client.scan_iter(pattern, count=200))
+        keys: list[str] = []
+        cursor = 0
+
+        while True:
+            cursor, batch = redis_client.scan(cursor, match=pattern, count=200)
+            keys.extend(batch)
+
+            if cursor == 0:
+                break
+
+        return keys
 
     except Exception as e:
         print(f"⚠️ Redis scan error: {e}", flush=True)
@@ -143,14 +163,11 @@ def cache_stats() -> dict:
 
     if redis_client:
         try:
-            info = redis_client.info("memory")
-
-            stats["redis_memory_mb"] = round(
-                info.get("used_memory", 0) / 1024 / 1024,
-                2
-            )
-
             stats["redis_keys"] = redis_client.dbsize()
+
+            # Le client REST Upstash n'expose pas info("memory") comme le
+            # protocole TCP natif (pas de commande INFO support complet
+            # via REST) ; on omet ce champ plutôt que de lever une erreur.
 
         except Exception:
             pass
