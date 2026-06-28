@@ -1179,6 +1179,44 @@ function gameOver(){
   const hint=document.getElementById("game-hint");if(hint){hint.textContent=t("game_over")+gameState.score+" — TAP";hint.style.display="block";}
 }
 
+
+
+// ════ RETRY AUTOMATIQUE SUR ERREUR SERVEUR TRANSITOIRE ════
+// Gère le cas où Gunicorn redémarre son unique worker (Free tier Render)
+// pile pendant une requête d'analyse. La requête initiale échoue avec
+// une erreur réseau ou un 502/503, mais retenter quelques secondes plus
+// tard (le temps que le nouveau worker boote) réussit généralement.
+async function fetchWithRetry(url, options, signal, maxRetries = 2, delayMs = 3000) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, { ...options, signal });
+
+      // 502/503 = erreur serveur transitoire typique d'un restart de worker.
+      // On retente plutôt que de remonter l'erreur immédiatement.
+      if ((res.status === 502 || res.status === 503) && attempt < maxRetries) {
+        console.warn(`Tentative ${attempt + 1}/${maxRetries + 1} échouée (HTTP ${res.status}), nouvelle tentative dans ${delayMs}ms...`);
+        await new Promise(r => setTimeout(r, delayMs));
+        continue;
+      }
+
+      return res;
+    } catch (e) {
+      // AbortError = l'utilisateur a annulé, ne jamais retenter dans ce cas.
+      if (e.name === "AbortError") throw e;
+
+      lastError = e;
+      if (attempt < maxRetries) {
+        console.warn(`Tentative ${attempt + 1}/${maxRetries + 1} échouée (${e.message}), nouvelle tentative dans ${delayMs}ms...`);
+        await new Promise(r => setTimeout(r, delayMs));
+        continue;
+      }
+    }
+  }
+
+  throw lastError || new Error("network");
+}
 // ════ ANALYSE VIDÉO ════
 async function analyserVideo(lien){
   hideHero();_adFinished=false;_analysisResult=null;
@@ -1190,7 +1228,7 @@ async function analyserVideo(lien){
   let progInterval=setInterval(()=>{if(progress<88){progress+=Math.random()*8+3;if(progress>88)progress=88;if(progressBar)progressBar.style.width=progress+"%";if(percentLabel)percentLabel.textContent=Math.round(progress)+"%";}},900);
   analysisAbortController=new AbortController();const signal=analysisAbortController.signal;
   try{
-   const res=await fetch("/analyser",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:lien,lang:getTMDBLang(),browser_lang:getBrowserLangShort()}),signal});
+   const res=await fetchWithRetry("/analyser",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:lien,lang:getTMDBLang(),browser_lang:getBrowserLangShort()})},signal);
     if(!res.ok)throw new Error(`http_${res.status}`);
     let data;try{data=await res.json();}catch(e){throw new Error("json_parse");}
     if(data.status==="error"){clearInterval(progInterval);_adFinished=true;document.getElementById('ad-modal').style.display='none';clearInterval(_adCountdownInterval);overlay.classList.remove("active");stopGame();afficherErreurRiche(data);return;}
@@ -1287,7 +1325,7 @@ async function pollAnalysisStatus(sessionId,signal,maxRetries=80){
   for(let i=0;i<maxRetries;i++){
     if(signal.aborted)throw new DOMException("Aborted","AbortError");
     try{
-      const res=await fetch(`/analyser_status/${sessionId}`,{signal});if(!res.ok)throw new Error("Polling failed");
+      const res=await fetchWithRetry(`/analyser_status/${sessionId}`,{},signal,1,2000);if(!res.ok)throw new Error("Polling failed");
       const data=await res.json();
       let stepProgress=88;if(data.step==="downloading")stepProgress=90;else if(data.step==="processing")stepProgress=95;
       if(progressBar&&percentLabel){const tp=Math.min(stepProgress,98);if(tp>lastProgress)lastProgress=tp;progressBar.style.width=lastProgress+"%";percentLabel.textContent=Math.round(lastProgress)+"%";}
