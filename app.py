@@ -14,6 +14,7 @@ from routes_filming import router as filming_router
 from typing import Optional
 from contextlib import asynccontextmanager
 from collections import defaultdict
+from storage.cache_engine.lock_manager import acquire_lock, release_lock
 
 from fastapi import FastAPI, Request, UploadFile, File, Form
 
@@ -558,6 +559,15 @@ async def _run_download_and_analyse(session_id, url, platform, lang, browser_lan
         if not need_client_fallback:
             cleanup_files(video_path, audio_path, frame_dir, True)
         session["timestamp"] = time.time()
+
+        # Libère le verrou anti-doublons quel que soit le résultat
+        # (succès, erreur, ou besoin de fallback client). Garantit que le
+        # verrou ne reste jamais bloqué indéfiniment même si une exception
+        # imprévue survient plus haut dans le bloc try.
+        lock_key = session.get("_lock_key")
+        lock_token = session.get("_lock_token")
+        if lock_key and lock_token:
+            release_lock(lock_key, lock_token)
 # ════════════════════════════════════════════════════════════════
 # ENDPOINT PRINCIPAL
 # ════════════════════════════════════════════════════════════════
@@ -583,7 +593,35 @@ async def analyser(req: VideoRequest, request: Request):
     if cached:
         return {"status": "cached", **cached}
 
+    # ── Verrou anti-doublons : empêche plusieurs requêtes concurrentes ──
+    # sur la même URL non-cachée de relancer chacune le pipeline complet
+    # (download + Gemini + cascade). La première requête pose le verrou
+    # et traite normalement ; les suivantes attendent brièvement puis
+    # retentent le cache, sans jamais lancer leur propre download/Gemini.
+    from storage.cache_engine.hash_utils import key_url
+    lock_key = key_url(url)
+    lock_token = acquire_lock(lock_key, ttl=120)
+
+    if lock_token is None:
+        # Verrou déjà pris par une autre requête en cours sur cette URL.
+        # On attend que la première requête finisse (max ~8s par tentative,
+        # quelques tentatives), puis on relit le cache plutôt que de
+        # dupliquer le pipeline complet.
+        for _ in range(8):
+            await asyncio.sleep(1)
+            cached = get_cache(url)
+            if cached:
+                print(f"✅ Cache hit après attente verrou: {url[:60]}", flush=True)
+                return {"status": "cached", **cached}
+        # Toujours pas de cache après l'attente : la première requête est
+        # probablement encore en cours (vidéo longue, Gemini lent) ou a
+        # échoué silencieusement. On laisse cette requête repartir sur le
+        # pipeline normal plutôt que de bloquer indéfiniment l'utilisateur.
+        print(f"⚠️ Verrou actif mais pas de cache après attente, on continue normalement: {url[:60]}", flush=True)
+
     if _analysis_semaphore.locked():
+        if lock_token:
+            release_lock(lock_key, lock_token)
         return {"status": "error", "code": "server_busy",
                 "message": "Le serveur analyse déjà plusieurs vidéos. Réessayez dans 30 secondes."}
 
@@ -603,6 +641,8 @@ async def analyser(req: VideoRequest, request: Request):
         "status":       "queued",
         "result":       None,
         "timestamp":    time.time(),
+        "_lock_key":    lock_key,
+        "_lock_token":  lock_token,
     }
 
     asyncio.create_task(
@@ -612,9 +652,6 @@ async def analyser(req: VideoRequest, request: Request):
     )
 
     return {"status": "processing", "session_id": session_id}
-
-
-
 
 async def _run_uploaded_analyse(session_id, lang, browser_lang):
     session = _dl_sessions.get(session_id)
