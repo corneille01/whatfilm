@@ -6,6 +6,11 @@ ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
+# ── Cache HuggingFace dans l'image Docker (pas dans le filesystem éphémère Render)
+ENV HF_HOME=/app/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/app/.cache/huggingface
+ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/sentence_transformers
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ffmpeg \
@@ -44,11 +49,21 @@ RUN playwright install chromium
 
 COPY . .
 
+# ── Pré-téléchargement du modèle pendant le build (packagé dans l'image)
+# Le modèle (~90 MB) est téléchargé une seule fois au build,
+# puis disponible instantanément à chaque démarrage sans accès réseau.
+RUN mkdir -p /app/.cache/huggingface /app/.cache/sentence_transformers && \
+    python3 -c "\
+from sentence_transformers import SentenceTransformer; \
+model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); \
+print('✅ Modèle sentence-transformers pré-chargé OK'); \
+"
+
 RUN mkdir -p temp temp/cache
 
 EXPOSE 10000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:10000/health || exit 1
 
 CMD ["gunicorn", "app:app", \
@@ -58,5 +73,5 @@ CMD ["gunicorn", "app:app", \
      "--timeout", "120", \
      "--graceful-timeout", "30", \
      "--keep-alive", "5", \
-     "--max-requests", "2500", \
-     "--max-requests-jitter", "250"]
+     "--max-requests", "0", \
+     "--max-requests-jitter", "0"]
