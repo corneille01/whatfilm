@@ -48,9 +48,9 @@ import httpx
 # Ajouter ces imports en haut (après les imports existants)
 
 from storage.cache_engine.redis_client import get_redis
-from storage.cache_engine.ttl import TTL_PERMANENT  # ou définir localement
+from storage.cache_engine.ttl import DAY
 
-_WD_QID_TTL = 60 * 60 * 24 * 30   # 30 jours — les QIDs Wikidata ne changent jamais
+_WD_QID_TTL = 30 * DAY
 
 # ════════════════════════════════════════════════════════════════
 # CONSTANTES
