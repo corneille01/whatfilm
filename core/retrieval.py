@@ -648,6 +648,16 @@ async def run_cascade_search(
 # BUILD CANDIDATES FROM ACTORS
 # ════════════════════════════════════════════════════════════════
 
+# IDs de genres TMDB à exclure de l'intersection acteurs
+# (talk-shows, reality, actualités — faux positifs fréquents)
+_EXCLUDE_GENRE_IDS = {
+    10767,  # Talk
+    10763,  # News
+    10764,  # Reality
+    10766,  # Soap
+}
+
+
 async def build_candidates_from_actors(
     extraction: dict,
     lang: str = "fr",
@@ -662,6 +672,10 @@ async def build_candidates_from_actors(
     - Seuil 60 pour source fiable (gemini_url_direct, vidéo entière)
     - credits[:30] → évite de rater les séries moins populaires
     - filtre genre/année désactivé pour les genres génériques
+
+    Fix v2 : l'intersection multi-acteurs peut retourner uniquement des
+    talk-shows (genre 10767) où tous les acteurs ont été invités.
+    Dans ce cas, on ignore l'intersection et on passe à l'union filtrée.
     """
     acteurs    = extraction.get("acteurs",           []) or []
     certitudes = extraction.get("acteurs_certitude", []) or []
@@ -670,19 +684,14 @@ async def build_candidates_from_actors(
     if not acteurs:
         return []
 
-    # ── Seuil de certitude selon la source ───────────────────────
-    # Source fiable = Gemini a analysé la vidéo entière (YouTube, URL directe)
-    # → moins d'hallucinations → seuil plus bas
     SOURCE_FIABLE = {"gemini_youtube_direct", "gemini_url_direct"}
     seuil = 60 if source in SOURCE_FIABLE else 75
 
-    # Compléter les certitudes manquantes avec valeur conservative
     default = 75 if source in SOURCE_FIABLE else 50
     while len(certitudes) < len(acteurs):
         certitudes.append(default)
     certitudes = certitudes[:len(acteurs)]
 
-    # ── Filtre par certitude ──────────────────────────────────────
     acteurs_valides = []
     for acteur, certitude in zip(acteurs, certitudes):
         certitude = int(certitude) if isinstance(certitude, (int, float)) else default
@@ -732,20 +741,45 @@ async def build_candidates_from_actors(
         common_ids = ids_first
         for credits in all_credits[1:]:
             common_ids &= {c["id"] for c in credits}
+
         if common_ids:
             candidates = [c for c in all_credits[0] if c["id"] in common_ids]
-            candidates = sorted(
-                candidates,
-                key=lambda x: x.get("popularity", 0),
-                reverse=True,
-            )
-            print(
-                f"✅ Intersection acteurs: {len(candidates)} films communs",
-                flush=True
-            )
-            return candidates[:20]
-        print("⚠️ Aucune intersection acteurs → union top films", flush=True)
 
+            # ── Filtre anti talk-show ─────────────────────────────────────
+            # Quand plusieurs acteurs très différents se retrouvent dans une
+            # intersection, les seuls "films communs" sont souvent des
+            # talk-shows où ils ont chacun été invités (Tonight Show, Kimmel…).
+            # TMDB genre 10767 (Talk) trahit ces faux positifs.
+            filtered_intersection = [
+                c for c in candidates
+                if not _EXCLUDE_GENRE_IDS.intersection(set(c.get("genre_ids", [])))
+            ]
+
+            if filtered_intersection:
+                filtered_intersection = sorted(
+                    filtered_intersection,
+                    key=lambda x: x.get("popularity", 0),
+                    reverse=True,
+                )
+                print(
+                    f"✅ Intersection acteurs: {len(filtered_intersection)} films communs "
+                    f"({len(candidates) - len(filtered_intersection)} talk-shows exclus)",
+                    flush=True
+                )
+                return filtered_intersection[:20]
+            else:
+                # Toute l'intersection n'est que du talk/reality → sans valeur
+                print(
+                    f"⚠️ Intersection acteurs = {len(candidates)} résultats, "
+                    f"tous des talk-shows → ignorée, passage à l'union",
+                    flush=True
+                )
+                # fall-through vers l'union ci-dessous
+
+        else:
+            print("⚠️ Aucune intersection acteurs → union top films", flush=True)
+
+    # ── Union (fallback ou intersection vide/invalide) ────────────────
     seen_ids: set  = set()
     merged:   list = []
     for credits in all_credits:
@@ -753,6 +787,12 @@ async def build_candidates_from_actors(
             if c["id"] not in seen_ids:
                 seen_ids.add(c["id"])
                 merged.append(c)
+
+    # Exclure les talk-shows de l'union également
+    merged = [
+        c for c in merged
+        if not _EXCLUDE_GENRE_IDS.intersection(set(c.get("genre_ids", [])))
+    ]
 
     merged = sorted(merged, key=lambda x: x.get("popularity", 0), reverse=True)
 
@@ -780,7 +820,8 @@ async def build_candidates_from_actors(
             c["media_type"] = "tv" if "first_air_date" in c else "movie"
 
     print(f"✅ Candidats via acteurs: {len(merged[:20])}", flush=True)
-    return merged[:20]
+    return merged[:20],
+
 # ════════════════════════════════════════════════════════════════
 # HELPERS PRIVÉS
 # ════════════════════════════════════════════════════════════════

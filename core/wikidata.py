@@ -44,6 +44,13 @@ import re
 from typing import Optional
 
 import httpx
+# core/wikidata.py
+# Ajouter ces imports en haut (après les imports existants)
+
+from storage.cache_engine.redis_client import get_redis
+from storage.cache_engine.ttl import TTL_PERMANENT  # ou définir localement
+
+_WD_QID_TTL = 60 * 60 * 24 * 30   # 30 jours — les QIDs Wikidata ne changent jamais
 
 # ════════════════════════════════════════════════════════════════
 # CONSTANTES
@@ -318,39 +325,93 @@ async def _wd_get_coord(place_qid: str) -> Optional[tuple[float, float]]:
     except (KeyError, IndexError, TypeError):
         return None
 
-
 async def _find_wikidata_qid_by_tmdb(tmdb_id: int, media_type: str = "movie") -> Optional[str]:
     """
     Retrouve le QID Wikidata d'un film à partir de son ID TMDB.
     Utilise SPARQL pour la recherche inverse.
 
-    Note : SPARQL est plus lent (~2-3s) mais exact pour la recherche inverse.
-    À ne déclencher que pour les fiches détail (pas dans le pipeline de recherche).
+    Fix v2 :
+    - Cache Redis 30 jours (clé wd:qid:{tmdb_id}:{media_type})
+      → évite de retaper Wikidata pour les fiches déjà vues
+    - Retry unique sur 429 avec backoff 65s
+      → Wikidata rate-limit = 1 req/min anonyme, 65s suffit
+    - Valeur sentinelle "" mise en cache quand QID introuvable
+      → évite de retenter indéfiniment pour les films sans entrée Wikidata
     """
-    prop = _P_TMDB_MOVIE if media_type == "movie" else _P_TMDB_TV
+    cache_key = f"wd:qid:{tmdb_id}:{media_type}"
+
+    # ── Lecture cache Redis ───────────────────────────────────────
+    redis = get_redis()
+    if redis:
+        try:
+            cached = redis.get(cache_key)
+            if cached is not None:
+                # "" = sentinelle "connu comme absent"
+                return cached if cached else None
+        except Exception as e:
+            print(f"⚠️ Redis read KO (wikidata qid): {e}", flush=True)
+
+    prop  = _P_TMDB_MOVIE if media_type == "movie" else _P_TMDB_TV
     query = f"""
     SELECT ?item WHERE {{
       ?item wdt:{prop} "{tmdb_id}" .
     }}
     LIMIT 1
     """
-    try:
+
+    async def _do_sparql() -> Optional[str]:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(
                 _WD_SPARQL,
                 params={"query": query, "format": "json"},
                 headers={"User-Agent": _USER_AGENT, "Accept": "application/json"},
             )
+            if resp.status_code == 429:
+                return "429"
             resp.raise_for_status()
             bindings = resp.json().get("results", {}).get("bindings", [])
             if bindings:
-                uri = bindings[0]["item"]["value"]
-                return uri.split("/")[-1]  # "Q12345"
+                return bindings[0]["item"]["value"].split("/")[-1]
+            return None
+
+    qid = None
+    try:
+        result = await _do_sparql()
+
+        # ── Retry sur 429 avec backoff 65s ────────────────────────
+        if result == "429":
+            print(
+                f" SPARQL 429 (tmdb={tmdb_id}) → attente 65s puis retry...",
+                flush=True
+            )
+            await asyncio.sleep(65)
+            try:
+                result = await _do_sparql()
+                if result == "429":
+                    print(
+                        f" SPARQL 429 persistant (tmdb={tmdb_id}) → abandon",
+                        flush=True
+                    )
+                    result = None
+            except Exception as e2:
+                print(f" SPARQL retry KO (tmdb={tmdb_id}): {str(e2)[:60]}", flush=True)
+                result = None
+
+        qid = result if result != "429" else None
+
     except Exception as e:
-        print(f"⚠️ SPARQL inverse KO (tmdb={tmdb_id}): {str(e)[:60]}", flush=True)
-    return None
+        print(f" SPARQL inverse KO (tmdb={tmdb_id}): {str(e)[:60]}", flush=True)
+        qid = None
 
+    # ── Écriture cache Redis ──────────────────────────────────────
+    # On cache aussi l'absence (sentinelle "") pour ne pas retenter
+    if redis:
+        try:
+            redis.set(cache_key, qid or "", ex=_WD_QID_TTL)
+        except Exception as e:
+            print(f" Redis write KO (wikidata qid): {e}", flush=True)
 
+    return qid
 # ════════════════════════════════════════════════════════════════
 # PARSING D'ENTITÉ — VERSION ENRICHIE
 # ════════════════════════════════════════════════════════════════

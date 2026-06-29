@@ -27,9 +27,9 @@ from typing import Optional
 # DÉTECTION CJK / LANGUES ASIATIQUES
 # ════════════════════════════════════════════════════════════════
 
-_CJK_PATTERN  = re.compile(r'[一-鿿㐀-䶿\u3400-\u4DBF]')   # Chinois commun
-_JP_PATTERN   = re.compile(r'[぀-ゟ゠-ヿ]')                  # Hiragana / Katakana
-_KO_PATTERN   = re.compile(r'[가-힯ᄀ-ᇿ]')                  # Hangul
+_CJK_PATTERN  = re.compile(r'[一-鿿㐀-䶿\u3400-\u4DBF]')
+_JP_PATTERN   = re.compile(r'[぀-ゟ゠-ヿ]')
+_KO_PATTERN   = re.compile(r'[가-힯ᄀ-ᇿ]')
 
 
 def _has_cjk(text: str) -> bool:
@@ -41,7 +41,6 @@ def _has_korean(text: str) -> bool:
 
 
 def _extract_cjk(text: str) -> str:
-    """Extrait les séquences CJK/japonaises d'un texte (max 8 chars)."""
     cjk_chars = re.findall(r'[一-鿿㐀-䶿\u3400-\u4DBF぀-ゟ゠-ヿ]+', text)
     return "".join(cjk_chars[:2])[:8]
 
@@ -52,6 +51,52 @@ def _extract_korean(text: str) -> str:
 
 
 # ════════════════════════════════════════════════════════════════
+# NETTOYAGE DES INDICES PARASITES
+# ════════════════════════════════════════════════════════════════
+
+# Termes méta qui n'ont aucune valeur discriminante pour une recherche film
+_META_NOISE = {
+    "concept vidéo", "concept video", "extrait", "clip", "bande-annonce",
+    "trailer", "making of", "behind the scenes", "scène", "scene",
+    "épave", "wreck", "ruins", "ruines", "débris",
+}
+
+def _clean_clue_for_search(clue: str) -> str:
+    """
+    Nettoie un indice visuel avant de l'utiliser dans une requête web.
+
+    Exemples :
+      'Titanic (épave) hélicoptère'  → 'Titanic hélicoptère'
+      'arc (arme) uniforme scolaire' → 'arc uniforme scolaire'
+      'concept vidéo montagne'       → 'montagne'
+    """
+    # 1. Supprimer les annotations entre parenthèses courtes (≤ 30 chars)
+    cleaned = re.sub(r'\s*\([^)]{1,30}\)', '', clue).strip()
+
+    # 2. Supprimer les termes méta parasites (insensible à la casse)
+    for noise in _META_NOISE:
+        cleaned = re.sub(
+            rf'\b{re.escape(noise)}\b', '', cleaned, flags=re.IGNORECASE
+        ).strip()
+
+    # 3. Normaliser les espaces multiples
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned
+
+
+def _clean_clues(clues: list[str]) -> list[str]:
+    """Nettoie une liste d'indices et supprime ceux devenus vides ou trop courts."""
+    result = []
+    seen: set = set()
+    for c in clues:
+        cleaned = _clean_clue_for_search(c)
+        if cleaned and len(cleaned) > 2 and cleaned.lower() not in seen:
+            seen.add(cleaned.lower())
+            result.append(cleaned)
+    return result
+
+
+# ════════════════════════════════════════════════════════════════
 # CONSTRUCTION DES REQUÊTES WEB
 # ════════════════════════════════════════════════════════════════
 
@@ -59,14 +104,23 @@ def build_web_queries(extraction: dict, ocr_text: str = "") -> list[str]:
     """
     Construit des requêtes web ciblées depuis les indices Gemini + OCR.
 
-    Priorité :
-      1. Kanji/CJK dans l'OCR → requête la plus discriminante
-      2. Titres incertains Gemini + indices visuels
-      3. Description courte + indices visuels en anglais
-      4. Indices visuels seuls + "film"
+    Fix v2 :
+    - Nettoyage des indices parasites avant toute requête
+      ('Titanic (épave) hélicoptère' → 'Titanic hélicoptère')
+    - Diversification quand acteurs disponibles :
+        requête A : acteur principal + genre (+ année si dispo)
+        requête B : acteur1 + acteur2
+        requête C : indices visuels nettoyés + movie
+    - Ces requêtes acteur-first remontent en priorité 2b,
+      avant les indices visuels (priorité 3)
 
-    Returns:
-        Liste de requêtes strings, max 5, ordonnées par pertinence estimée.
+    Priorité :
+      0. Titres précis certains ou incertains précis
+      1. CJK dans l'OCR (très discriminant)
+      2. Titres incertains vagues + indices EN
+      2b. Acteurs + genre / acteurs croisés  ← NOUVEAU
+      3. Indices visuels nettoyés + "movie"
+      4. Description courte → mots-clés EN
     """
     queries: list[str] = []
 
@@ -80,16 +134,20 @@ def build_web_queries(extraction: dict, ocr_text: str = "") -> list[str]:
         for t in extraction.get("titres_possibles", [])
         if not str(t).startswith("?") and len(str(t)) > 1
     ]
-    indices   = extraction.get("indices_visuels",   []) or []
-    objets    = extraction.get("objets_importants", []) or []
-    desc      = (extraction.get("description_courte", "") or "").strip()
-    genre     = (extraction.get("genre_apparent",   "") or "").strip()
-    annee     = str(extraction.get("annee_estimee") or "").strip()
+    acteurs = extraction.get("acteurs", []) or []
+    indices = extraction.get("indices_visuels",   []) or []
+    objets  = extraction.get("objets_importants", []) or []
+    desc    = (extraction.get("description_courte", "") or "").strip()
+    genre   = (extraction.get("genre_apparent",   "") or "").strip()
+    annee   = str(extraction.get("annee_estimee") or "").strip()
 
-    all_clues = [o for o in objets if o] + [i for i in indices if i]
+    # Nettoyage des indices AVANT tout usage
+    all_clues_raw   = [o for o in objets if o] + [i for i in indices if i]
+    all_clues       = _clean_clues(all_clues_raw)
 
-    # ── Priorité 0 : titres précis (certains ou incertains précis) ─
-    # "Love, Death & Robots" → chercher directement sans passer par les indices
+    genre_en = genre.replace("film-", "").replace("série", "series").strip()
+
+    # ── Priorité 0 : titres précis ────────────────────────────────
     for titre in titres_certains[:2]:
         if not _has_cjk(titre) and not _has_korean(titre):
             queries.append(f'"{titre}" film site:imdb.com OR site:themoviedb.org')
@@ -97,7 +155,6 @@ def build_web_queries(extraction: dict, ocr_text: str = "") -> list[str]:
             queries.append(f"{titre} film")
 
     for titre in titres_incertains[:2]:
-        # Titres précis = majuscule interne, ponctuation, chiffre, ou multi-mots
         is_precise = (
             re.search(r'(?<=[a-z])[A-Z]', titre)
             or re.search(r'[,&:\d\-]', titre)
@@ -110,11 +167,9 @@ def build_web_queries(extraction: dict, ocr_text: str = "") -> list[str]:
             else:
                 queries.append(f"{titre} film")
 
-    # ── Priorité 1 : CJK dans l'OCR (très discriminant) ─────────
+    # ── Priorité 1 : CJK dans l'OCR ──────────────────────────────
     ocr = (ocr_text or "").strip()
-    cjk_from_ocr = ""
-    if _has_cjk(ocr):
-        cjk_from_ocr = _extract_cjk(ocr)
+    cjk_from_ocr = _extract_cjk(ocr) if _has_cjk(ocr) else ""
     cjk_from_titles = ""
     for t in titres_incertains:
         if _has_cjk(t):
@@ -124,15 +179,12 @@ def build_web_queries(extraction: dict, ocr_text: str = "") -> list[str]:
     cjk = cjk_from_ocr or cjk_from_titles
     if cjk:
         queries.append(f"{cjk} film")
-        if all_clues:
-            en_clues = _quick_translate(all_clues[:2])
-            if en_clues:
-                queries.append(f"{cjk} {' '.join(en_clues)} movie")
+        en_clues = _quick_translate(all_clues[:2])
+        if en_clues:
+            queries.append(f"{cjk} {' '.join(en_clues)} movie")
 
     # Coréen
-    ko = ""
-    if _has_korean(ocr):
-        ko = _extract_korean(ocr)
+    ko = _extract_korean(ocr) if _has_korean(ocr) else ""
     if not ko:
         for t in titres_incertains:
             if _has_korean(t):
@@ -142,17 +194,43 @@ def build_web_queries(extraction: dict, ocr_text: str = "") -> list[str]:
         queries.append(f"{ko} 영화")
         queries.append(f"{ko} film")
 
-    # ── Priorité 2 : titres incertains + indices EN ───────────────
+    # ── Priorité 2 : titres incertains vagues + indices EN ────────
     en_clues_all = _quick_translate(all_clues[:3])
     for titre in titres_incertains[:1]:
         if not re.search(r'(?<=[a-z])[A-Z]|[,&:\d\-]', titre):
-            # Titre vague → enrichir avec les indices
             if en_clues_all:
                 queries.append(f"{titre} {' '.join(en_clues_all[:2])} movie")
             else:
                 queries.append(f"{titre} movie")
 
-    # ── Priorité 3 : indices visuels EN + contexte asiatique ──────
+    # ── Priorité 2b : acteurs (NOUVEAU) ──────────────────────────
+    # Quand les indices visuels sont peu fiables (score faible, confusion
+    # entre objet reconnu et titre), les acteurs sont souvent le signal
+    # le plus fiable. On génère jusqu'à 2 requêtes acteur-first.
+    if acteurs:
+        acteur_principal = acteurs[0]
+
+        # Requête A : acteur + genre + année
+        q_actor_genre = acteur_principal
+        if genre_en and genre_en not in ("action", "drama", "thriller"):
+            # genres trop génériques → inutiles dans une requête web
+            q_actor_genre += f" {genre_en}"
+        if annee:
+            q_actor_genre += f" {annee}"
+        q_actor_genre += " film"
+        queries.append(q_actor_genre)
+
+        # Requête B : croisement deux acteurs (très discriminant)
+        if len(acteurs) >= 2:
+            queries.append(f"{acteurs[0]} {acteurs[1]} film")
+
+        # Requête C : acteur + indices nettoyés (si indices non vides après nettoyage)
+        if all_clues:
+            en_clues_actor = _quick_translate(all_clues[:2])
+            if en_clues_actor:
+                queries.append(f"{acteur_principal} {' '.join(en_clues_actor[:2])} movie")
+
+    # ── Priorité 3 : indices visuels nettoyés + contexte asiatique ─
     if en_clues_all and len(en_clues_all) >= 2:
         asian_keyword = _detect_asian_keyword(all_clues, desc)
         base = " ".join(en_clues_all[:3])
@@ -169,9 +247,9 @@ def build_web_queries(extraction: dict, ocr_text: str = "") -> list[str]:
         if desc_en and len(desc_en) >= 2:
             queries.append(f"{' '.join(desc_en[:4])} movie")
 
-    # Dédoublonnage + limite
-    seen: set = set()
-    result: list[str] = []
+    # ── Dédoublonnage + limite ────────────────────────────────────
+    seen:   set  = set()
+    result: list = []
     for q in queries:
         q = q.strip()
         if q and q not in seen and len(q) > 4:
@@ -212,6 +290,13 @@ _QUICK_FR_EN: dict[str, str] = {
     "policier": "police", "commissariat": "police station",
     "balançoire": "swing", "parc": "park", "enfant": "child",
     "fils": "son", "fille": "daughter", "mère": "mother", "père": "father",
+    "hélicoptère": "helicopter", "avion": "aircraft", "bateau": "ship",
+    "sous-marin": "submarine", "train": "train", "voiture": "car",
+    "épave": "wreck", "ruines": "ruins", "désert": "desert",
+    "montagne": "mountain", "océan": "ocean", "mer": "sea",
+    "plage": "beach", "jungle": "jungle", "forêt tropicale": "rainforest",
+    "ville": "city", "immeuble": "building", "gratte-ciel": "skyscraper",
+    "laboratoire": "laboratory", "bunker": "bunker", "prison": "prison",
 }
 
 _ASIAN_SIGNALS_FR: dict[str, str] = {
@@ -316,7 +401,6 @@ async def _ddg_search(query: str, max_results: int = 5) -> list[dict]:
     Tente d'abord le nouveau package 'ddgs', puis l'ancien 'duckduckgo_search'.
     """
     def _sync_search():
-        # Essai 1 : nouveau package ddgs
         try:
             from ddgs import DDGS
             with DDGS() as ddgs:
@@ -326,7 +410,6 @@ async def _ddg_search(query: str, max_results: int = 5) -> list[dict]:
         except Exception as e:
             print(f"⚠️ ddgs KO pour '{query[:40]}': {e}", flush=True)
 
-        # Essai 2 : ancien package duckduckgo_search
         try:
             from duckduckgo_search import DDGS
             with DDGS() as ddgs:
@@ -410,7 +493,7 @@ async def web_search_fallback(
                 seen_titles.add(t.lower())
                 candidate_titles.append(t)
 
-    # Ajouter les séquences CJK brutes en priorité
+    # Séquences CJK brutes en priorité
     ocr_cjk = _extract_cjk((ocr_text or ""))
     if ocr_cjk and ocr_cjk not in seen_titles:
         candidate_titles.insert(0, ocr_cjk)
@@ -420,8 +503,7 @@ async def web_search_fallback(
         if t_clean and _has_cjk(t_clean) and t_clean not in seen_titles:
             candidate_titles.insert(0, t_clean)
 
-    # Ajouter aussi les titres précis Gemini directement
-    # (ils ont déjà été cherchés en web, on les valide aussi sur TMDB)
+    # Titres précis Gemini directement
     for t in extraction.get("titres_possibles", []):
         t_clean = str(t).lstrip("?").strip()
         if not t_clean or _has_cjk(t_clean):
@@ -435,6 +517,23 @@ async def web_search_fallback(
         if is_precise and t_clean.lower() not in seen_titles:
             seen_titles.add(t_clean.lower())
             candidate_titles.append(t_clean)
+
+    # ── Étape 2b : acteurs comme titres de recherche TMDB directs ─
+    # Quand les snippets web ne donnent rien d'exploitable,
+    # rechercher les acteurs directement sur TMDB comme fallback ultime.
+    acteurs = extraction.get("acteurs", []) or []
+    if acteurs and not candidate_titles:
+        print(
+            f"🌐 Aucun titre extrait des snippets → recherche TMDB directe "
+            f"par acteurs: {acteurs[:2]}",
+            flush=True
+        )
+        # On injecte les acteurs comme "titres candidats" — search_multi_lang
+        # les trouvera via /search/person et retournera leurs films
+        for acteur in acteurs[:2]:
+            if acteur.lower() not in seen_titles:
+                seen_titles.add(acteur.lower())
+                candidate_titles.append(acteur)
 
     if not candidate_titles:
         print("🌐 Web search → aucun titre extrait des snippets", flush=True)
@@ -499,14 +598,6 @@ def should_trigger_web_fallback(
     extraction: dict,
     ocr_text: str = "",
 ) -> bool:
-    """
-    Retourne True si le web search fallback doit être déclenché.
-
-    Conditions (OR) :
-      - Score rerank < 50
-      - Candidats TMDB vides
-      - OCR ou titres Gemini contiennent des kanji/CJK non exploités
-    """
     if not candidates:
         print("🌐 Trigger web fallback: aucun candidat TMDB", flush=True)
         return True
