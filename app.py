@@ -8,6 +8,7 @@ import time
 import asyncio
 import re
 import httpx
+from core.embeddings_engine import check_known_film, store_film_signature
 
 from core import extraction
 from routes_filming import router as filming_router
@@ -813,6 +814,142 @@ async def cache_purge_code(code: str):
 # ════════════════════════════════════════════════════════════════
 # PROCESS ANALYSIS
 # ════════════════════════════════════════════════════════════════
+
+
+async def _finalize_with_known_result(
+    url: str,
+    lang: str,
+    browser_lang: str,
+    transcript: str,
+    ocr_text: str,
+    fake_score: int,
+    result: dict,
+    candidates: list,
+) -> dict:
+    """
+    Finalise une analyse à partir d'un résultat déjà connu (match embeddings,
+    ou tout autre cas où le rerank a déjà été fait en amont). Reprend la
+    logique "Détails TMDB" de process_analysis() sans dupliquer le code.
+
+    Paramètres :
+      result     : dict avec au moins {id, media_type, meilleur_titre, score}
+      candidates : liste de candidats (peut être minimaliste, juste pour
+                   permettre au code de retrouver le media_type si besoin)
+    """
+    confidence = result.get("score", 0)
+
+    if confidence >= 30 and result.get("id"):
+        film_hit = get_cache_by_film(result["id"], lang)
+        if film_hit:
+            set_cache(url, film_hit, transcript=transcript or "", ocr_text=ocr_text or "")
+            return {"status": "cached", **film_hit}
+
+    if confidence < 35:
+        titre    = result.get("meilleur_titre", "")
+        low_conf = {
+            "status":         "not_found",
+            "message":        f"Film non identifié avec certitude ({confidence}%). Essayez de rechercher manuellement.",
+            "titre_gemini":   titre,
+            "search_youtube": f"https://www.youtube.com/results?search_query={titre}+film+trailer",
+            
+        }
+        set_cache(url, low_conf, transcript=transcript or "", ocr_text=ocr_text or "")
+        return low_conf
+
+    movie_id       = result["id"]
+    effective_type = result.get("media_type", "movie")
+
+    if not effective_type or effective_type == "mixed":
+        matched = next(
+            (c for c in candidates if c.get("id") == movie_id), None
+        )
+        effective_type = (matched.get("media_type", "movie") if matched else "movie")
+
+    print(f"📋 Détails TMDB id={movie_id} type={effective_type}", flush=True)
+
+    details_lang = browser_lang or lang
+
+    try:
+        details = (
+            await get_tv_details(movie_id, details_lang)
+            if effective_type == "tv"
+            else await get_movie_details(movie_id, details_lang)
+        )
+    except Exception:
+        try:
+            if effective_type == "tv":
+                details        = await get_movie_details(movie_id, details_lang)
+                effective_type = "movie"
+            else:
+                details        = await get_tv_details(movie_id, details_lang)
+                effective_type = "tv"
+        except Exception as e2:
+            print(f"❌ TMDB KO id={movie_id}: {e2}", flush=True)
+            return {"status": "error", "code": "tmdb_error",
+                    "message": "Impossible de récupérer les détails du film."}
+
+    region = _get_region_from_lang(browser_lang)
+    providers = (
+        details.get("watch/providers", {})
+               .get("results", {})
+               .get(region, {})
+               .get("flatrate", [])
+    )
+    is_series = effective_type == "tv" or bool(details.get("first_air_date"))
+
+    final = {
+        "status":          "success",
+        "media_type":      effective_type,
+        "is_series":       is_series,
+        "title":           (result.get("meilleur_titre")
+                            or details.get("title")
+                            or details.get("name")
+                            or "Inconnu"),
+        "confidence":      max(0, confidence),
+        "synopsis":        details.get("overview", ""),
+        "image":           (f"https://image.tmdb.org/t/p/w500{details['poster_path']}"
+                            if details.get("poster_path") else ""),
+        "streaming":       [p.get("provider_name") for p in providers],
+        "streaming_logos": [
+            {"name": p.get("provider_name"), "logo_path": p.get("logo_path")}
+            for p in providers
+        ],
+        "similar": [
+            {
+                "title":       s.get("title", s.get("name", "?")),
+                "id":          s.get("id"),
+                "poster_path": s.get("poster_path"),
+            }
+            for s in details.get("similar", {}).get("results", [])[:6]
+        ],
+        "cast": [
+            {
+                "name":         c.get("name"),
+                "character":    c.get("character"),
+                "profile_path": c.get("profile_path"),
+            }
+            for c in details.get("credits", {}).get("cast", [])[:8]
+        ],
+        "trailer":      "",
+        "genres":       [g["name"] for g in details.get("genres", [])],
+        "year":         (details.get("release_date")
+                         or details.get("first_air_date") or "").split("-")[0],
+        "runtime":      (details.get("runtime")
+                         or (details.get("episode_run_time") or [None])[0]),
+        "vote_average": details.get("vote_average"),
+        "vote_count":   details.get("vote_count"),
+        "tmdb_id":      movie_id,
+        "lang":         lang,
+        "is_fake":      fake_score > 70,
+        "seasons":      details.get("seasons") if is_series else None,
+    }
+
+    if confidence >= 50:
+        set_cache(url, final, transcript=transcript or "", ocr_text=ocr_text or "")
+
+    return final
+
+
 async def process_analysis(
     frames,
     ocr_text,
@@ -829,10 +966,63 @@ async def process_analysis(
         content_hit = get_cache_by_content(transcript, ocr_text, lang)
         if content_hit:
                 set_cache(url, content_hit, transcript=transcript, ocr_text=ocr_text)
-           
                 return {"status": "cached", **content_hit}
-        
-    
+
+    # ── 1b. Check embeddings (avant les LLM) ──────────────────────
+    # Vérifie si ce texte/ces frames ressemblent à un film déjà identifié
+    # avec succès auparavant, AVANT de dépenser du quota Gemini/Qwen/Groq.
+    # N'agit que si prefetched_extraction est absent (cas YouTube direct,
+    # où l'extraction a déjà eu lieu côté _run_download_and_analyse) et
+    # qu'on a du texte ou des frames à comparer. En cas d'échec/absence
+    # de configuration université, check_known_film retourne None
+    # silencieusement et le pipeline continue normalement plus bas.
+    if prefetched_extraction is None and (transcript or ocr_text or frames):
+        embedding_match = await check_known_film(
+            transcript=transcript or "",
+            ocr_text=ocr_text or "",
+            frame_paths=frames or [],
+        )
+        if embedding_match:
+            tmdb_id_match    = embedding_match["tmdb_id"]
+            media_type_match = embedding_match.get("media_type", "movie")
+            lang_match       = embedding_match.get("lang", lang)
+
+            film_hit = get_cache_by_film(tmdb_id_match, lang_match)
+            if film_hit:
+                print(
+                    f" Match embeddings → cache film direct (tmdb_id={tmdb_id_match}, "
+                    f"score={embedding_match['score']:.3f})",
+                    flush=True,
+                )
+                set_cache(url, film_hit, transcript=transcript or "", ocr_text=ocr_text or "")
+                return {"status": "cached", **film_hit}
+
+            # Le film est connu par embeddings mais pas encore en cache fiche
+            # complète (rare, ex: cache fiche expiré entre temps) : on continue
+            # directement vers "Détails TMDB" via _finalize_with_known_result,
+            # sans dépenser de quota LLM sur l'extraction ni sur le rerank.
+            print(
+                f"⚡ Match embeddings sans cache fiche → identification directe "
+                f"(tmdb_id={tmdb_id_match}, score={embedding_match['score']:.3f})",
+                flush=True,
+            )
+            fake_score_preliminary = detect_fake((ocr_text or "") + " " + (transcript or ""))
+            result = {
+                "id":             tmdb_id_match,
+                "media_type":     media_type_match,
+                "meilleur_titre": "",
+                "score":          75,
+                "raison":         "match embeddings (similarité élevée)",
+            }
+            candidates = [{
+                "id": tmdb_id_match, "media_type": media_type_match,
+                "title": "", "popularity": 0,
+            }]
+            return await _finalize_with_known_result(
+                url, lang, browser_lang, transcript, ocr_text,
+                fake_score=fake_score_preliminary,
+                result=result, candidates=candidates,
+            )
 
     # ── 2. Extraction multimodale ────────────────────────────────
     if prefetched_extraction is not None:
@@ -1065,124 +1255,28 @@ async def process_analysis(
             "media_type":     candidates[0].get("media_type", "movie"),
         }
 
-    # ── 7. Score de confiance ────────────────────────────────────
-    confidence = result.get("score", 0)
-
-    if confidence >= 30 and result.get("id"):
-        film_hit = get_cache_by_film(result["id"], lang)
-        if film_hit:
-            set_cache(url, film_hit, transcript=transcript or "", ocr_text=ocr_text or "")
-            return {"status": "cached", **film_hit}
-
-    if confidence < 35:
-        titre    = result.get("meilleur_titre", "")
-        low_conf = {
-            "status":         "not_found",
-            "message":        f"Film non identifié avec certitude ({confidence}%). Essayez de rechercher manuellement.",
-            "titre_gemini":   titre,
-            "search_youtube": f"https://www.youtube.com/results?search_query={titre}+film+trailer",
-            "search_google":  f"https://www.google.com/search?q={titre}+film",
-            "search_tmdb":    f"https://www.themoviedb.org/search?query={titre}",
-        }
-        set_cache(url, low_conf, transcript=transcript or "", ocr_text=ocr_text or "")
-        return low_conf
-
-    # ── 8. Détails TMDB ──────────────────────────────────────────
-    movie_id       = result["id"]
-    effective_type = result.get("media_type", "movie")
-
-    if not effective_type or effective_type == "mixed":
-        matched = next(
-            (c for c in candidates if c.get("id") == movie_id), None
-        )
-        effective_type = (matched.get("media_type", "movie") if matched else "movie")
-
-    print(f"📋 Détails TMDB id={movie_id} type={effective_type}", flush=True)
-
-    details_lang = browser_lang or lang
-
-    try:
-        details = (
-            await get_tv_details(movie_id, details_lang)
-            if effective_type == "tv"
-            else await get_movie_details(movie_id, details_lang)
-        )
-    except Exception:
-        try:
-            if effective_type == "tv":
-                details        = await get_movie_details(movie_id, details_lang)
-                effective_type = "movie"
-            else:
-                details        = await get_tv_details(movie_id, details_lang)
-                effective_type = "tv"
-        except Exception as e2:
-            print(f"❌ TMDB KO id={movie_id}: {e2}", flush=True)
-            return {"status": "error", "code": "tmdb_error",
-                    "message": "Impossible de récupérer les détails du film."}
-
-    
-    region = _get_region_from_lang(browser_lang)
-    providers = (
-        details.get("watch/providers", {})
-               .get("results", {})
-               .get(region, {})
-               .get("flatrate", [])
+    # ── 7. Finalisation (détails TMDB + construction du résultat) ──
+    final = await _finalize_with_known_result(
+        url, lang, browser_lang, transcript, ocr_text,
+        fake_score=fake_score, result=result, candidates=candidates,
     )
-    is_series = effective_type == "tv" or bool(details.get("first_air_date"))
 
-    final = {
-        "status":          "success",
-        "media_type":      effective_type,
-        "is_series":       is_series,
-        "title":           (result.get("meilleur_titre")
-                            or details.get("title")
-                            or details.get("name")
-                            or "Inconnu"),
-        "confidence":      max(0, confidence),
-        "synopsis":        details.get("overview", ""),
-        "image":           (f"https://image.tmdb.org/t/p/w500{details['poster_path']}"
-                            if details.get("poster_path") else ""),
-        "streaming":       [p.get("provider_name") for p in providers],
-        "streaming_logos": [
-            {"name": p.get("provider_name"), "logo_path": p.get("logo_path")}
-            for p in providers
-        ],
-        "similar": [
-            {
-                "title":       s.get("title", s.get("name", "?")),
-                "id":          s.get("id"),
-                "poster_path": s.get("poster_path"),
-            }
-            for s in details.get("similar", {}).get("results", [])[:6]
-        ],
-        "cast": [
-            {
-                "name":         c.get("name"),
-                "character":    c.get("character"),
-                "profile_path": c.get("profile_path"),
-            }
-            for c in details.get("credits", {}).get("cast", [])[:8]
-        ],
-        "trailer":      "",
-        "genres":       [g["name"] for g in details.get("genres", [])],
-        "year":         (details.get("release_date")
-                         or details.get("first_air_date") or "").split("-")[0],
-        "runtime":      (details.get("runtime")
-                         or (details.get("episode_run_time") or [None])[0]),
-        "vote_average": details.get("vote_average"),
-        "vote_count":   details.get("vote_count"),
-        "tmdb_id":      movie_id,
-        "lang":         lang,
-        "is_fake":      fake_score > 70,
-        "seasons":      details.get("seasons") if is_series else None,
-    }
-
-    if confidence >= 50:
-        set_cache(url, final, transcript=transcript or "", ocr_text=ocr_text or "")
+    # ── 8. Enregistrement de la signature embeddings (si succès fiable) ──
+    # N'enregistre que si le résultat final est un succès complet avec une
+    # confiance suffisante (store_film_signature filtre déjà sur >= 70 en
+    # interne, donc cet appel est toujours sûr même en cas de score faible).
+    if final.get("status") == "success" and final.get("tmdb_id"):
+        await store_film_signature(
+            tmdb_id=final["tmdb_id"],
+            confidence=final.get("confidence", 0),
+            media_type=final.get("media_type", "movie"),
+            lang=lang,
+            transcript=transcript or "",
+            ocr_text=ocr_text or "",
+            frame_paths=frames or [],
+        )
 
     return final
-
-
 
 # ════════════════════════════════════════════════════════════════
 # ROUTES PUBLIQUES
