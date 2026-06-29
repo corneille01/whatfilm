@@ -1283,13 +1283,7 @@ async def process_analysis(
 # ════════════════════════════════════════════════════════════════
 
 
-# Dans ton router FastAPI
-@app.get("/.well-known/security.txt")
-async def security_txt():
-    return PlainTextResponse("""Contact: mailto:security@pelify.app
-Expires: 2027-01-01T00:00:00.000Z
-Preferred-Languages: fr, en
-""")
+
 @app.get("/trending")
 async def trending(lang: str = "fr", type: str = "movie"):
     cache_key = f"trending:{lang}:{type}"
