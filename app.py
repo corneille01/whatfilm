@@ -608,17 +608,17 @@ async def analyser(req: VideoRequest, request: Request):
         # On attend que la première requête finisse (max ~8s par tentative,
         # quelques tentatives), puis on relit le cache plutôt que de
         # dupliquer le pipeline complet.
-        for _ in range(8):
-            await asyncio.sleep(1)
+        max_wait_seconds = 90
+        poll_interval = 1.5
+        attempts = int(max_wait_seconds / poll_interval)
+        for _ in range(attempts):
+            await asyncio.sleep(poll_interval)
             cached = get_cache(url)
             if cached:
                 print(f"✅ Cache hit après attente verrou: {url[:60]}", flush=True)
                 return {"status": "cached", **cached}
-        # Toujours pas de cache après l'attente : la première requête est
-        # probablement encore en cours (vidéo longue, Gemini lent) ou a
-        # échoué silencieusement. On laisse cette requête repartir sur le
-        # pipeline normal plutôt que de bloquer indéfiniment l'utilisateur.
-        print(f"⚠️ Verrou actif mais pas de cache après attente, on continue normalement: {url[:60]}", flush=True)
+
+        print(f"⚠️ Verrou actif mais pas de cache après {max_wait_seconds}s, on continue normalement: {url[:60]}", flush=True)
 
     if _analysis_semaphore.locked():
         if lock_token:

@@ -139,6 +139,7 @@ function getBrowserLangShort() {
   };
   return m[detectBrowserLang()] || "fr";
 }
+let lastAnalyzedLink = null;
 let lastGrid = null;
 let currentPage = 1;
 let currentGenreName = "";
@@ -1010,7 +1011,7 @@ function afficherErreurRiche(data){
   document.getElementById("filtres-bar").style.display="none";
   document.getElementById("genre-title").innerText="";
   const icon={video_private:"🔒",video_geo:"🌍",video_deleted:"🗑️",download_failed:"📵",server_busy:"⏳",no_frames:"🖼️",timeout:"⏱️",session_expired:"🔄",low_confidence:"🔍"}[code]||"⚠️";
-  const retryBtn=(code==="server_busy"||code==="timeout"||code==="unexpected")?`<button class="btn-stream" style="margin-top:8px" onclick="retourAccueil()"><i class="fas fa-redo"></i> Réessayer</button>`:"";
+  const retryBtn=(code==="server_busy"||code==="timeout"||code==="unexpected")?`<button class="btn-stream" style="margin-top:8px" onclick="relancerDerniereAnalyse()"><i class="fas fa-redo"></i> Réessayer</button>`:"";
   document.getElementById("movie-cards").innerHTML = `
 <div style="grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:48px 24px;max-width:520px;margin:0 auto;gap:16px;">
     <div style="font-size:3.5rem;line-height:1;">${icon}</div>
@@ -1126,6 +1127,13 @@ function annulerAnalyse(){
   document.getElementById("loading-overlay").classList.remove("active");
   stopGame();retourAccueil();
 }
+function relancerDerniereAnalyse(){
+  if(lastAnalyzedLink){
+    analyserVideo(lastAnalyzedLink);
+  } else {
+    retourAccueil();
+  }
+}
 
 // ════ AUDIO ════
 let audioCtx=null,bgMusicGain=null,bgMusicInterval=null;
@@ -1219,6 +1227,8 @@ async function fetchWithRetry(url, options, signal, maxRetries = 2, delayMs = 30
 }
 // ════ ANALYSE VIDÉO ════
 async function analyserVideo(lien){
+   lastAnalyzedLink = lien;
+  hideHero();_adFinished=false;_analysisResult=null;
   hideHero();_adFinished=false;_analysisResult=null;
   const lastAd=parseInt(localStorage.getItem('last_ad')||'0');
   const showAd=Date.now()-lastAd>30*60*1000;
