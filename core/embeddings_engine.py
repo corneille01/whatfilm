@@ -10,7 +10,8 @@ avant de dépenser du quota Gemini/Qwen/Groq.
 
 Modèles utilisés :
   - Texte   : sentence-transformers/all-MiniLM-L6-v2 (384 dimensions)
-  - Visuel  : openai/clip-vit-base-patch32 (512 dimensions)
+  - Visuel  : openai/clip-vit-base-patch32 (512 dimensions) — DÉSACTIVÉ
+    temporairement pour contrainte mémoire Render Free (512 MB).
 
 Politique de seuils (calibrée au démarrage, à affiner avec
 pelify_embedding_match_log au fil du temps) :
@@ -82,15 +83,15 @@ def _get_text_model():
 
 @lru_cache(maxsize=1)
 def _get_visual_model():
-    try:
-        from transformers import CLIPModel, CLIPProcessor
-        model     = CLIPModel.from_pretrained(VISUAL_MODEL_NAME)
-        processor = CLIPProcessor.from_pretrained(VISUAL_MODEL_NAME)
-        model.eval()
-        return model, processor
-    except Exception as e:
-        print(f"⚠️ Embeddings visuels: modèle non chargé ({str(e)[:120]})", flush=True)
-        return None, None
+    """
+    Désactivé temporairement : CLIP (~600 MB) dépasse la mémoire
+    disponible sur Render Free (512 MB) combiné avec le modèle texte
+    (PyTorch + sentence-transformers ~340 MB déjà à eux seuls).
+    À réactiver quand le plan Render sera upgradé, ou en migrant CLIP
+    vers un service séparé.
+    """
+    print("ℹ️ Embeddings visuels désactivés (contrainte mémoire Render Free)", flush=True)
+    return None, None
 
 
 # ═══════════════════════════ GÉNÉRATION D'EMBEDDINGS ═══════════════════════════
@@ -128,6 +129,9 @@ def generate_visual_embeddings(frame_paths: List[str]) -> List[Optional[List[flo
     est soit un vecteur, soit None si cette frame précise a échoué
     (fichier illisible, etc.) — permet à l'appelant de savoir quelle
     frame a échoué sans perdre les autres.
+
+    Note : retourne actuellement [None] * len(frame_paths) puisque
+    _get_visual_model() est désactivé (cf. commentaire ci-dessus).
     """
     if not frame_paths:
         return []
@@ -231,6 +235,9 @@ async def check_known_film_by_frames(frame_paths: List[str]) -> Optional[Dict[st
 
     Comme pour check_known_film_by_text, prévu pour être appelé en tout
     premier dans le pipeline, avant les LLM.
+
+    Note : retourne toujours None tant que _get_visual_model() est
+    désactivé — c'est attendu, pas un bug.
     """
     if not EMBEDDINGS_ENABLED or not frame_paths:
         return None
