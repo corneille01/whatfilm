@@ -1990,9 +1990,45 @@ async function toggleSaison(seriesId,seasonNumber){
 
 // ════ PUBLICITÉ ════
 let _adFinished=false,_analysisResult=null,_analysisCallback=null,_adCountdownInterval=null;
+// ════ CONFIG PUBS ALTERNÉES ════
+const AD_VARIANTS = [
+  {
+    icon: "🎬",
+    title: "Amazon Prime Video",
+    desc: "30 jours gratuits — Des milliers de films et séries",
+    cta: "Essayer gratuitement →",
+    url: "https://www.amazon.fr/gp/video/storefront?tag=pelify-21",
+  },
+  {
+    icon: "🛍️",
+    title: "Offre partenaire",
+    desc: "Découvrez notre offre exclusive",
+    cta: "En profiter →",
+    // ⚠️ Remplace XXXX par le vrai awinmid du marchand (dans ton dashboard Awin → Programmes)
+    url: "https://www.awin1.com/cread.php?awinmid=XXXX&awinaffid=2932851",
+  },
+];
+
+function _renderAdContent() {
+  const variant = AD_VARIANTS[Math.floor(Math.random() * AD_VARIANTS.length)];
+  const el = document.getElementById("ad-content-dynamic");
+  if (!el) return;
+  el.innerHTML = `
+    <div style="background: linear-gradient(135deg, #1a1a2e, #16213e); border-radius: 12px; padding: 24px; margin-bottom: 16px;">
+      <div style="font-size: 2.5rem; margin-bottom: 12px">${variant.icon}</div>
+      <h3 style="color: var(--primary); margin: 0 0 8px; font-size: 1.1rem">${variant.title}</h3>
+      <p style="color: var(--muted); font-size: 0.85rem; margin: 0 0 16px">${variant.desc}</p>
+      <a href="${variant.url}" target="_blank" rel="sponsored noopener" onclick="fermerPub()"
+         style="display: inline-block; background: var(--primary); color: #000; padding: 10px 24px; border-radius: 8px; font-weight: 700; text-decoration: none; font-size: 0.9rem;">
+        ${variant.cta}
+      </a>
+    </div>
+  `;
+}
 function demarrerPub(){
   const modal=document.getElementById('ad-modal'),closeBtn=document.getElementById('ad-close-btn'),countdown=document.getElementById('ad-countdown');
   if(!modal)return;
+  _renderAdContent(); // ← ajoute cette ligne
   _adFinished=false;modal.style.display='flex';closeBtn.disabled=true;closeBtn.style.background='rgba(255,255,255,0.1)';closeBtn.style.color='var(--text)';
   let seconds=5;countdown.textContent=seconds;
   _adCountdownInterval=setInterval(()=>{seconds--;countdown.textContent=seconds;if(seconds<=0){clearInterval(_adCountdownInterval);closeBtn.disabled=false;countdown.textContent='✕';closeBtn.style.background='rgba(0,255,204,0.2)';closeBtn.style.color='var(--primary)';_publicitéTerminée();}},1000);

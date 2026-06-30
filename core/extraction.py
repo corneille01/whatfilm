@@ -331,7 +331,7 @@ async def _call_gemini(url: str, parts: list, max_output_tokens: int = 3000) -> 
         candidate     = candidates[0]
         finish_reason = candidate.get("finishReason", "")
         if finish_reason in ("SAFETY", "RECITATION", "OTHER"):
-            print(f"⚠️ Gemini ({model_name}) bloqué : {finish_reason}", flush=True)
+            print(f" Gemini ({model_name}) bloqué : {finish_reason}", flush=True)
             return None
 
         try:
@@ -340,7 +340,7 @@ async def _call_gemini(url: str, parts: list, max_output_tokens: int = 3000) -> 
             text    = parts[0].get("text", "").strip() if parts else ""
         except (IndexError, AttributeError, TypeError) as e:
             print(
-                f"⚠️ Gemini ({model_name}) : structure réponse inattendue — "
+                f" Gemini ({model_name}) : structure réponse inattendue — "
                 f"{str(candidate)[:200]} ({e})",
                 flush=True,
             )
