@@ -304,6 +304,7 @@ async def _ocr_frames(frames: list) -> str:
         return ""
 
 # ═══════════════ APPEL GEMINI GÉNÉRIQUE ═══════════════
+_YOUTUBE_DOMAINS = re.compile(r"youtube\.com|youtu\.be", re.IGNORECASE)
 
 async def _call_gemini(url: str, parts: list, max_output_tokens: int = 3000) -> Optional[dict]:
     model_name = url.split("/models/")[1].split(":")[0]
@@ -320,13 +321,31 @@ async def _call_gemini(url: str, parts: list, max_output_tokens: int = 3000) -> 
             resp = await _gemini_post_with_retry(
                 client, f"{url}?key={GEMINI_API_KEY}", json=payload
             )
-        raw           = resp.json()
-        candidate     = raw.get("candidates", [{}])[0]
+
+        raw        = resp.json()
+        candidates = raw.get("candidates") or []
+        if not candidates:
+            print(f"⚠️ Gemini ({model_name}) : aucun candidat dans la réponse", flush=True)
+            return None
+
+        candidate     = candidates[0]
         finish_reason = candidate.get("finishReason", "")
         if finish_reason in ("SAFETY", "RECITATION", "OTHER"):
             print(f"⚠️ Gemini ({model_name}) bloqué : {finish_reason}", flush=True)
             return None
-        text = candidate.get("content", {}).get("parts", [{}])[0].get("text", "").strip()
+
+        try:
+            content = candidate.get("content") or {}
+            parts   = content.get("parts") or []
+            text    = parts[0].get("text", "").strip() if parts else ""
+        except (IndexError, AttributeError, TypeError) as e:
+            print(
+                f"⚠️ Gemini ({model_name}) : structure réponse inattendue — "
+                f"{str(candidate)[:200]} ({e})",
+                flush=True,
+            )
+            return None
+
         if not text:
             print(f"⚠️ Gemini ({model_name}) : réponse vide", flush=True)
             return None
@@ -347,7 +366,11 @@ async def _call_gemini(url: str, parts: list, max_output_tokens: int = 3000) -> 
             except json.JSONDecodeError:
                 partial = _try_parse_partial_json(text)
                 if partial and (partial.get("titres_possibles") or partial.get("acteurs")):
-                    print(f"✅ Parse partiel ({model_name}) — titres={partial.get('titres_possibles')}", flush=True)
+                    print(
+                        f"✅ Parse partiel ({model_name}) — "
+                        f"titres={partial.get('titres_possibles')}",
+                        flush=True,
+                    )
                     data = partial
                 else:
                     print(f"⚠️ Parse partiel ({model_name}) rien d'utile", flush=True)
@@ -355,23 +378,22 @@ async def _call_gemini(url: str, parts: list, max_output_tokens: int = 3000) -> 
 
         data["source"] = "gemini_vision"
         data = _normalize_all_fields(data, default_certitude=50)
-        titres    = data.get("titres_possibles", [])
-        acteurs   = data.get("acteurs", [])
-        certitudes= data.get("acteurs_certitude", [])
-        is_ai     = data.get("is_ai_generated", False)
+        titres     = data.get("titres_possibles", [])
+        acteurs    = data.get("acteurs", [])
+        certitudes = data.get("acteurs_certitude", [])
+        is_ai      = data.get("is_ai_generated", False)
         print(
             f"✅ Gemini OK ({model_name}) — titres={titres}, "
             f"acteurs={list(zip(acteurs, certitudes))}, is_ai={is_ai}",
             flush=True,
         )
         return data
+
     except Exception as e:
         print(f"⚠️ Gemini KO ({model_name}): {str(e)[:200]}", flush=True)
         return None
+    
 
-# ═══════════════ YOUTUBE / URL DIRECTE ═══════════════
-
-_YOUTUBE_DOMAINS = re.compile(r"youtube\.com|youtu\.be", re.IGNORECASE)
 
 def _video_prompt() -> str:
     return EXTRACTION_PROMPT.format(
@@ -413,21 +435,49 @@ async def _gemini_video_generate(
             resp = await _gemini_post_with_retry(
                 client, f"{GEMINI_URLS[0]}?key={GEMINI_API_KEY}", json=payload
             )
-        candidate = resp.json()["candidates"][0]
-        text      = candidate["content"]["parts"][0]["text"].strip()
-        if not text:
+
+        raw_json   = resp.json()
+        candidates = raw_json.get("candidates") or []
+        if not candidates:
+            print(f"⚠️ Gemini {label} : aucun candidat dans la réponse", flush=True)
             return None
+
+        candidate     = candidates[0]
+        finish_reason = candidate.get("finishReason", "")
+        if finish_reason in ("SAFETY", "RECITATION", "OTHER"):
+            print(f"⚠️ Gemini {label} bloqué : {finish_reason}", flush=True)
+            return None
+
+        try:
+            content = candidate.get("content") or {}
+            parts   = content.get("parts") or []
+            text    = parts[0].get("text", "").strip() if parts else ""
+        except (IndexError, AttributeError, TypeError) as e:
+            print(
+                f"⚠️ Gemini {label} : structure réponse inattendue — "
+                f"{str(candidate)[:200]} ({e})",
+                flush=True,
+            )
+            return None
+
+        if not text:
+            print(f"⚠️ Gemini {label} : réponse vide", flush=True)
+            return None
+
         try:
             data = json.loads(_clean_json_fences(text))
         except json.JSONDecodeError:
             partial = _try_parse_partial_json(text)
             if not partial or not (partial.get("titres_possibles") or partial.get("acteurs")):
+                print(f"⚠️ Gemini {label} : JSON inexploitable", flush=True)
                 return None
             data = partial
+
         data["source"] = "gemini_url_direct"
         return _normalize_all_fields(data, default_certitude=75)
+
     except Exception as e:
-        print(f"❌ Gemini {label}: {e}", flush=True)
+        print(f"❌ Gemini {label} KO : {str(e)[:200]}", flush=True)
         return None
 
 async def _extract_gemini_url_direct(video_url: str) -> Optional[dict]:
