@@ -58,6 +58,10 @@ GEMINI_FILES_BASE = "https://generativelanguage.googleapis.com"
 TRANSCRIPT_THRESHOLD  = 80
 MAX_TRANSCRIPT_CHARS  = 80000
 MAX_OCR_CHARS         = 3000
+# LOW=64 tokens/frame, MEDIUM=256 tokens/frame — réduit le coût token vidéo.
+# Réglable sur Render via GEMINI_VIDEO_MEDIA_RESOLUTION si besoin de remonter
+# en cas de perte de précision sur l'OCR de texte incrusté à l'écran.
+GEMINI_VIDEO_MEDIA_RESOLUTION = os.environ.get("GEMINI_VIDEO_MEDIA_RESOLUTION", "MEDIA_RESOLUTION_LOW")
 
 # ═══════════════ RETRY / CONCURRENCE GEMINI ═══════════════
 
@@ -331,7 +335,7 @@ async def _call_gemini(url: str, parts: list, max_output_tokens: int = 3000) -> 
         candidate     = candidates[0]
         finish_reason = candidate.get("finishReason", "")
         if finish_reason in ("SAFETY", "RECITATION", "OTHER"):
-            print(f" Gemini ({model_name}) bloqué : {finish_reason}", flush=True)
+            print(f"⚠️ Gemini ({model_name}) bloqué : {finish_reason}", flush=True)
             return None
 
         try:
@@ -340,7 +344,7 @@ async def _call_gemini(url: str, parts: list, max_output_tokens: int = 3000) -> 
             text    = parts[0].get("text", "").strip() if parts else ""
         except (IndexError, AttributeError, TypeError) as e:
             print(
-                f" Gemini ({model_name}) : structure réponse inattendue — "
+                f"⚠️ Gemini ({model_name}) : structure réponse inattendue — "
                 f"{str(candidate)[:200]} ({e})",
                 flush=True,
             )
@@ -427,6 +431,7 @@ async def _gemini_video_generate(
             "temperature":      0.1,
             "maxOutputTokens":  4096,
             "responseMimeType": "application/json",
+            "mediaResolution":  GEMINI_VIDEO_MEDIA_RESOLUTION,
         },
     }
     print(f"🎬 Gemini {label}: {file_uri[:70]}", flush=True)
@@ -479,6 +484,9 @@ async def _gemini_video_generate(
     except Exception as e:
         print(f"❌ Gemini {label} KO : {str(e)[:200]}", flush=True)
         return None
+
+
+
 
 async def _extract_gemini_url_direct(video_url: str) -> Optional[dict]:
     if not GEMINI_API_KEY:
