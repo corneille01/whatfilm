@@ -4,14 +4,59 @@ core/wikidata.py — Recherche et enrichissement de films via Wikidata.
 Couche 2 du pipeline de recherche, entre la cascade TMDB (couche 1)
 et le web search DDG (couche 3).
 
-Pourquoi Wikidata en complément de TMDB ?
-  - Couverture mondiale : films japonais/coréens/chinois des années 1920-2025
-  - Titres originaux en kanji/hangeul/caractères chinois indexés nativement
-  - Retourne les IDs TMDB et IMDB → enrichissement sans dupliquer les données
-  - Données exclusives : lieux de tournage GPS, équipe créative complète, EIDR
-  - Gratuit, sans clé API, sans limite stricte (respecter ~1 req/s)
+────────────────────────────────────────────────────────────────
+ FIX v3 (juillet 2026) — LIEUX DE TOURNAGE 100% LOCAUX
+────────────────────────────────────────────────────────────────
+Les lieux de tournage (get_filming_locations) et l'enrichissement
+(get_wikidata_enrichment) NE FONT PLUS AUCUN APPEL RÉSEAU vers
+Wikidata (ni SPARQL, ni wbgetentities).
 
-Nouvelles propriétés extraites (v2) :
+À la place, ils lisent un fichier catalogue_filming.json local
+(chargé une seule fois en mémoire au premier accès), au format :
+
+    [
+      {
+        "wikidata_id": "Q1992646",
+        "title": "Le Prix du silence",
+        "tmdb_id": 80890,
+        "media_type": "movie",
+        "year": 1949,
+        "locations": [
+          {
+            "wikidata_id": "Q65",
+            "name": "Los Angeles",
+            "city": "Non spécifié",
+            "country": "Inconnu",
+            "lat": 34.05223,
+            "lng": -118.24368
+          }
+        ]
+      },
+      ...
+    ]
+
+Conséquences :
+  - Plus de SPARQL 429 / plus d'attente 65s / plus de retry
+  - Latence de get_filming_locations() proche de 0ms (lookup dict)
+  - L'équipe créative (crew), le cast Wikidata, l'EIDR, le budget
+    et le box-office ne sont PLUS résolus (le catalogue local ne
+    contient que titre/tmdb_id/locations). get_wikidata_enrichment()
+    renvoie donc ces champs vides/None — c'est un choix assumé.
+  - Le fichier catalogue_filming.json doit être tenu à jour
+    manuellement (ou par un script offline séparé qui, lui, peut
+    continuer d'interroger Wikidata en batch hors production).
+
+La recherche d'identification par titre (wikidata_search_candidates,
+déclenchée sur titres CJK/coréens via should_trigger_wikidata) reste
+INCHANGÉE et continue d'utiliser l'API Wikidata en direct
+(wbsearchentities / wbgetentities). Ce n'est pas elle qui générait
+les erreurs 429 vues dans les logs — ce sont les fonctions dédiées
+aux lieux de tournage. Si tu veux aussi la basculer en local un jour,
+il faudra un catalogue indexé par titre (pas seulement par tmdb_id).
+────────────────────────────────────────────────────────────────
+
+Nouvelles propriétés extraites (v2, encore utilisées par la recherche
+par titre) :
   P57   = réalisateur
   P58   = scénariste
   P161  = acteur (avec qualifier P453 = nom du personnage)
@@ -30,34 +75,25 @@ Nouvelles propriétés extraites (v2) :
   P625  = coordonnées géographiques (récupérées sur les entités de lieu)
 
 Architecture :
-  1. wikidata_search(titre, lang)       → liste de QIDs + labels
-  2. wikidata_get_ids(qid)              → {tmdb_id, imdb_id, tmdb_type, year, lang, ...}
-  3. wikidata_to_tmdb_candidates()      → pipeline complet → candidats TMDB normalisés
-  4. get_filming_locations(tmdb_id)     → [{name, lat, lng, wikidata_id}] depuis QID film
-  5. get_wikidata_enrichment(tmdb_id)   → dict complet crew/lieux/EIDR pour une fiche film
-
-Rate limiting : 0.8s entre les appels (Wikimedia policy = max 1 req/s anonyme)
+  1. wikidata_search(titre, lang)       → liste de QIDs + labels           [LIVE]
+  2. wikidata_to_tmdb_candidates()      → pipeline complet → candidats     [LIVE]
+  3. get_filming_locations(tmdb_id)     → [{name, lat, lng, ...}]          [LOCAL]
+  4. get_wikidata_enrichment(tmdb_id)   → dict lieux (+ crew vide)         [LOCAL]
 """
 
 import asyncio
+import json
 import re
+from pathlib import Path
 from typing import Optional
 
 import httpx
-# core/wikidata.py
-# Ajouter ces imports en haut (après les imports existants)
-
-from storage.cache_engine.redis_client import get_redis
-from storage.cache_engine.ttl import DAY
-
-_WD_QID_TTL = 30 * DAY
 
 # ════════════════════════════════════════════════════════════════
 # CONSTANTES
 # ════════════════════════════════════════════════════════════════
 
 _WD_API     = "https://www.wikidata.org/w/api.php"
-_WD_SPARQL  = "https://query.wikidata.org/sparql"
 _USER_AGENT = "ShadowFrame/2.0 (film identification + enrichment; https://quelfilm.app)"
 
 # ── Identifiants externes ─────────────────────────────────────
@@ -90,10 +126,10 @@ _P_COMPOSER    = "P86"     # compositeur de la musique originale
 _P_COST_DESIGN = "P2515"   # costumier
 _P_PROD_DESIGN = "P2554"   # chef décorateur
 
-# ── Lieux ─────────────────────────────────────────────────────
-_P_FILMING_LOC = "P915"    # lieu de tournage réel (GPS via P625 sur l'entité lieu)
+# ── Lieux (encore référencés pour parsing des entités en recherche live) ──
+_P_FILMING_LOC  = "P915"   # lieu de tournage réel (GPS via P625 sur l'entité lieu)
 _P_NARRATIVE_LOC= "P840"   # lieu où se déroule l'intrigue (décor fictionnel)
-_P_COORD       = "P625"    # coordonnées géographiques (lat/lng)
+_P_COORD        = "P625"   # coordonnées géographiques (lat/lng)
 
 # ── Qualifiers utiles ─────────────────────────────────────────
 _Q_CHARACTER   = "P453"    # qualifier sur P161 : nom du personnage joué
@@ -106,10 +142,115 @@ _ALL_MEDIA  = _FILM_TYPES | _TV_TYPES | _DOC_TYPES
 
 _RATE_DELAY = 0.8
 
-# Cache mémoire pour les enrichissements (évite de re-requêter Wikidata
-# pour le même film plusieurs fois dans la même session serveur)
+# Cache mémoire pour les enrichissements (session serveur)
 _enrichment_cache: dict = {}
 _location_cache:   dict = {}
+
+# ── Catalogue local de lieux de tournage ───────────────────────
+# Chemins candidats, testés dans l'ordre (adapte _CATALOGUE_ENV_VAR
+# ou ajoute ton chemin exact en tête de liste si besoin).
+_CATALOGUE_ENV_VAR = "FILMING_CATALOGUE_PATH"
+_CATALOGUE_CANDIDATES = [
+    Path("catalogue_filming.json"),
+    Path(__file__).resolve().parent / "catalogue_filming.json",
+    Path(__file__).resolve().parent.parent / "catalogue_filming.json",
+    Path(__file__).resolve().parent.parent / "data" / "catalogue_filming.json",
+]
+
+# Index construit une seule fois en mémoire :
+#   {(tmdb_id, media_type): entry}  +  {tmdb_id: entry} (fallback si media_type diffère)
+_catalogue_by_tmdb_type: dict[tuple[int, str], dict] = {}
+_catalogue_by_tmdb_any:  dict[int, dict] = {}
+_catalogue_loaded = False
+_catalogue_path_used: Optional[Path] = None
+
+
+def _resolve_catalogue_path() -> Optional[Path]:
+    import os
+    env_path = os.getenv(_CATALOGUE_ENV_VAR)
+    if env_path and Path(env_path).is_file():
+        return Path(env_path)
+    for candidate in _CATALOGUE_CANDIDATES:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _load_catalogue(force: bool = False) -> None:
+    """
+    Charge catalogue_filming.json en mémoire (une seule fois, sauf force=True).
+    Construit deux index pour lookup O(1) par (tmdb_id, media_type) et par tmdb_id seul.
+    """
+    global _catalogue_loaded, _catalogue_path_used
+    global _catalogue_by_tmdb_type, _catalogue_by_tmdb_any
+
+    if _catalogue_loaded and not force:
+        return
+
+    path = _resolve_catalogue_path()
+    _catalogue_path_used = path
+
+    if not path:
+        print(
+            f"⚠️ catalogue_filming.json introuvable "
+            f"(vérifie {_CATALOGUE_ENV_VAR} ou place le fichier à la racine du projet)",
+            flush=True,
+        )
+        _catalogue_by_tmdb_type = {}
+        _catalogue_by_tmdb_any = {}
+        _catalogue_loaded = True
+        return
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"⚠️ catalogue_filming.json illisible ({path}): {str(e)[:80]}", flush=True)
+        _catalogue_by_tmdb_type = {}
+        _catalogue_by_tmdb_any = {}
+        _catalogue_loaded = True
+        return
+
+    by_type: dict[tuple[int, str], dict] = {}
+    by_any:  dict[int, dict] = {}
+
+    entries = data if isinstance(data, list) else data.get("films", [])
+    for entry in entries:
+        tmdb_id = entry.get("tmdb_id")
+        media_type = entry.get("media_type", "movie")
+        if tmdb_id is None:
+            continue
+        try:
+            tmdb_id = int(tmdb_id)
+        except (TypeError, ValueError):
+            continue
+        by_type[(tmdb_id, media_type)] = entry
+        # Fallback si un appelant passe le mauvais media_type
+        by_any.setdefault(tmdb_id, entry)
+
+    _catalogue_by_tmdb_type = by_type
+    _catalogue_by_tmdb_any = by_any
+    _catalogue_loaded = True
+
+    print(
+        f"📚 catalogue_filming.json chargé ({path}) → {len(by_type)} films indexés",
+        flush=True,
+    )
+
+
+def reload_catalogue() -> None:
+    """Force le rechargement du catalogue (utile après mise à jour du fichier sans redéploiement)."""
+    _load_catalogue(force=True)
+    _location_cache.clear()
+    _enrichment_cache.clear()
+
+
+def _lookup_catalogue_entry(tmdb_id: int, media_type: str = "movie") -> Optional[dict]:
+    _load_catalogue()
+    entry = _catalogue_by_tmdb_type.get((tmdb_id, media_type))
+    if entry is None:
+        entry = _catalogue_by_tmdb_any.get(tmdb_id)
+    return entry
 
 
 # ════════════════════════════════════════════════════════════════
@@ -241,7 +382,7 @@ def _merge_cjk_lines(text: str) -> str:
 
 
 # ════════════════════════════════════════════════════════════════
-# APPELS API WIKIDATA
+# APPELS API WIKIDATA (encore utilisés par la recherche par titre / CJK)
 # ════════════════════════════════════════════════════════════════
 
 async def _wd_search(query: str, lang: str = "en", limit: int = 5) -> list[dict]:
@@ -295,149 +436,19 @@ async def _wd_get_entities(qids: list[str], extra_props: str = "") -> dict:
         return {}
 
 
-async def _wd_get_entity_label(qid: str) -> str:
-    """Récupère le label anglais d'une entité (ex: nom d'une personne ou d'un lieu)."""
-    entities = await _wd_get_entities([qid])
-    entity = entities.get(qid, {})
-    labels = entity.get("labels", {})
-    return (
-        labels.get("en", {}).get("value")
-        or labels.get("fr", {}).get("value")
-        or labels.get("ja", {}).get("value")
-        or qid
-    )
-
-
-async def _wd_get_coord(place_qid: str) -> Optional[tuple[float, float]]:
-    """
-    Récupère les coordonnées GPS d'une entité lieu via P625.
-    Retourne (lat, lng) ou None.
-    """
-    entities = await _wd_get_entities([place_qid])
-    entity   = entities.get(place_qid, {})
-    claims   = entity.get("claims", {})
-    coord_entries = claims.get(_P_COORD, [])
-    if not coord_entries:
-        return None
-    try:
-        val = coord_entries[0]["mainsnak"]["datavalue"]["value"]
-        return (val["latitude"], val["longitude"])
-    except (KeyError, IndexError, TypeError):
-        return None
-
-async def _find_wikidata_qid_by_tmdb(tmdb_id: int, media_type: str = "movie") -> Optional[str]:
-    """
-    Retrouve le QID Wikidata d'un film à partir de son ID TMDB.
-    Utilise SPARQL pour la recherche inverse.
-    Fix v2 :
-    - Cache Redis 30 jours (clé wd:qid:{tmdb_id}:{media_type})
-      → évite de retaper Wikidata pour les fiches déjà vues
-    - Retry unique sur 429 avec backoff 65s
-      → Wikidata rate-limit = 1 req/min anonyme, 65s suffit
-    - Valeur sentinelle "" mise en cache quand QID introuvable
-      → évite de retenter indéfiniment pour les films sans entrée Wikidata
-    - Cache immédiat sur 429 (TTL 10 min)
-      → bloque les requêtes concurrentes sur le même tmdb_id pendant le sleep
-    """
-    cache_key = f"wd:qid:{tmdb_id}:{media_type}"
-
-    # ── Lecture cache Redis ──────────────────────────────────────────────
-    redis = get_redis()
-    if redis:
-        try:
-            cached = redis.get(cache_key)
-            if cached is not None:
-                # "" = sentinelle "connu comme absent"
-                return cached if cached else None
-        except Exception as e:
-            print(f"⚠️ Redis read KO (wikidata qid): {e}", flush=True)
-
-    prop  = _P_TMDB_MOVIE if media_type == "movie" else _P_TMDB_TV
-    query = f"""
-    SELECT ?item WHERE {{
-      ?item wdt:{prop} "{tmdb_id}" .
-    }}
-    LIMIT 1
-    """
-
-    async def _do_sparql() -> Optional[str]:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(
-                _WD_SPARQL,
-                params={"query": query, "format": "json"},
-                headers={"User-Agent": _USER_AGENT, "Accept": "application/json"},
-            )
-            if resp.status_code == 429:
-                return "429"
-            resp.raise_for_status()
-            bindings = resp.json().get("results", {}).get("bindings", [])
-            if bindings:
-                return bindings[0]["item"]["value"].split("/")[-1]
-            return None
-
-    qid = None
-    try:
-        result = await _do_sparql()
-
-        # ── Retry sur 429 avec backoff 65s ────────────────────────────
-        if result == "429":
-            print(
-                f" SPARQL 429 (tmdb={tmdb_id}) → attente 65s puis retry...",
-                flush=True
-            )
-            # Cache immédiat de la sentinelle pour bloquer les requêtes
-            # concurrentes sur le même tmdb_id pendant le sleep.
-            # TTL court (10 min) : sera écrasé par le vrai résultat après retry.
-            if redis:
-                try:
-                    redis.set(cache_key, "", ex=600)
-                except Exception:
-                    pass
-            await asyncio.sleep(65)
-            try:
-                result = await _do_sparql()
-                if result == "429":
-                    print(
-                        f" SPARQL 429 persistant (tmdb={tmdb_id}) → abandon",
-                        flush=True
-                    )
-                    result = None
-            except Exception as e2:
-                print(f" SPARQL retry KO (tmdb={tmdb_id}): {str(e2)[:60]}", flush=True)
-                result = None
-
-        qid = result if result != "429" else None
-
-    except Exception as e:
-        print(f" SPARQL inverse KO (tmdb={tmdb_id}): {str(e)[:60]}", flush=True)
-        qid = None
-
-    # ── Écriture cache Redis ─────────────────────────────────────────────
-    # On cache aussi l'absence (sentinelle "") pour ne pas retenter.
-    # Si le retry a réussi, ce set écrase le TTL court de 600s par le TTL long.
-    if redis:
-        try:
-            redis.set(cache_key, qid or "", ex=_WD_QID_TTL)
-        except Exception as e:
-            print(f" Redis write KO (wikidata qid): {e}", flush=True)
-
-    return qid
-
 # ════════════════════════════════════════════════════════════════
-# PARSING D'ENTITÉ — VERSION ENRICHIE
+# PARSING D'ENTITÉ — utilisé par la recherche par titre (live)
 # ════════════════════════════════════════════════════════════════
 
 def _parse_entity(qid: str, entity: dict) -> Optional[dict]:
     """
     Parse une entité Wikidata et extrait toutes les propriétés utiles.
-
     Retourne None si l'entité n'a pas d'ID TMDB ou IMDB (non exploitable).
     """
     claims = entity.get("claims", {})
     instance_qids = _claim_qids(claims, _P_INSTANCE_OF)
     media_type    = _resolve_media_type(instance_qids)
 
-    # ── Identifiants externes ─────────────────────────────────
     tmdb_movie_id = _claim_value(claims, _P_TMDB_MOVIE)
     tmdb_tv_id    = _claim_value(claims, _P_TMDB_TV)
     imdb_id       = _claim_value(claims, _P_IMDB)
@@ -454,7 +465,6 @@ def _parse_entity(qid: str, entity: dict) -> Optional[dict]:
     tmdb_id = tmdb_movie_id or tmdb_tv_id
     year    = _claim_time(claims, _P_PUB_DATE)
 
-    # ── Titres multilingues ───────────────────────────────────
     labels   = entity.get("labels", {})
     title_en = labels.get("en", {}).get("value", "")
     title_fr = labels.get("fr", {}).get("value", "")
@@ -463,15 +473,12 @@ def _parse_entity(qid: str, entity: dict) -> Optional[dict]:
     title_zh = labels.get("zh", {}).get("value", "")
     title_orig = title_ja or title_ko or title_zh or title_en
 
-    # ── Métadonnées ───────────────────────────────────────────
-    # Pays d'origine : liste de QIDs → on garde les QIDs pour résolution ultérieure
     country_qids   = _claim_qids(claims, _P_COUNTRY)
     orig_lang_qids = _claim_qids(claims, _P_ORIG_LANG)
     duration_min   = _claim_quantity(claims, _P_DURATION)
     budget         = _claim_quantity(claims, _P_BUDGET)
     box_office     = _claim_quantity(claims, _P_BOX_OFFICE)
 
-    # ── Équipe créative (QIDs uniquement — labels résolus à la demande) ──
     director_qids     = _claim_qids(claims, _P_DIRECTOR)
     screenwriter_qids = _claim_qids(claims, _P_SCREENWRITER)
     producer_qids     = _claim_qids(claims, _P_PRODUCER)
@@ -481,13 +488,11 @@ def _parse_entity(qid: str, entity: dict) -> Optional[dict]:
     composer_qids     = _claim_qids(claims, _P_COMPOSER)
     distributor_qids  = _claim_qids(claims, _P_DISTRIBUTOR)
 
-    # Cast avec qualifier personnage
     cast_with_chars   = _claim_entity_with_qualifier(claims, _P_CAST,       _Q_CHARACTER, limit=6)
     voice_with_chars  = _claim_entity_with_qualifier(claims, _P_VOICE_ACTOR, _Q_CHARACTER, limit=6)
 
-    # ── Lieux ─────────────────────────────────────────────────
-    filming_loc_qids  = _claim_qids(claims, _P_FILMING_LOC)   # lieux réels de tournage
-    narrative_loc_qids = _claim_qids(claims, _P_NARRATIVE_LOC) # décors fictionnels
+    filming_loc_qids   = _claim_qids(claims, _P_FILMING_LOC)
+    narrative_loc_qids = _claim_qids(claims, _P_NARRATIVE_LOC)
 
     return {
         "wikidata_id":         qid,
@@ -496,20 +501,17 @@ def _parse_entity(qid: str, entity: dict) -> Optional[dict]:
         "eidr_id":             eidr_id,
         "media_type":          media_type,
         "year":                year,
-        # Titres
         "title_en":            title_en,
         "title_fr":            title_fr,
         "title_ja":            title_ja,
         "title_ko":            title_ko,
         "title_zh":            title_zh,
         "title_orig":          title_orig,
-        # Métadonnées
         "country_qids":        country_qids[:3],
         "orig_lang_qids":      orig_lang_qids[:2],
         "duration_min":        int(duration_min) if duration_min else None,
         "budget_usd":          int(budget) if budget else None,
         "box_office_usd":      int(box_office) if box_office else None,
-        # Équipe créative (QIDs — résolus via _resolve_crew_labels)
         "director_qids":       director_qids[:3],
         "screenwriter_qids":   screenwriter_qids[:3],
         "producer_qids":       producer_qids[:3],
@@ -520,265 +522,110 @@ def _parse_entity(qid: str, entity: dict) -> Optional[dict]:
         "distributor_qids":    distributor_qids[:3],
         "cast_with_chars":     cast_with_chars,
         "voice_with_chars":    voice_with_chars,
-        # Lieux
         "filming_loc_qids":    filming_loc_qids[:8],
         "narrative_loc_qids":  narrative_loc_qids[:4],
     }
 
 
 # ════════════════════════════════════════════════════════════════
-# RÉSOLUTION DES LABELS D'ÉQUIPE CRÉATIVE
-# ════════════════════════════════════════════════════════════════
-
-async def _resolve_crew_labels(wd_result: dict) -> dict:
-    """
-    Résout les QIDs de l'équipe créative en noms lisibles.
-    Appelé en batch pour éviter N+1 requêtes.
-    Retourne un dict {qid: name}.
-    """
-    all_qids: list[str] = []
-    for key in (
-        "director_qids", "screenwriter_qids", "producer_qids",
-        "prod_co_qids", "cinemato_qids", "editor_qids",
-        "composer_qids", "distributor_qids",
-    ):
-        all_qids += wd_result.get(key, [])
-
-    for item in wd_result.get("cast_with_chars", []) + wd_result.get("voice_with_chars", []):
-        qid = item.get("qid")
-        if qid:
-            all_qids.append(qid)
-
-    all_qids = list(dict.fromkeys(all_qids))[:40]  # dédoublonnage, max 40
-
-    if not all_qids:
-        return {}
-
-    entities = await _wd_get_entities(all_qids)
-    result: dict[str, str] = {}
-    for qid in all_qids:
-        entity = entities.get(qid, {})
-        labels = entity.get("labels", {})
-        name = (
-            labels.get("en", {}).get("value")
-            or labels.get("fr", {}).get("value")
-            or labels.get("ja", {}).get("value")
-            or labels.get("ko", {}).get("value")
-            or qid
-        )
-        result[qid] = name
-
-    return result
-
-
-# ════════════════════════════════════════════════════════════════
-# LIEUX DE TOURNAGE (FEATURE PRINCIPALE V2)
+# LIEUX DE TOURNAGE — 100% LOCAL (catalogue_filming.json)
 # ════════════════════════════════════════════════════════════════
 
 async def get_filming_locations(tmdb_id: int, media_type: str = "movie") -> list[dict]:
     """
-    Retourne les lieux de tournage d'un film avec coordonnées GPS.
-
-    Flux :
-      1. Recherche du QID Wikidata par ID TMDB (SPARQL inverse)
-      2. Récupération de P915 (filming_location) → liste de QIDs de lieux
-      3. Résolution GPS via P625 sur chaque lieu (en parallèle)
+    Retourne les lieux de tournage d'un film depuis catalogue_filming.json.
+    Aucun appel réseau. Fonction gardée `async` pour compatibilité avec
+    les appelants existants (elle est instantanée en pratique).
 
     Retourne :
-      [{"name": "Château de Pierrefonds", "lat": 49.35, "lng": 2.98, "wikidata_id": "Q1234"}]
-
-    Cache mémoire : les lieux sont mis en cache par tmdb_id pour la durée de la session.
+      [{"name": "Los Angeles", "lat": 34.05, "lng": -118.24,
+        "wikidata_id": "Q65", "city": "...", "country": "..."}]
     """
     cache_key = f"{tmdb_id}_{media_type}"
     if cache_key in _location_cache:
         return _location_cache[cache_key]
 
-    print(f"📍 Wikidata filming locations pour tmdb_id={tmdb_id}...", flush=True)
-
-    # Étape 1 : QID du film
-    qid = await _find_wikidata_qid_by_tmdb(tmdb_id, media_type)
-    if not qid:
-        print(f"📍 Aucun QID Wikidata trouvé pour tmdb_id={tmdb_id}", flush=True)
+    entry = _lookup_catalogue_entry(tmdb_id, media_type)
+    if not entry:
+        print(f"📍 tmdb_id={tmdb_id} absent du catalogue local", flush=True)
         _location_cache[cache_key] = []
         return []
 
-    await asyncio.sleep(_RATE_DELAY)
-
-    # Étape 2 : entité du film → P915
-    entities = await _wd_get_entities([qid])
-    entity   = entities.get(qid, {})
-    claims   = entity.get("claims", {})
-    loc_qids = _claim_qids(claims, _P_FILMING_LOC)[:8]
-
-    if not loc_qids:
-        print(f"📍 Aucun lieu de tournage pour {qid}", flush=True)
-        _location_cache[cache_key] = []
-        return []
-
-    print(f"📍 {len(loc_qids)} lieux trouvés pour {qid}: {loc_qids}", flush=True)
-
-    # Étape 3 : labels + coordonnées en batch
-    await asyncio.sleep(_RATE_DELAY)
-    loc_entities = await _wd_get_entities(loc_qids)
-
+    raw_locations = entry.get("locations", [])
     locations: list[dict] = []
-    for loc_qid in loc_qids:
-        loc_entity = loc_entities.get(loc_qid, {})
-        if not loc_entity or loc_entity.get("missing"):
-            continue
+    for loc in raw_locations:
+        locations.append({
+            "name":        loc.get("name") or loc.get("wikidata_id", "?"),
+            "lat":         loc.get("lat"),
+            "lng":         loc.get("lng"),
+            "wikidata_id": loc.get("wikidata_id"),
+            "city":        loc.get("city"),
+            "country":     loc.get("country"),
+        })
 
-        loc_labels = loc_entity.get("labels", {})
-        name = (
-            loc_labels.get("fr", {}).get("value")
-            or loc_labels.get("en", {}).get("value")
-            or loc_labels.get("de", {}).get("value")
-            or loc_labels.get("es", {}).get("value")
-            or loc_qid
-        )
-
-        loc_claims = loc_entity.get("claims", {})
-        coord_entries = loc_claims.get(_P_COORD, [])
-        lat, lng = None, None
-        if coord_entries:
-            try:
-                val = coord_entries[0]["mainsnak"]["datavalue"]["value"]
-                lat = val.get("latitude")
-                lng = val.get("longitude")
-            except (KeyError, IndexError, TypeError):
-                pass
-
-        if lat is not None and lng is not None:
-            locations.append({
-                "name":        name,
-                "lat":         lat,
-                "lng":         lng,
-                "wikidata_id": loc_qid,
-            })
-        else:
-            # Lieu sans coordonnées → on l'inclut quand même (pour affichage texte)
-            locations.append({
-                "name":        name,
-                "lat":         None,
-                "lng":         None,
-                "wikidata_id": loc_qid,
-            })
-
-    print(f"✅ {len(locations)} lieux résolus (dont {sum(1 for l in locations if l['lat'])} avec GPS)", flush=True)
+    print(
+        f"📍 {len(locations)} lieux (catalogue local) pour tmdb_id={tmdb_id}",
+        flush=True,
+    )
     _location_cache[cache_key] = locations
     return locations
 
 
 # ════════════════════════════════════════════════════════════════
-# ENRICHISSEMENT COMPLET (FICHE DÉTAIL)
+# ENRICHISSEMENT — 100% LOCAL (crew/cast/EIDR volontairement vides)
 # ════════════════════════════════════════════════════════════════
 
 async def get_wikidata_enrichment(tmdb_id: int, media_type: str = "movie") -> dict:
     """
-    Enrichissement complet d'une fiche film depuis Wikidata.
-    À appeler depuis /movie/{id} pour compléter les données TMDB.
+    Enrichissement d'une fiche film — désormais basé uniquement sur
+    catalogue_filming.json. Aucun appel réseau vers Wikidata.
 
-    Retourne un dict avec :
-      - crew       : {directors, screenwriters, producers, cinematographers, editors, composers}
-      - companies  : [{name}]
-      - cast_wd    : [{name, character}]  ← cast Wikidata (souvent plus complet pour films anciens)
-      - locations  : [{name, lat, lng, wikidata_id}]
-      - eidr_id    : str | None           ← identifiant standard industrie
-      - budget_usd : int | None
-      - box_office_usd : int | None
-      - wikidata_id    : str | None
+    Le catalogue local ne contenant que titre/tmdb_id/locations,
+    crew/cast_wd/eidr_id/budget_usd/box_office_usd sont renvoyés vides.
+    Si tu as besoin de ces champs, il faudra soit enrichir le catalogue
+    JSON hors-ligne, soit réactiver un appel live ciblé.
     """
     cache_key = f"{tmdb_id}_{media_type}"
     if cache_key in _enrichment_cache:
         return _enrichment_cache[cache_key]
 
-    print(f"🌐 Wikidata enrichment pour tmdb_id={tmdb_id}...", flush=True)
-
     empty = {
         "crew": {}, "companies": [], "cast_wd": [],
         "locations": [], "eidr_id": None,
         "budget_usd": None, "box_office_usd": None,
-        "wikidata_id": None,
+        "wikidata_id": None, "duration_min": None,
     }
 
-    # Étape 1 : QID inverse
-    qid = await _find_wikidata_qid_by_tmdb(tmdb_id, media_type)
-    if not qid:
+    entry = _lookup_catalogue_entry(tmdb_id, media_type)
+    if not entry:
         _enrichment_cache[cache_key] = empty
         return empty
 
-    await asyncio.sleep(_RATE_DELAY)
-
-    # Étape 2 : entité complète
-    entities = await _wd_get_entities([qid])
-    entity   = entities.get(qid, {})
-    if not entity or entity.get("missing"):
-        _enrichment_cache[cache_key] = empty
-        return empty
-
-    parsed = _parse_entity(qid, entity)
-    if not parsed:
-        _enrichment_cache[cache_key] = empty
-        return empty
-
-    await asyncio.sleep(_RATE_DELAY)
-
-    # Étape 3 : résolution des labels de l'équipe en batch
-    label_map = await _resolve_crew_labels(parsed)
-
-    def _resolve(qids: list[str]) -> list[str]:
-        return [label_map.get(q, q) for q in qids if q]
-
-    crew = {
-        "directors":       _resolve(parsed.get("director_qids", [])),
-        "screenwriters":   _resolve(parsed.get("screenwriter_qids", [])),
-        "producers":       _resolve(parsed.get("producer_qids", [])),
-        "cinematographers":_resolve(parsed.get("cinemato_qids", [])),
-        "editors":         _resolve(parsed.get("editor_qids", [])),
-        "composers":       _resolve(parsed.get("composer_qids", [])),
-        "distributors":    _resolve(parsed.get("distributor_qids", [])),
-    }
-
-    companies = [
-        {"name": label_map.get(q, q)}
-        for q in parsed.get("prod_co_qids", [])
-    ]
-
-    cast_wd = [
-        {
-            "name":      label_map.get(item["qid"], item["qid"]),
-            "character": item.get("qualifier"),
-        }
-        for item in (parsed.get("cast_with_chars", []) + parsed.get("voice_with_chars", []))
-        if item.get("qid")
-    ]
-
-    # Étape 4 : lieux de tournage (réutilise le cache si déjà chargé)
     locations = await get_filming_locations(tmdb_id, media_type)
 
     result = {
-        "crew":           crew,
-        "companies":      companies,
-        "cast_wd":        cast_wd,
+        "crew":           {},
+        "companies":      [],
+        "cast_wd":        [],
         "locations":      locations,
-        "eidr_id":        parsed.get("eidr_id"),
-        "budget_usd":     parsed.get("budget_usd"),
-        "box_office_usd": parsed.get("box_office_usd"),
-        "wikidata_id":    qid,
-        "duration_min":   parsed.get("duration_min"),
+        "eidr_id":        None,
+        "budget_usd":     None,
+        "box_office_usd": None,
+        "wikidata_id":    entry.get("wikidata_id"),
+        "duration_min":   None,
     }
 
     _enrichment_cache[cache_key] = result
     print(
-        f"✅ Wikidata enrichment OK: {len(crew.get('directors',[]))} réal, "
-        f"{len(cast_wd)} acteurs, {len(locations)} lieux, "
-        f"EIDR={parsed.get('eidr_id') or 'N/A'}",
-        flush=True
+        f"✅ Enrichment local OK (tmdb_id={tmdb_id}): {len(locations)} lieux "
+        f"— crew/cast/EIDR non disponibles (catalogue local)",
+        flush=True,
     )
     return result
 
 
 # ════════════════════════════════════════════════════════════════
-# ENRICHISSEMENT TMDB / CANDIDATS
+# ENRICHISSEMENT TMDB / CANDIDATS (recherche par titre — reste live)
 # ════════════════════════════════════════════════════════════════
 
 async def _enrich_via_tmdb(wd_result: dict, browser_lang: str = "fr") -> Optional[dict]:
@@ -815,7 +662,7 @@ async def _enrich_via_tmdb(wd_result: dict, browser_lang: str = "fr") -> Optiona
 
 
 # ════════════════════════════════════════════════════════════════
-# CONSTRUCTION DES REQUÊTES
+# CONSTRUCTION DES REQUÊTES (recherche par titre — reste live)
 # ════════════════════════════════════════════════════════════════
 
 def _build_wikidata_queries(extraction: dict, ocr_text: str = "") -> list[tuple[str, str]]:
@@ -877,7 +724,7 @@ def _build_wikidata_queries(extraction: dict, ocr_text: str = "") -> list[tuple[
 
 
 # ════════════════════════════════════════════════════════════════
-# PIPELINE PRINCIPAL (identification)
+# PIPELINE PRINCIPAL (identification par titre — reste live)
 # ════════════════════════════════════════════════════════════════
 
 async def wikidata_search_candidates(
@@ -888,14 +735,9 @@ async def wikidata_search_candidates(
     max_candidates: int = 10,
 ) -> list[dict]:
     """
-    Pipeline complet Wikidata → TMDB candidats.
-
-    Étapes :
-      1. Construire les requêtes depuis OCR CJK + titres Gemini
-      2. wbsearchentities → QIDs
-      3. wbgetentities → TMDB/IMDB IDs + métadonnées enrichies
-      4. Enrichir via TMDB (get_movie_details / get_tv_details)
-      5. Retourner candidats normalisés pour rerank()
+    Pipeline complet Wikidata → TMDB candidats (recherche par titre, CJK/coréen).
+    Reste en LIVE (wbsearchentities/wbgetentities) — pas de SPARQL, donc pas
+    concerné par le problème de 429 qui touchait les lieux de tournage.
     """
     print("🌐 Wikidata search démarré...", flush=True)
 
@@ -991,7 +833,7 @@ async def wikidata_search_candidates(
     candidates.sort(key=lambda x: x.get("popularity", 0), reverse=True)
 
     print(
-        f"✅ Wikidata → {len(candidates)} candidats TMDB "
+        f"Wikidata → {len(candidates)} candidats TMDB "
         f"(depuis {len(parsed)} entités)",
         flush=True
     )
