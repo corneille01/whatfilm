@@ -31,6 +31,7 @@ html {
   scroll-behavior: smooth;
 }
 body {
+  padding-bottom: 52px; 
   background-color: var(--bg);
   color: var(--text);
   font-family: var(--font-body);
@@ -1044,7 +1045,7 @@ body {
 /* MINI GAME */
 #game-canvas {
   width: min(480px, 92vw);
-  height: 180px;
+  min-height: 120px;
   background: #050508;
   position: relative;
   overflow: hidden;
@@ -1052,6 +1053,7 @@ body {
   border-radius: 12px 12px 0 0;
   cursor: pointer;
   user-select: none;
+  contain: layout style;
 }
 .game-ground {
   position: absolute;
@@ -1315,6 +1317,10 @@ body {
 .progress-bar-track { height: 10px; border-radius: 5px; }
 #prog-percent { font-size: 1.1rem; font-weight: 700; margin-top: 8px; }
 
+
+details.seo-intent {
+  contain: layout;
+}
 /* ════════════════════════════════════════════════════════════════════════════
    FILMING PAGE v4.0 — PATCH CSS COMPLET
    Remplace / complète les règles filming dans style.css

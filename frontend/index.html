@@ -180,7 +180,13 @@
       media="print"
       onload="this.media = 'all'"
     />
-
+    <link
+      rel="preload"
+      as="image"
+      href="/frontend/images/logo.webp"
+      type="image/webp"
+      fetchpriority="high"
+    />
     <noscript>
       <link
         rel="stylesheet"
@@ -188,7 +194,7 @@
       />
     </noscript>
 
-    <link rel="stylesheet" href="/frontend/style.css?v=37" />
+    <link rel="stylesheet" href="/frontend/style.css?v=38" />
   </head>
   <body>
     <input
@@ -229,7 +235,13 @@
           onkeydown="
             if (event.key === 'Enter') {
               event.preventDefault();
-              gererRechercheGlobal();
+              deferInteraction(() => rechercheHero());
+            }
+          "
+          onkeydown="
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              deferInteraction(() => gererRechercheGlobal());
             }
           "
         />
@@ -707,8 +719,8 @@
       >
     </footer>
     <!-- Notre script principal -->
-    <script src="/frontend/script.js?v=37" defer></script>
-    <script src="/frontend/filming.js?v=21" defer></script>
+    <script src="/frontend/script.js?v=38" defer></script>
+    <script src="/frontend/filming.js?v=22" defer></script>
     <!-- MODALE PUBLICITÉ -->
     <div
       id="ad-modal"
