@@ -1229,7 +1229,6 @@ async function fetchWithRetry(url, options, signal, maxRetries = 2, delayMs = 30
 async function analyserVideo(lien){
    lastAnalyzedLink = lien;
   hideHero();_adFinished=false;_analysisResult=null;
-  hideHero();_adFinished=false;_analysisResult=null;
   const lastAd=parseInt(localStorage.getItem('last_ad')||'0');
   const showAd=Date.now()-lastAd>30*60*1000;
   if(showAd){localStorage.setItem('last_ad',Date.now().toString());demarrerPub();}else{_adFinished=true;}
