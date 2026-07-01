@@ -329,7 +329,6 @@ async def _find_wikidata_qid_by_tmdb(tmdb_id: int, media_type: str = "movie") ->
     """
     Retrouve le QID Wikidata d'un film à partir de son ID TMDB.
     Utilise SPARQL pour la recherche inverse.
-
     Fix v2 :
     - Cache Redis 30 jours (clé wd:qid:{tmdb_id}:{media_type})
       → évite de retaper Wikidata pour les fiches déjà vues
@@ -337,10 +336,12 @@ async def _find_wikidata_qid_by_tmdb(tmdb_id: int, media_type: str = "movie") ->
       → Wikidata rate-limit = 1 req/min anonyme, 65s suffit
     - Valeur sentinelle "" mise en cache quand QID introuvable
       → évite de retenter indéfiniment pour les films sans entrée Wikidata
+    - Cache immédiat sur 429 (TTL 10 min)
+      → bloque les requêtes concurrentes sur le même tmdb_id pendant le sleep
     """
     cache_key = f"wd:qid:{tmdb_id}:{media_type}"
 
-    # ── Lecture cache Redis ───────────────────────────────────────
+    # ── Lecture cache Redis ──────────────────────────────────────────────
     redis = get_redis()
     if redis:
         try:
@@ -378,12 +379,20 @@ async def _find_wikidata_qid_by_tmdb(tmdb_id: int, media_type: str = "movie") ->
     try:
         result = await _do_sparql()
 
-        # ── Retry sur 429 avec backoff 65s ────────────────────────
+        # ── Retry sur 429 avec backoff 65s ────────────────────────────
         if result == "429":
             print(
                 f" SPARQL 429 (tmdb={tmdb_id}) → attente 65s puis retry...",
                 flush=True
             )
+            # Cache immédiat de la sentinelle pour bloquer les requêtes
+            # concurrentes sur le même tmdb_id pendant le sleep.
+            # TTL court (10 min) : sera écrasé par le vrai résultat après retry.
+            if redis:
+                try:
+                    redis.set(cache_key, "", ex=600)
+                except Exception:
+                    pass
             await asyncio.sleep(65)
             try:
                 result = await _do_sparql()
@@ -403,8 +412,9 @@ async def _find_wikidata_qid_by_tmdb(tmdb_id: int, media_type: str = "movie") ->
         print(f" SPARQL inverse KO (tmdb={tmdb_id}): {str(e)[:60]}", flush=True)
         qid = None
 
-    # ── Écriture cache Redis ──────────────────────────────────────
-    # On cache aussi l'absence (sentinelle "") pour ne pas retenter
+    # ── Écriture cache Redis ─────────────────────────────────────────────
+    # On cache aussi l'absence (sentinelle "") pour ne pas retenter.
+    # Si le retry a réussi, ce set écrase le TTL court de 600s par le TTL long.
     if redis:
         try:
             redis.set(cache_key, qid or "", ex=_WD_QID_TTL)
@@ -412,6 +422,7 @@ async def _find_wikidata_qid_by_tmdb(tmdb_id: int, media_type: str = "movie") ->
             print(f" Redis write KO (wikidata qid): {e}", flush=True)
 
     return qid
+
 # ════════════════════════════════════════════════════════════════
 # PARSING D'ENTITÉ — VERSION ENRICHIE
 # ════════════════════════════════════════════════════════════════

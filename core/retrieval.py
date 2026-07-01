@@ -820,7 +820,7 @@ async def build_candidates_from_actors(
             c["media_type"] = "tv" if "first_air_date" in c else "movie"
 
     print(f"✅ Candidats via acteurs: {len(merged[:20])}", flush=True)
-    return merged[:20],
+    return merged[:20]
 
 # ════════════════════════════════════════════════════════════════
 # HELPERS PRIVÉS

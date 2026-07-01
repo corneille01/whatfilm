@@ -28,5 +28,7 @@ networkx==3.4.2
 asyncpg
 sentence-transformers
 transformers
+# dans requirements.txt
+duckduckgo-search>=6.0
 
 

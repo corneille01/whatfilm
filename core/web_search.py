@@ -398,26 +398,15 @@ def _extract_titles_from_snippet(title: str, snippet: str) -> list[str]:
 async def _ddg_search(query: str, max_results: int = 5) -> list[dict]:
     """
     Recherche DuckDuckGo asynchrone via thread pool (DDGS est synchrone).
-    Tente d'abord le nouveau package 'ddgs', puis l'ancien 'duckduckgo_search'.
     """
     def _sync_search():
         try:
             from ddgs import DDGS
             with DDGS() as ddgs:
                 return list(ddgs.text(query, max_results=max_results))
-        except ImportError:
-            pass
         except Exception as e:
             print(f"⚠️ ddgs KO pour '{query[:40]}': {e}", flush=True)
-
-        try:
-            from duckduckgo_search import DDGS
-            with DDGS() as ddgs:
-                return list(ddgs.text(query, max_results=max_results))
-        except Exception as e:
-            print(f"⚠️ duckduckgo_search KO pour '{query[:40]}': {e}", flush=True)
-
-        return []
+            return []
 
     loop = asyncio.get_event_loop()
     try:
@@ -437,8 +426,6 @@ async def _ddg_search(query: str, max_results: int = 5) -> list[dict]:
         }
         for r in (raw or [])
     ]
-
-
 # ════════════════════════════════════════════════════════════════
 # PIPELINE COMPLET : web search → titres → TMDB
 # ════════════════════════════════════════════════════════════════
