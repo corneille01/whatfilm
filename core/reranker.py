@@ -478,6 +478,25 @@ async def _rerank_groq(extraction: dict, candidates: list) -> Optional[dict]:
         print(f"⚠️ Rerank Groq KO: {str(e)[:120]}", flush=True)
         return None
 
+
+def apply_quote_corroboration(result: dict, quote_candidate_ids: set) -> dict:
+    """
+    Si le candidat retenu par le rerank est également corroboré par une
+    réplique exacte trouvée sur le web (signal indépendant du LLM,
+    donc non sujet aux mêmes hallucinations), on booste le score de
+    confiance de façon mesurée — jamais au-delà de 95, jamais une
+    confiance "aveugle" à 100.
+    """
+    if not result or not quote_candidate_ids:
+        return result
+    if result.get("id") in quote_candidate_ids:
+        old_score = result.get("score", 0)
+        boosted = min(95, old_score + 15)
+        if boosted > old_score:
+            print(f" Corroboration réplique confirmée → score {old_score} → {boosted}", flush=True)
+            result["score"] = boosted
+            result["quote_corroborated"] = True
+    return result
 # ═══════════════════════════ POINT D'ENTRÉE ═══════════════════════
 
 async def rerank(extraction: dict, candidates: list) -> dict:

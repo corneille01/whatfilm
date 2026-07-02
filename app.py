@@ -9,6 +9,9 @@ import asyncio
 import re
 import httpx
 from core.embeddings_engine import check_known_film, store_film_signature
+from core.quote_search import find_quote_corroboration
+
+from core.confidence import make_opinion, rank_opinions, MULTI_CANDIDATE_THRESHOLD
 
 from core import extraction
 from routes_filming import router as filming_router
@@ -44,7 +47,7 @@ from data.tmdb import (
 )
 
 from data.fake_detector import detect_fake
-from core.reranker import rerank
+from core.reranker import rerank, apply_quote_corroboration 
 from storage.cache import (
     get_cache, get_cache_by_content, get_cache_by_film,
     get_cache_by_title, set_cache, purge_expired, cache_stats, cache_get_generic, cache_set_generic, 
@@ -825,6 +828,7 @@ async def _finalize_with_known_result(
     fake_score: int,
     result: dict,
     candidates: list,
+    alternatives: list | None = None,
 ) -> dict:
     """
     Finalise une analyse à partir d'un résultat déjà connu (match embeddings,
@@ -832,9 +836,12 @@ async def _finalize_with_known_result(
     logique "Détails TMDB" de process_analysis() sans dupliquer le code.
 
     Paramètres :
-      result     : dict avec au moins {id, media_type, meilleur_titre, score}
-      candidates : liste de candidats (peut être minimaliste, juste pour
-                   permettre au code de retrouver le media_type si besoin)
+      result       : dict avec au moins {id, media_type, meilleur_titre, score}
+      candidates   : liste de candidats (peut être minimaliste, juste pour
+                     permettre au code de retrouver le media_type si besoin)
+      alternatives : classement composite des candidats suivants (rank_opinions),
+                     exposés au frontend si la confiance du résultat principal
+                     est sous MULTI_CANDIDATE_THRESHOLD
     """
     confidence = result.get("score", 0)
 
@@ -851,7 +858,6 @@ async def _finalize_with_known_result(
             "message":        f"Film non identifié avec certitude ({confidence}%). Essayez de rechercher manuellement.",
             "titre_gemini":   titre,
             "search_youtube": f"https://www.youtube.com/results?search_query={titre}+film+trailer",
-            
         }
         set_cache(url, low_conf, transcript=transcript or "", ocr_text=ocr_text or "")
         return low_conf
@@ -944,12 +950,34 @@ async def _finalize_with_known_result(
         "seasons":      details.get("seasons") if is_series else None,
     }
 
+    # ── Multi-candidats : propose des alternatives si confiance faible ──
+    if confidence < MULTI_CANDIDATE_THRESHOLD and alternatives:
+        alt_details = []
+        for alt in alternatives[:2]:
+            try:
+                d = (
+                    await get_tv_details(alt["id"], details_lang)
+                    if alt.get("media_type") == "tv"
+                    else await get_movie_details(alt["id"], details_lang)
+                )
+                alt_details.append({
+                    "id":          alt["id"],
+                    "title":       alt["meilleur_titre"] or d.get("title") or d.get("name"),
+                    "media_type":  alt.get("media_type", "movie"),
+                    "poster_path": d.get("poster_path"),
+                    "year":        (d.get("release_date") or d.get("first_air_date") or "")[:4],
+                    "confidence":  alt["score"],
+                })
+            except Exception:
+                continue
+        if alt_details:
+            final["alternatives"]       = alt_details
+            final["needs_confirmation"] = True
+
     if confidence >= 50:
         set_cache(url, final, transcript=transcript or "", ocr_text=ocr_text or "")
 
     return final
-
-
 async def process_analysis(
     frames,
     ocr_text,
@@ -969,13 +997,6 @@ async def process_analysis(
                 return {"status": "cached", **content_hit}
 
     # ── 1b. Check embeddings (avant les LLM) ──────────────────────
-    # Vérifie si ce texte/ces frames ressemblent à un film déjà identifié
-    # avec succès auparavant, AVANT de dépenser du quota Gemini/Qwen/Groq.
-    # N'agit que si prefetched_extraction est absent (cas YouTube direct,
-    # où l'extraction a déjà eu lieu côté _run_download_and_analyse) et
-    # qu'on a du texte ou des frames à comparer. En cas d'échec/absence
-    # de configuration université, check_known_film retourne None
-    # silencieusement et le pipeline continue normalement plus bas.
     if prefetched_extraction is None and (transcript or ocr_text or frames):
         embedding_match = await check_known_film(
             transcript=transcript or "",
@@ -997,10 +1018,6 @@ async def process_analysis(
                 set_cache(url, film_hit, transcript=transcript or "", ocr_text=ocr_text or "")
                 return {"status": "cached", **film_hit}
 
-            # Le film est connu par embeddings mais pas encore en cache fiche
-            # complète (rare, ex: cache fiche expiré entre temps) : on continue
-            # directement vers "Détails TMDB" via _finalize_with_known_result,
-            # sans dépenser de quota LLM sur l'extraction ni sur le rerank.
             print(
                 f"⚡ Match embeddings sans cache fiche → identification directe "
                 f"(tmdb_id={tmdb_id_match}, score={embedding_match['score']:.3f})",
@@ -1063,10 +1080,6 @@ async def process_analysis(
         transcript_lang = _script_to_lang.get(detected_script)
 
     # ── 3b. Correction transcript_lang si titres en langue non-anglaise ──
-    # Gemini retourne parfois langue_originale="en" pour des films non-anglais
-    # quand la transcription contient des mots ambigus.
-    # Si browser_lang est une langue latine ET les titres Gemini contiennent
-    # des marqueurs de cette langue → forcer transcript_lang = browser_lang.
     _LANG_MARKERS: dict[str, set[str]] = {
         "fr": {"le", "la", "les", "des", "du", "une", "de", "et", "en",
                "dans", "sur", "avec", "pour", "par", "au", "aux",
@@ -1093,7 +1106,6 @@ async def process_analysis(
         words       = set(re.findall(r'\b\w+\b', all_text))
         markers     = _LANG_MARKERS[browser_lang]
 
-        # Seuil : au moins 2 marqueurs de la langue du navigateur dans les titres/desc
         matched = words & markers
         if len(matched) >= 2:
             print(
@@ -1139,6 +1151,7 @@ async def process_analysis(
     fake_score = detect_fake((ocr_text or "") + " " + (transcript or ""))
     candidates = []
     result     = None
+    opinions   = []   # ← accumule les avis de chaque canal indépendant
 
     # ── 5. Recherche via acteurs ─────────────────────────────────
     actor_candidates = await build_candidates_from_actors(
@@ -1147,6 +1160,7 @@ async def process_analysis(
     if actor_candidates:
         print(f"🎭 Recherche via acteurs: {len(actor_candidates)} candidats", flush=True)
         actor_result = await rerank(extraction, actor_candidates)
+        opinions.append(make_opinion(actor_result, "actors"))
         if actor_result and actor_result.get("score", 0) >= 50:
             matched = next(
                 (c for c in actor_candidates if c.get("id") == actor_result.get("id")),
@@ -1162,6 +1176,28 @@ async def process_analysis(
                 flush=True
             )
 
+    # ── 5b. Ancrage par réplique exacte (dialogue anchoring) ──────
+    quote_corrob = await find_quote_corroboration(
+        transcript or "", browser_lang=browser_lang
+    )
+    quote_candidate_ids = {c["id"] for c in quote_corrob["candidates"]}
+
+    if quote_corrob["candidates"]:
+        candidates_before = candidates or []
+        merged = quote_corrob["candidates"] + [
+            c for c in candidates_before
+            if c.get("id") not in quote_candidate_ids
+        ]
+        quote_result = await rerank(extraction, merged)
+        opinions.append(make_opinion(quote_result, "quote"))
+        if quote_result and quote_result.get("score", 0) >= 50:
+            result     = quote_result
+            candidates = merged
+            print(f"✅ Quote-match retenu (score={result['score']})", flush=True)
+
+    if result:
+        result = apply_quote_corroboration(result, quote_candidate_ids)
+
     # ── 6. Fallback : cascade TMDB multi-langue ──────────────────
     if not result:
         candidates = await run_cascade_search(
@@ -1171,6 +1207,7 @@ async def process_analysis(
         )
         if candidates:
             result = await rerank(extraction, candidates)
+            opinions.append(make_opinion(result, "cascade"))
             if not result or not result.get("id"):
                 result = {
                     "meilleur_titre": candidates[0].get("title") or candidates[0].get("name", "Inconnu"),
@@ -1194,6 +1231,7 @@ async def process_analysis(
                 c for c in candidates if c.get("id") not in {w.get("id") for w in wd_candidates}
             ]
             wd_result = await rerank(extraction, merged_wd)
+            opinions.append(make_opinion(wd_result, "wikidata"))
             if wd_result and wd_result.get("score", 0) > current_score:
                 print(
                     f"✅ Wikidata améliore le score: {current_score} → {wd_result['score']}",
@@ -1221,6 +1259,7 @@ async def process_analysis(
                 c for c in candidates if c.get("id") not in {w.get("id") for w in web_candidates}
             ]
             web_result = await rerank(extraction, merged_candidates)
+            opinions.append(make_opinion(web_result, "web"))
             if web_result and web_result.get("score", 0) > current_score:
                 print(
                     f"✅ Web fallback améliore le score: "
@@ -1232,6 +1271,20 @@ async def process_analysis(
             elif web_result and not result:
                 result     = web_result
                 candidates = merged_candidates
+
+    # ── 6d. Score composite + classement multi-candidats ──────────
+    ranked = rank_opinions(opinions, max_results=3)
+    alternatives = []
+    if ranked:
+        top = ranked[0]
+        if not result or top["score"] > result.get("score", 0):
+            result = {
+                "id":             top["id"],
+                "meilleur_titre": top["meilleur_titre"],
+                "media_type":     top["media_type"],
+                "score":          top["score"],
+            }
+        alternatives = ranked[1:]
 
     # ── Aucun résultat ────────────────────────────────────────────
     if not candidates and not result:
@@ -1259,12 +1312,10 @@ async def process_analysis(
     final = await _finalize_with_known_result(
         url, lang, browser_lang, transcript, ocr_text,
         fake_score=fake_score, result=result, candidates=candidates,
+        alternatives=alternatives,
     )
 
     # ── 8. Enregistrement de la signature embeddings (si succès fiable) ──
-    # N'enregistre que si le résultat final est un succès complet avec une
-    # confiance suffisante (store_film_signature filtre déjà sur >= 70 en
-    # interne, donc cet appel est toujours sûr même en cas de score faible).
     if final.get("status") == "success" and final.get("tmdb_id"):
         await store_film_signature(
             tmdb_id=final["tmdb_id"],

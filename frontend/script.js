@@ -1748,7 +1748,7 @@ function showDetailLoading(){
   document.getElementById("page-film-detail").style.display="block";
   document.getElementById("titre_film").innerText="…";
   document.getElementById("affiche_film").src="";
-  ["synopsis_film","detail_tags","detail_rating","streaming_section","cast_section","trailer_section","similar_section","seasons_section","fake_alert"].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML="";});
+  ["synopsis_film","detail_tags","detail_rating","streaming_section","cast_section","trailer_section","similar_section","seasons_section","fake_alert","alternatives_section"].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML="";});
   ["crew_section","locations_section","finance_section","eidr_badge"].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML="";});
   document.getElementById("confidence_wrap").style.display="none";
   document.getElementById("food-partner").classList.remove("visible");
@@ -1802,6 +1802,15 @@ function afficherDetailFilm(data) {
     document.getElementById("conf-pct-label").style.color = color;
   } else {
     confWrap.style.display = "none";
+  }
+  // ─── ALTERNATIVES (multi-candidats) ──────────────────────────
+  const altEl = document.getElementById("alternatives_section");
+  if (altEl) {
+    if (data.needs_confirmation && Array.isArray(data.alternatives) && data.alternatives.length > 0) {
+      afficherAlternatives(altEl, data.alternatives);
+    } else {
+      altEl.innerHTML = "";
+    }
   }
 
   // Note
@@ -1978,6 +1987,45 @@ if (isAmazon) {
   if (data.tmdb_id) chargerEnrichissementWikidata(data.tmdb_id, data.media_type || "movie");
 
   window.scrollTo({ top: 0, behavior: "smooth" });
+}
+function afficherAlternatives(container, alternatives) {
+  const lbl =
+    currentLang === "es" ? "¿No es la película correcta? También podría ser:" :
+    currentLang === "de" ? "Nicht der richtige Film? Es könnte auch sein:" :
+    currentLang === "zh" ? "不是这部电影？也可能是：" :
+    currentLang.startsWith("en") ? "Not the right movie? It could also be:" :
+    "Ce n'est pas le bon film ? Ça pourrait aussi être :";
+
+  const placeholder =
+    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='154' height='231' fill='%231a1a24'%3E%3Crect width='154' height='231'/%3E%3Ctext x='50%25' y='50%25' fill='%23444' font-size='24' text-anchor='middle' dominant-baseline='middle'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E";
+
+  const cards = alternatives.map(alt => {
+    const poster = alt.poster_path
+      ? `https://image.tmdb.org/t/p/w154${alt.poster_path}`
+      : placeholder;
+    const year = alt.year || "";
+    const pct = Math.round(alt.confidence || 0);
+    return `
+      <div class="alt-card" onclick="choisirAlternative(${alt.id},'${alt.media_type || "movie"}')" role="button" tabindex="0">
+        <img src="${poster}" alt="${escapeHtml(alt.title || "")}" loading="lazy">
+        <div class="alt-card-body">
+          <strong>${escapeHtml(alt.title || "?")}</strong>
+          <span class="alt-card-meta">${year ? year + " · " : ""}${pct}%</span>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  container.innerHTML = `
+    <div class="alternatives-block">
+      <p class="alternatives-label"><i class="fas fa-question-circle"></i> ${lbl}</p>
+      <div class="alternatives-list">${cards}</div>
+    </div>
+  `;
+}
+
+function choisirAlternative(id, mediaType) {
+  afficherDetails(id, mediaType);
 }
 function afficherTrailer(btn,embedUrl){const iframe=document.getElementById("trailer_iframe");if(iframe){iframe.src=embedUrl;iframe.style.display="block";btn.style.display="none";}}
 
