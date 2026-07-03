@@ -64,7 +64,7 @@ class EventType(str, enum.Enum):
 
 
 class Movie(Base):
-    __tablename__ = "movies"
+    __tablename__ = "filming_pelify_movies"
 
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     wikidata_id: Mapped[str | None] = mapped_column(String(20), unique=True)
@@ -84,10 +84,10 @@ class Movie(Base):
 
 
 class FilmingLocation(Base):
-    __tablename__ = "filming_locations"
+    __tablename__ = "filming_pelify_filming_locations"
 
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
-    movie_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("movies.id", ondelete="CASCADE"), nullable=False)
+    movie_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("filming_pelify_movies.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     scene_description: Mapped[str | None] = mapped_column(Text)
@@ -109,7 +109,7 @@ class FilmingLocation(Base):
 
 
 class NearbyPlace(Base):
-    __tablename__ = "nearby_places"
+    __tablename__ = "filming_pelify_nearby_places"
     __table_args__ = (UniqueConstraint("source", "external_id", name="uq_nearby_places_external"),)
 
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
@@ -132,15 +132,15 @@ class NearbyPlace(Base):
 
 
 class LocationNearbyCache(Base):
-    __tablename__ = "location_nearby_cache"
+    __tablename__ = "filming_pelify_location_nearby_cache"
     __table_args__ = (UniqueConstraint("filming_location_id", "nearby_place_id", name="uq_location_nearby"),)
 
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     filming_location_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("filming_locations.id", ondelete="CASCADE"), nullable=False
+        BigInteger, ForeignKey("filming_pelify_filming_locations.id", ondelete="CASCADE"), nullable=False
     )
     nearby_place_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("nearby_places.id", ondelete="CASCADE"), nullable=False
+        BigInteger, ForeignKey("filming_pelify_nearby_places.id", ondelete="CASCADE"), nullable=False
     )
     category: Mapped[PlaceCategory] = mapped_column(Enum(PlaceCategory), nullable=False)
     distance_meters: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -154,12 +154,12 @@ class LocationNearbyCache(Base):
 
 
 class ApiJob(Base):
-    __tablename__ = "api_jobs"
+    __tablename__ = "filming_pelify_api_jobs"
     __table_args__ = (UniqueConstraint("filming_location_id", name="uq_api_jobs_location"),)
 
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     filming_location_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("filming_locations.id", ondelete="CASCADE"), nullable=False
+        BigInteger, ForeignKey("filming_pelify_filming_locations.id", ondelete="CASCADE"), nullable=False
     )
     status: Mapped[JobStatus] = mapped_column(Enum(JobStatus), default=JobStatus.pending)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -169,7 +169,7 @@ class ApiJob(Base):
 
 
 class AnalyticsEvent(Base):
-    __tablename__ = "analytics_events"
+    __tablename__ = "filming_pelify_analytics_events"
 
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     event_type: Mapped[EventType] = mapped_column(Enum(EventType), nullable=False)

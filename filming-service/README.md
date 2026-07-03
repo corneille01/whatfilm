@@ -42,11 +42,17 @@ Fait :
   pas d'appel Overpass réel effectué** (même contrainte réseau que
   Wikidata).
 - `Dockerfile` prêt pour Render (lit `$PORT` dynamiquement).
+- Toutes les tables préfixées `filming_pelify_` (schéma SQL + modèles
+  SQLAlchemy) comme demandé pour la base universitaire partagée.
+- `.env.example` (aucun secret dedans, `.env` reste ignoré par git).
 
-Pas encore fait (bloqué sur l'accès DB, cf. ci-dessous) :
+Pas encore fait :
+- **Appliquer réellement `sql/schema.sql` sur la base** et connecter
+  `DATABASE_URL` — voir "Connexion DB" ci-dessous, il manque le nom de
+  la base et la confirmation du port MySQL.
 - Chargeur `scripts/load_wikidata_to_mysql.py` qui lira les fichiers de
-  `scripts/output/wikidata_raw/` et peuplera `movies` /
-  `filming_locations`.
+  `scripts/output/wikidata_raw/` et peuplera `filming_pelify_movies` /
+  `filming_pelify_filming_locations`.
 - Frontend Leaflet (panneau latéral + carte, filtres, popups commodités,
   "créer un itinéraire").
 - Config Render effective (service à créer, variables d'environnement
@@ -54,21 +60,37 @@ Pas encore fait (bloqué sur l'accès DB, cf. ci-dessous) :
   `CORS_ALLOWED_ORIGINS`).
 - Tableau de bord ciné-tourisme (§14 du cahier des charges).
 
-## Blocage à lever avant de continuer
+## Connexion DB
 
-Ce repo n'a **aucun accès MySQL direct** : `storage/university_client.py`
+Identifiants reçus : utilisateur `ehoudb_user`, accès via phpMyAdmin sur
+`https://109.238.12.189:8443/phpMyAdmin/`. Toujours manquant pour
+construire `DATABASE_URL` :
+- le **nom de la base** (visible dans phpMyAdmin, colonne de gauche)
+- confirmation du **port MySQL réel** (souvent 3306 — le 8443 vu dans
+  l'URL est celui de l'interface web phpMyAdmin, pas forcément celui du
+  serveur MySQL lui-même)
+- confirmation que le serveur accepte les connexions **distantes**
+  (beaucoup d'hébergeurs mutualisés/universitaires limitent MySQL à
+  `localhost`, auquel cas Render ne pourra jamais s'y connecter
+  directement sans un tunnel ou un accès étendu par l'administrateur)
+
+Ce sandbox de développement ne peut pas tester la connectivité réseau
+vers `109.238.12.189` (ports 3306 et 8443 injoignables, même politique
+réseau que pour Wikidata) — à valider en local ou depuis Render une fois
+ces informations connues.
+
+Une fois `DATABASE_URL` connue (localement dans `.env`, jamais commitée),
+appliquer le schéma :
+```bash
+mysql -h HOST -P PORT -u ehoudb_user -p NOM_DE_LA_BASE < sql/schema.sql
+```
+
+## Blocage historique (résolu)
+
+Ce repo n'avait au départ **aucun accès MySQL direct** : `storage/university_client.py`
 (app principale) ne parle qu'à un proxy HTTP PHP limité à 2 endpoints
-(`cache`, `embeddings`) — pas de SQL arbitraire, donc impossible d'y
-créer les 6 nouvelles tables telles quelles.
-
-Pour brancher la vraie persistance, il faut soit :
-1. des identifiants MySQL directs (host/port/user/password/nom de base)
-   pour la base universitaire, soit
-2. de nouveaux endpoints côté PHP (hors de ce repo) exposant les
-   opérations nécessaires (insert/query sur les 6 tables).
-
-Sans ça, `sql/schema.sql` reste un schéma prêt à appliquer mais aucune
-connexion n'est configurée.
+(`cache`, `embeddings`) — pas de SQL arbitraire. Des identifiants MySQL
+directs ont depuis été fournis (cf. section "Connexion DB" ci-dessus).
 
 ## Lancer le fetch Wikidata (à faire hors de ce sandbox)
 
