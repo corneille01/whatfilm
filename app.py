@@ -10,20 +10,19 @@ import re
 import httpx
 from core.embeddings_engine import check_known_film, store_film_signature
 from core.quote_search import find_quote_corroboration
+from core.feedback import get_correction_for_extraction, save_extraction_snapshot
 
 from core.confidence import make_opinion, rank_opinions, MULTI_CANDIDATE_THRESHOLD
-
+from core.feedback import save_candidates_snapshot, submit_feedback
 from core import extraction
 from routes_filming import router as filming_router
 from typing import Optional
 from contextlib import asynccontextmanager
 from collections import defaultdict
 from storage.cache_engine.lock_manager import acquire_lock, release_lock
+from storage.cache_engine.hash_utils import key_content  
 
 from fastapi import FastAPI, Request, UploadFile, File, Form
-
-
-
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -973,7 +972,8 @@ async def _finalize_with_known_result(
         if alt_details:
             final["alternatives"]       = alt_details
             final["needs_confirmation"] = True
-
+    final["_transcript"] = transcript or ""
+    final["_ocr_text"]   = ocr_text or ""
     if confidence >= 50:
         set_cache(url, final, transcript=transcript or "", ocr_text=ocr_text or "")
 
@@ -1066,6 +1066,26 @@ async def process_analysis(
         if detected_script != "latin":
             extraction["detected_script"] = detected_script
         extraction["_transcript_raw"] = transcript or ""
+
+# ── 2b. Correction humaine déjà connue pour ce même acteur/titre ──
+    known_correction = get_correction_for_extraction(extraction)
+    if known_correction:
+        print(f"✅ Correction humaine appliquée directement: {known_correction}", flush=True)
+        return await _finalize_with_known_result(
+            url, lang, browser_lang, transcript, ocr_text,
+            fake_score=detect_fake((ocr_text or "") + " " + (transcript or "")),
+            result={
+                "id":             known_correction["tmdb_id"],
+                "media_type":     known_correction["media_type"],
+                "meilleur_titre": "",
+                "score":          known_correction.get("confidence", 90),
+            },
+            candidates=[{
+                "id": known_correction["tmdb_id"],
+                "media_type": known_correction["media_type"],
+                "title": "", "popularity": 0,
+            }],
+        )
 
     # ── 3. Langue de la transcription ────────────────────────────
     transcript_lang = extraction.get("langue_originale") or None
@@ -1326,6 +1346,11 @@ async def process_analysis(
             ocr_text=ocr_text or "",
             frame_paths=frames or [],
         )
+         # ── 9. Snapshot des candidats pour futurs signalements ────────
+    if candidates:
+        content_hash_fb = key_content(transcript or "", ocr_text or "", lang)
+        save_candidates_snapshot(content_hash_fb, candidates)
+        save_extraction_snapshot(content_hash_fb, extraction)
 
     return final
 
@@ -1499,6 +1524,39 @@ async def rechercher(query: str, lang: str = "fr"):
     except Exception:
         return {"status": "error", "message": "Erreur lors de la recherche.", "results": []}
 
+
+class FeedbackRequest(BaseModel):
+    url:                   str
+    transcript:            str = ""
+    ocr_text:              str = ""
+    reported_wrong_id:     Optional[int] = None
+    corrected_tmdb_id:     int
+    corrected_media_type:  str = "movie"
+    lang:                  str = "fr"
+
+
+@app.post("/feedback/correction")
+async def feedback_correction(req: FeedbackRequest, request: Request):
+    ip = _get_client_ip(request)
+    rate_err = _check_rate_limit(ip)
+    if rate_err:
+        return rate_err
+
+    from storage.cache_engine.hash_utils import key_content
+    content_hash = key_content(req.transcript, req.ocr_text, req.lang)
+
+    result = await submit_feedback(
+        url=normalize_url(req.url),
+        content_hash=content_hash,
+        transcript=req.transcript,
+        ocr_text=req.ocr_text,
+        reported_wrong_id=req.reported_wrong_id,
+        corrected_tmdb_id=req.corrected_tmdb_id,
+        corrected_media_type=req.corrected_media_type,
+        ip=ip,
+        lang=req.lang,
+    )
+    return result
 @app.get("/cache-stats")
 async def get_cache_stats():
     return cache_stats()

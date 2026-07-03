@@ -139,6 +139,7 @@ function getBrowserLangShort() {
   };
   return m[detectBrowserLang()] || "fr";
 }
+let _analysisInFlight = false;
 let lastAnalyzedLink = null;
 let lastGrid = null;
 let currentPage = 1;
@@ -164,7 +165,68 @@ let _immersiveGain = null;
 let _immersiveOsc = null;
 let _immersiveInterval = null;
 
+let _correctionUrl = null, _correctionTranscript = "", _correctionOcr = "";
+let _correctionDebounce = null;
 
+function ouvrirCorrection() {
+  _correctionUrl = lastAnalyzedLink;
+  document.getElementById("correction-modal").style.display = "flex";
+  document.getElementById("correction-search").value = "";
+  document.getElementById("correction-results").innerHTML = "";
+}
+
+function fermerCorrection() {
+  document.getElementById("correction-modal").style.display = "none";
+}
+
+function rechercherCorrection(query) {
+  clearTimeout(_correctionDebounce);
+  if (query.trim().length < 2) { document.getElementById("correction-results").innerHTML = ""; return; }
+  _correctionDebounce = setTimeout(async () => {
+    try {
+      const data = await safeFetch(`/rechercher?query=${encodeURIComponent(query)}&lang=${getTMDBLang()}`);
+      const results = (data.results || []).slice(0, 6);
+      document.getElementById("correction-results").innerHTML = results.map(m => {
+        const isTv = m.media_type === "tv" || !!m.first_air_date;
+        const poster = m.poster_path ? `https://image.tmdb.org/t/p/w92${m.poster_path}` : "";
+        const year = (m.release_date || m.first_air_date || "").split("-")[0];
+        return `<div onclick="envoyerCorrection(${m.id},'${isTv ? "tv" : "movie"}')"
+                     style="display:flex;gap:10px;padding:8px;cursor:pointer;border-radius:8px" 
+                     onmouseover="this.style.background='var(--card)'" onmouseout="this.style.background=''">
+          ${poster ? `<img src="${poster}" style="width:40px;border-radius:4px">` : ""}
+          <div><strong>${escapeHtml(m.title || m.name)}</strong><br><small style="color:var(--muted)">${year}</small></div>
+        </div>`;
+      }).join("");
+    } catch (e) {}
+  }, 350);
+}
+
+async function envoyerCorrection(tmdbId, mediaType) {
+  fermerCorrection();
+  try {
+    const res = await fetch("/feedback/correction", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: _correctionUrl || "",
+        transcript: _correctionTranscript,
+        ocr_text: _correctionOcr,
+        corrected_tmdb_id: tmdbId,
+        corrected_media_type: mediaType,
+        lang: getTMDBLang(),
+      }),
+    });
+    const data = await res.json();
+    if (data.status === "applied") {
+      toast("Merci ! Résultat corrigé.");
+      afficherDetails(tmdbId, mediaType);
+    } else {
+      toast("Merci pour ton signalement, on vérifie.");
+    }
+  } catch (e) {
+    toast("Erreur d'envoi, réessaie.");
+  }
+}
 
 
 function afficherTourismeTournage(container, locApiLocations = [], wdLocations = [], context = {}) {
@@ -1086,7 +1148,7 @@ function retourAccueilAsync() {
 }
 // ════ RECHERCHE GLOBALE ════
 async function gererRechercheGlobal(){
- 
+ if (_analysisInFlight) return;   
   const input=document.getElementById("input_global").value.trim();
   if(!input)return;
   await new Promise(requestAnimationFrame);
@@ -1095,7 +1157,7 @@ async function gererRechercheGlobal(){
   document.getElementById("page-film-detail").style.display="none";
   document.getElementById("filming-page").style.display="none";
   const isLink=/^https?:\/\//i.test(input)&&(/tiktok\.com|vm\.tiktok\.com|vt\.tiktok\.com/.test(input)||/instagram\.com/.test(input)||/youtube\.com|youtu\.be/.test(input)||/twitter\.com|x\.com/.test(input)||/facebook\.com|fb\.watch/.test(input)||/dailymotion\.com|dai\.ly/.test(input)||/bilibili\.com/.test(input)||/snapchat\.com/.test(input)||/vimeo\.com/.test(input)||/twitch\.tv/.test(input)||/linkedin\.com/.test(input)||/reddit\.com|redd\.it/.test(input)||/pinterest\.|pin\.it/.test(input)||/bit\.ly|t\.co|tinyurl\.com|ow\.ly|buff\.ly|short\.io|lnk\.to/.test(input))||/^https?:\/\//i.test(input);
-if (isLink) { demarrerPub(); analyserVideo(input); }
+if (isLink) { analyserVideo(input); }
   else{
     hideHero();
     try{const data=await safeFetch(`/rechercher?query=${encodeURIComponent(input)}&lang=${getTMDBLang()}`);if(data.status==="error"){afficherErreur(data.message||t("err_generic"));return;}afficherResultatsRecherche(data,input);}
@@ -1126,6 +1188,7 @@ function rechercheHero() {
 
 // ════ ANNULER ANALYSE ════
 function annulerAnalyse(){
+   _analysisInFlight = false;
   if(analysisAbortController)analysisAbortController.abort();
   _adFinished=true;_analysisResult=null;
   document.getElementById('ad-modal').style.display='none';
@@ -1233,6 +1296,8 @@ async function fetchWithRetry(url, options, signal, maxRetries = 2, delayMs = 30
 }
 // ════ ANALYSE VIDÉO ════
 async function analyserVideo(lien){
+   if (_analysisInFlight) return;   // ← garde anti-doublon
+  _analysisInFlight = true;
    lastAnalyzedLink = lien;
   hideHero();_adFinished=false;_analysisResult=null;
   const lastAd=parseInt(localStorage.getItem('last_ad')||'0');
@@ -1252,13 +1317,20 @@ async function analyserVideo(lien){
       const skipWhisper=data.skip_whisper===true;
       const[ocrText,transcript]=await Promise.allSettled([data.frames_base64?.length?runLocalOCR(data.frames_base64):Promise.resolve(""),(!skipWhisper&&data.audio_base64)?runLocalWhisper(data.audio_base64):Promise.resolve("")]);
       const continueRes=await fetch("/analyser_continue",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:data.session_id,ocr_text:ocrText.status==="fulfilled"?ocrText.value:"",transcript:transcript.status==="fulfilled"?transcript.value:"",browser_lang:getBrowserLangShort()}),signal});
-      let finalData;try{finalData=await continueRes.json();}catch(e){throw new Error("json_parse");}_afficherResultatFinal(finalData);return;
+      let finalData;try{finalData=await continueRes.json();}catch(e){throw new Error("json_parse");} 
+       _analysisInFlight = false; 
+      _afficherResultatFinal(finalData);return;
     }
     if(data.status==="processing"&&data.session_id){clearInterval(progInterval);const finalResult=await pollAnalysisStatus(data.session_id,signal);await _consumeAnalysis(finalResult,signal);return;}
-    clearInterval(progInterval);_afficherResultatFinal(data);
+    clearInterval(progInterval);
+     _analysisInFlight = false;  
+    _afficherResultatFinal(data);
   }catch(e){
+     _analysisInFlight = false; 
     clearInterval(progInterval);_adFinished=true;document.getElementById('ad-modal').style.display='none';clearInterval(_adCountdownInterval);overlay.classList.remove("active");stopGame();
-    if(e.name==="AbortError")return;
+    if(e.name==="AbortError"){
+  return;
+}
     if(e.message==="json_parse")afficherErreurRiche({code:"unexpected",message:t("err_generic")});
     else if(e.message?.startsWith("http_")){const status=parseInt(e.message.split("_")[1]);afficherErreurRiche({code:status===502||status===503?"server_busy":"unexpected"});}
     else afficherErreurRiche({code:"unexpected",message:t("err_generic")});
@@ -1266,8 +1338,10 @@ async function analyserVideo(lien){
 }
 
 async function analyserVideoUpload(file){
-  if(!file)return;
-  if(file.size > 50*1024*1024){ afficherErreur(t("err_file_too_large")||"Fichier trop volumineux (max 50 Mo)."); return; }
+  if (_analysisInFlight) return;
+_analysisInFlight = true;
+if(!file){ _analysisInFlight = false; return; }
+  if(file.size > 50*1024*1024){ afficherErreur(t("err_file_too_large")||"Fichier trop volumineux (max 50 Mo)."); _analysisInFlight = false; return; }
   hideHero();_adFinished=false;_analysisResult=null;
   const lastAd=parseInt(localStorage.getItem('last_ad')||'0');
   if(Date.now()-lastAd>30*60*1000){localStorage.setItem('last_ad',Date.now().toString());demarrerPub();}else{_adFinished=true;}
@@ -1284,11 +1358,12 @@ async function analyserVideoUpload(file){
       signal.addEventListener("abort",()=>xhr.abort());
       xhr.send(fd);
     });
-    if(data.status==="error"){_adFinished=true;document.getElementById('ad-modal').style.display='none';clearInterval(_adCountdownInterval);overlay.classList.remove("active");stopGame();afficherErreurRiche(data);return;}
+    if(data.status==="error"){_adFinished=true;document.getElementById('ad-modal').style.display='none';clearInterval(_adCountdownInterval);overlay.classList.remove("active");stopGame();afficherErreurRiche(data); _analysisInFlight = false; return;}
     if(data.status==="processing"&&data.session_id){const r=await pollAnalysisStatus(data.session_id,signal);await _consumeAnalysis(r,signal);return;}
     await _consumeAnalysis(data,signal);
   }catch(e){
     _adFinished=true;document.getElementById('ad-modal').style.display='none';clearInterval(_adCountdownInterval);overlay.classList.remove("active");stopGame();
+    _analysisInFlight = false;
     if(e.name==="AbortError"||signal.aborted)return;
     afficherErreurRiche({code:"unexpected",message:t("err_generic")});
   }
@@ -1332,7 +1407,7 @@ async function _consumeAnalysis(data, signal) {
     _afficherResultatFinal(finalData);
     return;
   }
-
+ _analysisInFlight = false;  
   _afficherResultatFinal(data);
 }
 async function pollAnalysisStatus(sessionId,signal,maxRetries=80){
@@ -1344,10 +1419,11 @@ async function pollAnalysisStatus(sessionId,signal,maxRetries=80){
       const data=await res.json();
       let stepProgress=88;if(data.step==="downloading")stepProgress=90;else if(data.step==="processing")stepProgress=95;
       if(progressBar&&percentLabel){const tp=Math.min(stepProgress,98);if(tp>lastProgress)lastProgress=tp;progressBar.style.width=lastProgress+"%";percentLabel.textContent=Math.round(lastProgress)+"%";}
-      if(data.status!=="processing"){if(progressBar)progressBar.style.width="100%";if(percentLabel)percentLabel.textContent="100%";return data;}
+      if(data.status!=="processing"){if(progressBar)progressBar.style.width="100%";if(percentLabel)percentLabel.textContent="100%"; _analysisInFlight = false; return data;}
       await new Promise(r=>setTimeout(r,2500));
     }catch(e){if(e.name==="AbortError")throw e;console.warn("Polling error",e);await new Promise(r=>setTimeout(r,3000));}
   }
+  _analysisInFlight = false;
   return{status:"error",code:"timeout",message:tErr("timeout")};
 }
 async function runLocalOCR(framesBase64) {
@@ -1356,7 +1432,10 @@ async function runLocalOCR(framesBase64) {
 
     await ensureTesseractReady();
 
-    if (!window.Tesseract) return "";
+    if (!window.Tesseract) {
+      _analysisInFlight = false;
+      return "";
+    }
 
     const worker = await Tesseract.createWorker("fra+eng");
     let fullText = "";
@@ -2077,7 +2156,15 @@ function getAmazonPrimeOffer() {
     url: `https://${domain}/amazonprime?tag=${_amazonTag(domain)}`,
   };
 }
-
+// ════ DÉTECTION PAYS — indépendante d'AMAZON_DOMAINS ════
+function _detectCountry(){
+  for (const l of (navigator.languages || [navigator.language || ""])) {
+    const m = l.toUpperCase().match(/-([A-Z]{2})$/);
+    if (m) return m[1];
+  }
+  const uiToCC = { fr:"FR", es:"ES", de:"DE", "en-GB":"GB", "en-US":"US", zh:"CN" };
+  return uiToCC[currentLang] || "US";
+}
 // Chaque programme Awin approuvé va ici, rangé par code pays ISO.
 // Un pays peut avoir plusieurs offres — elles seront mises en rotation
 // aléatoire entre elles (et avec Amazon) automatiquement.
@@ -2085,56 +2172,60 @@ function getAmazonPrimeOffer() {
 // du bon pays, ou crée une nouvelle clé pays si besoin.
 const AWIN_OFFERS_BY_COUNTRY = {
   DE: [
-    {
-      icon: "💪",
-      title: "PROGRAMM 21",
-      desc: "21 Tage. 21 Minuten. 21 Lebensmittel.",
-      cta: "Entdecken →",
-      url: "https://www.awin1.com/awclick.php?gid=606436&mid=127263&awinaffid=2932851&linkid=4793651&clickref=pelify",
-    },
-    {
-      icon: "🏺",
-      title: "Casa Moro",
-      desc: "5% Rabatt — Marokkanisches Wohndesign & Beleuchtung",
-      cta: "Entdecken →",
-      url: "https://www.awin1.com/cread.php?s=3190082&v=31431&q=442216&r=2932851",
-      image: "https://www.awin1.com/cshow.php?s=3190082&v=31431&q=442216&r=2932851",
-    },
-    {
-      icon: "🎯",
-      title: "Snipster",
-      desc: "Cool bleiben. Clever bieten.",
-      cta: "Entdecken →",
-      url: "https://www.awin1.com/cread.php?s=2526726&v=17469&q=377673&r=2932851",
-      image: "https://www.awin1.com/cshow.php?s=2526726&v=17469&q=377673&r=2932851",
-    },
+    { icon: "💪", title: "PROGRAMM 21", desc: "21 Tage. 21 Minuten. 21 Lebensmittel.", cta: "Entdecken →", url: "https://www.awin1.com/awclick.php?gid=606436&mid=127263&awinaffid=2932851&linkid=4793651&clickref=pelify" },
+    { icon: "🏺", title: "Casa Moro", desc: "5% Rabatt — Marokkanisches Wohndesign & Beleuchtung", cta: "Entdecken →", url: "https://www.awin1.com/cread.php?s=3190082&v=31431&q=442216&r=2932851", image: "https://www.awin1.com/cshow.php?s=3190082&v=31431&q=442216&r=2932851" },
+    { icon: "🎯", title: "Snipster", desc: "Cool bleiben. Clever bieten.", cta: "Entdecken →", url: "https://www.awin1.com/cread.php?s=2526726&v=17469&q=377673&r=2932851", image: "https://www.awin1.com/cshow.php?s=2526726&v=17469&q=377673&r=2932851" },
+    { icon: "🔒", title: "FastestVPN", desc: "Sicheres, privates Surfen — 256-Bit-Verschlüsselung", cta: "Entdecken →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
   ],
- FR: [
-  {
-    icon: "🏡",
-    title: "Festivilla",
-    desc: "Villas de groupe pour anniversaires, EVG/EVJF, séminaires...",
-    cta: "Découvrir →",
-    url: "https://www.awin1.com/cread.php?s=4712338&v=117343&q=599044&r=2932851",
-    image: "https://www.awin1.com/cshow.php?s=4712338&v=117343&q=599044&r=2932851",
-  },
-  {
-    icon: "🐾",
-    title: "Suitical",
-    desc: "Vêtements de protection et de récupération pour animaux",
-    cta: "Découvrir →",
-    url: "https://www.awin1.com/cread.php?s=4811291&v=127433&q=607801&r=2932851",
-    image: "https://www.awin1.com/cshow.php?s=4811291&v=127433&q=607801&r=2932851",
-  },
-  {
-    icon: "🛋️",
-    title: "Moskera",
-    desc: "Mobilier et décoration d'intérieur",
-    cta: "Découvrir →",
-    url: "https://www.awin1.com/cread.php?s=4814317&v=128253&q=608010&r=2932851",
-    image: "https://www.awin1.com/cshow.php?s=4814317&v=128253&q=608010&r=2932851",
-  },
-],
+  FR: [
+    { icon: "🏡", title: "Festivilla", desc: "Villas de groupe pour anniversaires, EVG/EVJF, séminaires...", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4712338&v=117343&q=599044&r=2932851", image: "https://www.awin1.com/cshow.php?s=4712338&v=117343&q=599044&r=2932851" },
+    { icon: "🐾", title: "Suitical", desc: "Vêtements de protection et de récupération pour animaux", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4811291&v=127433&q=607801&r=2932851", image: "https://www.awin1.com/cshow.php?s=4811291&v=127433&q=607801&r=2932851" },
+    { icon: "🛋️", title: "Moskera", desc: "Mobilier et décoration d'intérieur", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4814317&v=128253&q=608010&r=2932851", image: "https://www.awin1.com/cshow.php?s=4814317&v=128253&q=608010&r=2932851" },
+    { icon: "🔒", title: "FastestVPN", desc: "Navigation privée et sécurisée — chiffrement 256 bits", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+  ],
+  AU: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  AT: [{ icon: "🔒", title: "FastestVPN", desc: "Sicheres, privates Surfen — 256-Bit-Verschlüsselung", cta: "Entdecken →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  BE: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  BR: [{ icon: "🔒", title: "FastestVPN", desc: "Navegação segura e privada — criptografia de 256 bits", cta: "Descobrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  CA: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  IN: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  IE: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  IT: [{ icon: "🔒", title: "FastestVPN", desc: "Navigazione sicura e privata — crittografia a 256 bit", cta: "Scopri →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  JP: [{ icon: "🔒", title: "FastestVPN", desc: "安全でプライベートなブラウジング — 256ビット暗号化", cta: "詳しく見る →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  MX: [{ icon: "🔒", title: "FastestVPN", desc: "Navegación segura y privada — cifrado de 256 bits", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  NL: [{ icon: "🔒", title: "FastestVPN", desc: "Veilig en privé browsen — 256-bit encryptie", cta: "Ontdekken →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  PL: [{ icon: "🔒", title: "FastestVPN", desc: "Bezpieczne, prywatne przeglądanie — szyfrowanie 256-bit", cta: "Odkryj →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  SG: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  ES: [{ icon: "🔒", title: "FastestVPN", desc: "Navegación privada y segura — cifrado de 256 bits", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  SE: [{ icon: "🔒", title: "FastestVPN", desc: "Säker, privat surfning — 256-bitars kryptering", cta: "Upptäck →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  TR: [{ icon: "🔒", title: "FastestVPN", desc: "Güvenli, gizli tarama — 256-bit şifreleme", cta: "Keşfet →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  AE: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  GB: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  US: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  AR: [{ icon: "🔒", title: "FastestVPN", desc: "Navegación segura y privada — cifrado de 256 bits", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  CL: [{ icon: "🔒", title: "FastestVPN", desc: "Navegación segura y privada — cifrado de 256 bits", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  CN: [{ icon: "🔒", title: "FastestVPN", desc: "安全私密浏览 — 256位加密", cta: "了解更多 →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  CO: [{ icon: "🔒", title: "FastestVPN", desc: "Navegación segura y privada — cifrado de 256 bits", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  DK: [{ icon: "🔒", title: "FastestVPN", desc: "Sikker, privat browsing — 256-bit kryptering", cta: "Opdag →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  FI: [{ icon: "🔒", title: "FastestVPN", desc: "Turvallinen, yksityinen selailu — 256-bitin salaus", cta: "Tutustu →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  NO: [{ icon: "🔒", title: "FastestVPN", desc: "Sikker, privat nettlesing — 256-bit kryptering", cta: "Oppdag →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  PT: [{ icon: "🔒", title: "FastestVPN", desc: "Navegação segura e privada — encriptação de 256 bits", cta: "Descobrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  RU: [{ icon: "🔒", title: "FastestVPN", desc: "Безопасный, приватный просмотр — 256-битное шифрование", cta: "Узнать →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  CH: [{ icon: "🔒", title: "FastestVPN", desc: "Sicheres, privates Surfen — 256-Bit-Verschlüsselung", cta: "Entdecken →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  UA: [{ icon: "🔒", title: "FastestVPN", desc: "Безпечний, приватний перегляд — 256-бітне шифрування", cta: "Дізнатись →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  HR: [{ icon: "🔒", title: "FastestVPN", desc: "Sigurno, privatno pregledavanje — 256-bitna enkripcija", cta: "Otkrij →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  CZ: [{ icon: "🔒", title: "FastestVPN", desc: "Bezpečné, soukromé prohlížení — 256bitové šifrování", cta: "Objevit →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  GR: [{ icon: "🔒", title: "FastestVPN", desc: "Ασφαλής, ιδιωτική περιήγηση — κρυπτογράφηση 256-bit", cta: "Ανακάλυψε →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  HU: [{ icon: "🔒", title: "FastestVPN", desc: "Biztonságos, privát böngészés — 256 bites titkosítás", cta: "Fedezd fel →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  LV: [{ icon: "🔒", title: "FastestVPN", desc: "Droša, privāta pārlūkošana — 256 bitu šifrēšana", cta: "Atklāt →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  LT: [{ icon: "🔒", title: "FastestVPN", desc: "Saugus, privatus naršymas — 256 bitų šifravimas", cta: "Sužinoti →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  NZ: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  PE: [{ icon: "🔒", title: "FastestVPN", desc: "Navegación segura y privada — cifrado de 256 bits", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  RO: [{ icon: "🔒", title: "FastestVPN", desc: "Navigare sigură și privată — criptare pe 256 de biți", cta: "Descoperă →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  SK: [{ icon: "🔒", title: "FastestVPN", desc: "Bezpečné, súkromné prehliadanie — 256-bitové šifrovanie", cta: "Objaviť →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  SI: [{ icon: "🔒", title: "FastestVPN", desc: "Varno, zasebno brskanje — 256-bitno šifriranje", cta: "Odkrij →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  ZA: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+  BG: [{ icon: "🔒", title: "FastestVPN", desc: "Сигурно, лично сърфиране — 256-битово криптиране", cta: "Открий →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
 };
 function getPartnerOffers() {
   const cc = _detectCountry();
@@ -2219,6 +2310,8 @@ function fermerPub(){const closeBtn=document.getElementById('ad-close-btn');if(c
 function _publicitéTerminée(){_adFinished=true;const modal=document.getElementById('ad-modal');if(modal)modal.style.display='none';if(_analysisResult!==null){_afficherResultatFinal(_analysisResult);_analysisResult=null;}}
 function _afficherResultatFinal(data){
   if(!_adFinished){_analysisResult=data;return;}
+  _correctionTranscript = data._transcript || "";
+  _correctionOcr = data._ocr_text || "";
   const overlay=document.getElementById("loading-overlay"),progressBar=document.getElementById("prog-fill"),percentLabel=document.getElementById("prog-percent");
   if(progressBar)progressBar.style.width="100%";if(percentLabel)percentLabel.textContent="100%";
   setTimeout(()=>overlay.classList.remove("active"),300);stopGame();

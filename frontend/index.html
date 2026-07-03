@@ -194,7 +194,7 @@
       />
     </noscript>
 
-    <link rel="stylesheet" href="/frontend/style.css?v=47" />
+    <link rel="stylesheet" href="/frontend/style.css?v=48" />
   </head>
   <body>
     <input
@@ -232,12 +232,6 @@
           autocomplete="off"
           spellcheck="false"
           oninput="majBtnClear()"
-          onkeydown="
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              deferInteraction(() => rechercheHero());
-            }
-          "
           onkeydown="
             if (event.key === 'Enter') {
               event.preventDefault();
@@ -501,10 +495,69 @@
 
           <!-- ── Alternatives (multi-candidats) ────────────────── -->
           <div id="alternatives_section" style="margin-top: 14px"></div>
+          <div id="report-wrong-wrap" style="margin-top: 10px">
+            <button
+              class="btn-stream"
+              style="font-size: 0.78rem; padding: 6px 12px"
+              onclick="ouvrirCorrection()"
+            >
+              <i class="fas fa-flag"></i> Ce n'est pas le bon film
+            </button>
+          </div>
+
+          <div
+            id="correction-modal"
+            style="
+              display: none;
+              position: fixed;
+              inset: 0;
+              background: rgba(0, 0, 0, 0.85);
+              z-index: 99999;
+              align-items: center;
+              justify-content: center;
+            "
+          >
+            <div
+              style="
+                background: var(--card2);
+                border: 1px solid var(--border);
+                border-radius: 16px;
+                max-width: 420px;
+                width: 90%;
+                padding: 20px;
+                max-height: 80vh;
+                overflow-y: auto;
+              "
+            >
+              <h3 style="margin: 0 0 12px">Quel est le bon film ?</h3>
+              <input
+                id="correction-search"
+                type="text"
+                placeholder="Titre du film ou série..."
+                style="
+                  width: 100%;
+                  padding: 10px;
+                  border-radius: 8px;
+                  border: 1px solid var(--border);
+                  background: var(--card);
+                  color: var(--text);
+                  margin-bottom: 10px;
+                "
+                oninput="rechercherCorrection(this.value)"
+              />
+              <div id="correction-results"></div>
+              <button
+                class="btn-stream"
+                style="margin-top: 10px"
+                onclick="fermerCorrection()"
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
 
           <div class="detail-rating" id="detail_rating"></div>
 
-          <div class="detail-rating" id="detail_rating"></div>
           <p id="synopsis_film"></p>
         </div>
       </div>
@@ -720,8 +773,8 @@
       >
     </footer>
     <!-- Notre script principal -->
-    <script src="/frontend/script.js?v=47" defer></script>
-    <script src="/frontend/filming.js?v=31" defer></script>
+    <script src="/frontend/script.js?v=48" defer></script>
+    <script src="/frontend/filming.js?v=32" defer></script>
     <!-- MODALE PUBLICITÉ -->
     <div
       id="ad-modal"
