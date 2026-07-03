@@ -364,6 +364,7 @@ async function selectDetailFilmingLocation(index) {
 // ════ DICTIONNAIRE INTERNATIONAL ════
 const dict = {
   "en-US": {
+    partner_title:"Want to go further?",
     filming_no_result: "No result.",
 filming_load_error: "Loading error.",
 filming_no_movie: "No movie found.",
@@ -420,6 +421,7 @@ filming_geo_denied: "Geolocation denied",
     
   },
   "en-GB": {
+    partner_title:"Want to go further?",
     filming_no_result: "No result.",
 filming_load_error: "Loading error.",
 filming_no_movie: "No movie found.",
@@ -475,6 +477,7 @@ filming_geo_denied: "Geolocation denied",
     genres:{horror:"Horror",action:"Action",comedy:"Comedy",scifi:"Sci-Fi",trending:"Trending",romance:"Romance",animation:"Animation",thriller:"Thriller",drama:"Drama",crime:"Crime",documentary:"Documentary",fantasy:"Fantasy",series:"TV Series",family:"Family"}
   },
   fr: {
+    partner_title:"Envie d'aller plus loin ?",
     filming_no_result: "Aucun résultat.",
 filming_load_error: "Erreur de chargement.",
 filming_no_movie: "Aucun film trouvé.",
@@ -530,6 +533,7 @@ filming_geo_denied: "Géolocalisation refusée",
     genres:{horror:"Horreur",action:"Action",comedy:"Comédie",scifi:"Sci-Fi",trending:"Tendances",romance:"Romance",animation:"Animation",thriller:"Thriller",drama:"Drame",crime:"Crime",documentary:"Documentaire",fantasy:"Fantastique",series:"Séries TV",family:"Famille"}
   },
   es: {
+    partner_title:"¿Quieres ir más lejos?",
     filming_no_result: "Sin resultados.",
 filming_load_error: "Error de carga.",
 filming_no_movie: "No se encontró ninguna película.",
@@ -585,6 +589,7 @@ filming_geo_denied: "Geolocalización rechazada",
     genres:{horror:"Terror",action:"Acción",comedy:"Comedia",scifi:"Ciencia Ficción",trending:"Tendencias",romance:"Romance",animation:"Animación",thriller:"Thriller",drama:"Drama",crime:"Crimen",documentary:"Documental",fantasy:"Fantasía",series:"Series TV",family:"Familia"}
   },
   de: {
+    partner_title:"Möchten Sie mehr erfahren?",
   filming_no_result: "Kein Ergebnis.",
 filming_load_error: "Fehler beim Laden.",
 filming_no_movie: "Kein Film gefunden.",
@@ -640,6 +645,7 @@ filming_geo_denied: "Geolokalisierung abgelehnt",
     genres:{horror:"Horror",action:"Action",comedy:"Komödie",scifi:"Science-Fiction",trending:"Trends",romance:"Romantik",animation:"Animation",thriller:"Thriller",drama:"Drama",crime:"Krimi",documentary:"Dokumentarfilm",fantasy:"Fantasy",series:"TV-Serien",family:"Familie"}
   },
   zh: {
+    partner_title:"想要更进一步？",
   filming_no_result: "没有结果。",
 filming_load_error: "加载错误。",
 filming_no_movie: "未找到电影。",
@@ -1836,16 +1842,26 @@ function afficherDetailFilm(data) {
     synEl.textContent = data.synopsis || t("no_synopsis");
   }
 
-  // ─── PARTNER (popcorn) ──────────────────────────────
-  const foodPartner = document.getElementById("food-partner");
-  if (foodPartner) {
-    foodPartner.classList.add("visible");
-    const foodBtn = foodPartner.querySelector("a.btn-stream, a.food-btn, a");
-    if (foodBtn) {
-      foodBtn.href = getFoodLink(currentLang);
-      foodBtn.target = "_blank";
-      foodBtn.rel = "sponsored noopener";
+  // ─── OFFRE PARTENAIRE (Amazon + programmes Awin géociblés) ──────
+  // ─── OFFRE PARTENAIRE (Amazon + programmes Awin géociblés) ──────
+  const partnerEl = document.getElementById("partner-offer");
+  if (partnerEl) {
+    const offer = getRandomPartnerOffer();
+    partnerEl.classList.add("visible");
+    const iconEl = document.getElementById("partner-offer-icon");
+    const descEl = document.getElementById("partner-offer-desc");
+    const btnEl  = document.getElementById("partner-offer-btn");
+    const btnLbl = document.getElementById("partner-offer-btn-label");
+    if (iconEl) {
+      if (offer.image) {
+        iconEl.innerHTML = `<img src="${offer.image}" alt="${escapeHtml(offer.title)}" style="max-height:2rem;max-width:80px;border-radius:4px" onerror="this.parentElement.textContent='${offer.icon}'">`;
+      } else {
+        iconEl.textContent = offer.icon;
+      }
     }
+    if (descEl) descEl.textContent = offer.desc;
+    if (btnLbl) btnLbl.textContent = offer.cta;
+    if (btnEl) btnEl.onclick = () => window.open(offer.url, "_blank", "noopener");
   }
 
  // ─── STREAMING ──────────────────────────────────────────────
@@ -2048,31 +2064,83 @@ async function toggleSaison(seriesId,seasonNumber){
 // ════ PUBLICITÉ ════
 let _adFinished=false,_analysisResult=null,_analysisCallback=null,_adCountdownInterval=null;
 // ════ CONFIG PUBS ALTERNÉES ════
-const AD_VARIANTS = [
-  {
+// ════ OFFRES PARTENAIRES GÉOCIBLÉES (Amazon + programmes Awin) ════
+
+function getAmazonPrimeOffer() {
+  const domain = AMAZON_DOMAINS[_detectCountry()] || "www.amazon.com";
+  const isEN = currentLang.startsWith("en");
+  return {
     icon: "🎬",
     title: "Amazon Prime Video",
-    desc: "30 jours gratuits — Des milliers de films et séries",
-    cta: "Essayer gratuitement →",
-    url: "https://www.amazon.fr/gp/video/storefront?tag=pelify-21",
-  },
-  {
-    icon: "🛍️",
-    title: "Offre partenaire",
-    desc: "Découvrez notre offre exclusive",
-    cta: "En profiter →",
-    // ⚠️ Remplace XXXX par le vrai awinmid du marchand (dans ton dashboard Awin → Programmes)
-    url: "https://www.awin1.com/cread.php?awinmid=XXXX&awinaffid=2932851",
-  },
-];
+    desc: isEN ? "30-day free trial — Thousands of movies & shows" : "30 jours gratuits — Des milliers de films et séries",
+    cta: isEN ? "Try free →" : "Essayer gratuitement →",
+    url: `https://${domain}/amazonprime?tag=${_amazonTag(domain)}`,
+  };
+}
+
+// Chaque programme Awin approuvé va ici, rangé par code pays ISO.
+// Un pays peut avoir plusieurs offres — elles seront mises en rotation
+// aléatoire entre elles (et avec Amazon) automatiquement.
+// Pour ajouter un nouveau programme : ajoute un objet dans le tableau
+// du bon pays, ou crée une nouvelle clé pays si besoin.
+const AWIN_OFFERS_BY_COUNTRY = {
+  DE: [
+    {
+      icon: "💪",
+      title: "PROGRAMM 21",
+      desc: "21 Tage. 21 Minuten. 21 Lebensmittel.",
+      cta: "Entdecken →",
+      url: "https://www.awin1.com/awclick.php?gid=606436&mid=127263&awinaffid=2932851&linkid=4793651&clickref=pelify",
+    },
+    {
+      icon: "🏺",
+      title: "Casa Moro",
+      desc: "5% Rabatt — Marokkanisches Wohndesign & Beleuchtung",
+      cta: "Entdecken →",
+      url: "https://www.awin1.com/cread.php?s=3190082&v=31431&q=442216&r=2932851",
+      image: "https://www.awin1.com/cshow.php?s=3190082&v=31431&q=442216&r=2932851",
+    },
+    {
+      icon: "🎯",
+      title: "Snipster",
+      desc: "Cool bleiben. Clever bieten.",
+      cta: "Entdecken →",
+      url: "https://www.awin1.com/cread.php?s=2526726&v=17469&q=377673&r=2932851",
+      image: "https://www.awin1.com/cshow.php?s=2526726&v=17469&q=377673&r=2932851",
+    },
+  ],
+  FR: [
+    {
+      icon: "🏡",
+      title: "Festivilla",
+      desc: "Villas de groupe pour anniversaires, EVG/EVJF, séminaires...",
+      cta: "Découvrir →",
+      url: "https://www.awin1.com/cread.php?s=4712338&v=117343&q=599044&r=2932851",
+      image: "https://www.awin1.com/cshow.php?s=4712338&v=117343&q=599044&r=2932851",
+    },
+  ],
+};
+function getPartnerOffers() {
+  const cc = _detectCountry();
+  const awinOffers = AWIN_OFFERS_BY_COUNTRY[cc] || [];
+  return [getAmazonPrimeOffer(), ...awinOffers];
+}
+
+function getRandomPartnerOffer() {
+  const offers = getPartnerOffers();
+  return offers[Math.floor(Math.random() * offers.length)];
+}
 
 function _renderAdContent() {
-  const variant = AD_VARIANTS[Math.floor(Math.random() * AD_VARIANTS.length)];
+  const variant = getRandomPartnerOffer();
   const el = document.getElementById("ad-content-dynamic");
   if (!el) return;
+  const iconHtml = variant.image
+    ? `<img src="${variant.image}" alt="${variant.title}" style="max-width:100%;border-radius:8px" onerror="this.outerHTML='<div style=\\'font-size:2.5rem\\'>${variant.icon}</div>'">`
+    : `<div style="font-size: 2.5rem">${variant.icon}</div>`;
   el.innerHTML = `
     <div style="background: linear-gradient(135deg, #1a1a2e, #16213e); border-radius: 12px; padding: 24px; margin-bottom: 16px;">
-      <div style="font-size: 2.5rem; margin-bottom: 12px">${variant.icon}</div>
+      <div style="margin-bottom: 12px">${iconHtml}</div>
       <h3 style="color: var(--primary); margin: 0 0 8px; font-size: 1.1rem">${variant.title}</h3>
       <p style="color: var(--muted); font-size: 0.85rem; margin: 0 0 16px">${variant.desc}</p>
       <a href="${variant.url}" target="_blank" rel="sponsored noopener" onclick="fermerPub()"

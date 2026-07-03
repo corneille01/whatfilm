@@ -194,7 +194,7 @@
       />
     </noscript>
 
-    <link rel="stylesheet" href="/frontend/style.css?v=44" />
+    <link rel="stylesheet" href="/frontend/style.css?v=45" />
   </head>
   <body>
     <input
@@ -509,20 +509,15 @@
         </div>
       </div>
 
-      <div class="food-partner" id="food-partner">
-        <div style="font-size: 2rem">🍿</div>
+      <div class="food-partner" id="partner-offer">
+        <div style="font-size: 2rem" id="partner-offer-icon">🎬</div>
         <div class="food-partner-text">
-          <strong data-i18n="food_title">Prêt à regarder ce film ?</strong>
-          <span data-i18n="food_desc"
-            >Commandez vos snacks et popcorn via UberEats !</span
-          >
+          <strong data-i18n="partner_title">Envie d'aller plus loin ?</strong>
+          <span id="partner-offer-desc"></span>
         </div>
-        <button
-          class="btn-food"
-          onclick="window.open('https://www.ubereats.com', '_blank')"
-        >
-          <i class="fas fa-shopping-bag"></i>
-          <span data-i18n="food_btn">Commander</span>
+        <button class="btn-food" id="partner-offer-btn">
+          <i class="fas fa-arrow-right"></i>
+          <span id="partner-offer-btn-label">Découvrir</span>
         </button>
       </div>
 
@@ -725,8 +720,8 @@
       >
     </footer>
     <!-- Notre script principal -->
-    <script src="/frontend/script.js?v=44" defer></script>
-    <script src="/frontend/filming.js?v=28" defer></script>
+    <script src="/frontend/script.js?v=45" defer></script>
+    <script src="/frontend/filming.js?v=29" defer></script>
     <!-- MODALE PUBLICITÉ -->
     <div
       id="ad-modal"
