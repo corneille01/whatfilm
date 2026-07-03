@@ -419,19 +419,13 @@ async def _process_local_file(
         except Exception as e:
             print(f"⚠️ Troncature KO: {e} → vidéo entière", flush=True)
 
+    # ── Appel Gemini isolé : son échec ne doit JAMAIS entraîner
+    # l'exécution accidentelle d'une deuxième analyse plus bas ──
     print("🎬 Gemini sur la vidéo (fichier)...", flush=True)
+    file_ext = None
     try:
         from core.extraction import _extract_gemini_video_file
         file_ext = await _extract_gemini_video_file(gemini_path)
-        if _extraction_is_useful(file_ext):
-            print("✅ Gemini fichier concluant → pas de frames", flush=True)
-            result = await process_analysis(
-                frames=[], ocr_text="", transcript=file_ext.get("_transcript_raw", ""),
-                url=url_label, lang=lang, browser_lang=browser_lang,
-                prefetched_extraction=file_ext)
-            session["status"] = "done"; session["result"] = result
-            return False
-        print("⚠️ Gemini fichier non concluant → frames + transcription", flush=True)
     except Exception as e:
         print(f"⚠️ Gemini fichier KO: {e} → frames", flush=True)
     finally:
@@ -440,6 +434,16 @@ async def _process_local_file(
                 os.remove(gemini_path)
             except Exception:
                 pass
+
+    if _extraction_is_useful(file_ext):
+        print("✅ Gemini fichier concluant → pas de frames", flush=True)
+        result = await process_analysis(
+            frames=[], ocr_text="", transcript=file_ext.get("_transcript_raw", ""),
+            url=url_label, lang=lang, browser_lang=browser_lang,
+            prefetched_extraction=file_ext)
+        session["status"] = "done"; session["result"] = result
+        return False
+    print("⚠️ Gemini fichier non concluant → frames + transcription", flush=True)
 
     # 3) Audio
     try:
@@ -504,10 +508,6 @@ async def _process_local_file(
     session["result"] = {"status": "transcription_needed", "session_id": fallback_sid,
                          "frames_base64": [], "audio_base64": audio_b64}
     return True
-
-
-
-
 
 
 async def _run_download_and_analyse(session_id, url, platform, lang, browser_lang):
@@ -1335,7 +1335,7 @@ async def process_analysis(
         alternatives=alternatives,
     )
 
-    # ── 8. Enregistrement de la signature embeddings (si succès fiable) ──
+   # ── 8. Enregistrement de la signature embeddings (si succès fiable) ──
     if final.get("status") == "success" and final.get("tmdb_id"):
         await store_film_signature(
             tmdb_id=final["tmdb_id"],
@@ -1346,20 +1346,22 @@ async def process_analysis(
             ocr_text=ocr_text or "",
             frame_paths=frames or [],
         )
-         # ── 9. Snapshot des candidats pour futurs signalements ────────
+
+    # ── 9. Snapshot des candidats pour futurs signalements (non bloquant) ──
     if candidates:
-        content_hash_fb = key_content(transcript or "", ocr_text or "", lang)
-        save_candidates_snapshot(content_hash_fb, candidates)
-        save_extraction_snapshot(content_hash_fb, extraction)
+        try:
+            combined_text = f"{transcript or ''} {ocr_text or ''}".strip()
+            content_hash_fb = key_content(combined_text, lang)
+            save_candidates_snapshot(content_hash_fb, candidates)
+            save_extraction_snapshot(content_hash_fb, extraction)
+        except Exception as e:
+            print(f"⚠️ Snapshot feedback KO (non bloquant): {e}", flush=True)
 
     return final
 
 # ════════════════════════════════════════════════════════════════
 # ROUTES PUBLIQUES
 # ════════════════════════════════════════════════════════════════
-
-
-
 @app.get("/trending")
 async def trending(lang: str = "fr", type: str = "movie"):
     cache_key = f"trending:{lang}:{type}"
@@ -1542,8 +1544,8 @@ async def feedback_correction(req: FeedbackRequest, request: Request):
     if rate_err:
         return rate_err
 
-    from storage.cache_engine.hash_utils import key_content
-    content_hash = key_content(req.transcript, req.ocr_text, req.lang)
+    combined_text = f"{req.transcript or ''} {req.ocr_text or ''}".strip()
+    content_hash = key_content(combined_text, req.lang)
 
     result = await submit_feedback(
         url=normalize_url(req.url),
@@ -1557,6 +1559,9 @@ async def feedback_correction(req: FeedbackRequest, request: Request):
         lang=req.lang,
     )
     return result
+
+
+
 @app.get("/cache-stats")
 async def get_cache_stats():
     return cache_stats()
