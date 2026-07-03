@@ -87,6 +87,31 @@ Alternative en ligne de commande (si accès SSH/mysql direct au serveur) :
 mysql -h HOST -P 3306 -u ehoudb_user -p ehou_db < sql/schema.sql
 ```
 
+## Déployer sur Render
+
+`render.yaml` définit le service comme Blueprint Render — approche
+choisie : mettre `DATABASE_URL` (et les autres secrets) uniquement dans
+les variables d'environnement Render, jamais dans le repo (même pattern
+que `PELIFY_API_URL`/`PELIFY_API_SECRET` pour les embeddings sur l'app
+principale).
+
+1. Render dashboard → **New +** → **Blueprint**
+2. Sélectionner ce repo et la branche courante
+3. Render détecte `filming-service/render.yaml` et propose de créer le
+   service `pelify-filming-service`
+4. Renseigner dans le formulaire (jamais dans un fichier commité) :
+   - `DATABASE_URL` = `mysql+pymysql://ehoudb_user:MOT_DE_PASSE_REEL@109.238.12.189:3306/ehou_db`
+   - `FILMING_ADMIN_TOKEN` = une valeur aléatoire de ton choix
+5. Déployer, puis vérifier `https://<service>.onrender.com/api/health` :
+   - `{"status": "ok", "database_configured": true}` → connexion MySQL OK
+     jusqu'ici (mais `/api/movies` peut encore échouer si le schéma n'est
+     pas appliqué, cf. section "Connexion DB" ci-dessus)
+   - Si `/api/movies` renvoie une erreur de connexion (timeout, "Access
+     denied", "Can't connect") → c'est la preuve concrète que MySQL
+     n'accepte pas les connexions distantes depuis l'IP publique, et
+     qu'il faut alors une autre stratégie (accès étendu par l'admin,
+     tunnel SSH, ou proxy PHP côté université comme pour `embeddings`)
+
 ## Blocage historique (résolu)
 
 Ce repo n'avait au départ **aucun accès MySQL direct** : `storage/university_client.py`
