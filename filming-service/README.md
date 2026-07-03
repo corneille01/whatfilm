@@ -62,27 +62,29 @@ Pas encore fait :
 
 ## Connexion DB
 
-Identifiants reçus : utilisateur `ehoudb_user`, accès via phpMyAdmin sur
-`https://109.238.12.189:8443/phpMyAdmin/`. Toujours manquant pour
-construire `DATABASE_URL` :
-- le **nom de la base** (visible dans phpMyAdmin, colonne de gauche)
-- confirmation du **port MySQL réel** (souvent 3306 — le 8443 vu dans
-  l'URL est celui de l'interface web phpMyAdmin, pas forcément celui du
-  serveur MySQL lui-même)
-- confirmation que le serveur accepte les connexions **distantes**
-  (beaucoup d'hébergeurs mutualisés/universitaires limitent MySQL à
-  `localhost`, auquel cas Render ne pourra jamais s'y connecter
-  directement sans un tunnel ou un accès étendu par l'administrateur)
+- Utilisateur : `ehoudb_user`
+- Base : `ehou_db`
+- Port MySQL : `3306`
+- Host : **à confirmer**. `localhost:3306` tel que communiqué n'est
+  probablement valable que depuis le serveur lui-même (ex: phpMyAdmin,
+  qui tourne sur la même machine que MySQL). Pour que Render (un service
+  hébergé ailleurs) puisse s'y connecter, il faut l'IP publique
+  `109.238.12.189` **et** que MySQL accepte les connexions distantes
+  dessus (pas juste `127.0.0.1`/`localhost` en interne).
 
 Ce sandbox de développement ne peut pas tester la connectivité réseau
-vers `109.238.12.189` (ports 3306 et 8443 injoignables, même politique
-réseau que pour Wikidata) — à valider en local ou depuis Render une fois
-ces informations connues.
+vers `109.238.12.189` (port 3306 injoignable, même politique réseau que
+pour Wikidata) — à valider en local (un client MySQL sur ton PC pointant
+vers l'IP publique) ou depuis Render une fois déployé.
 
-Une fois `DATABASE_URL` connue (localement dans `.env`, jamais commitée),
-appliquer le schéma :
+**Appliquer le schéma** — le plus simple et le plus sûr avec ce qu'on a
+confirmé marcher (accès phpMyAdmin) :
+1. Ouvrir `https://109.238.12.189:8443/phpMyAdmin/`, sélectionner la base `ehou_db`
+2. Onglet **Importer** → choisir `filming-service/sql/schema.sql` → Exécuter
+
+Alternative en ligne de commande (si accès SSH/mysql direct au serveur) :
 ```bash
-mysql -h HOST -P PORT -u ehoudb_user -p NOM_DE_LA_BASE < sql/schema.sql
+mysql -h HOST -P 3306 -u ehoudb_user -p ehou_db < sql/schema.sql
 ```
 
 ## Blocage historique (résolu)
