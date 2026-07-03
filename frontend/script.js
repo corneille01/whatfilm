@@ -2109,16 +2109,32 @@ const AWIN_OFFERS_BY_COUNTRY = {
       image: "https://www.awin1.com/cshow.php?s=2526726&v=17469&q=377673&r=2932851",
     },
   ],
-  FR: [
-    {
-      icon: "🏡",
-      title: "Festivilla",
-      desc: "Villas de groupe pour anniversaires, EVG/EVJF, séminaires...",
-      cta: "Découvrir →",
-      url: "https://www.awin1.com/cread.php?s=4712338&v=117343&q=599044&r=2932851",
-      image: "https://www.awin1.com/cshow.php?s=4712338&v=117343&q=599044&r=2932851",
-    },
-  ],
+ FR: [
+  {
+    icon: "🏡",
+    title: "Festivilla",
+    desc: "Villas de groupe pour anniversaires, EVG/EVJF, séminaires...",
+    cta: "Découvrir →",
+    url: "https://www.awin1.com/cread.php?s=4712338&v=117343&q=599044&r=2932851",
+    image: "https://www.awin1.com/cshow.php?s=4712338&v=117343&q=599044&r=2932851",
+  },
+  {
+    icon: "🐾",
+    title: "Suitical",
+    desc: "Vêtements de protection et de récupération pour animaux",
+    cta: "Découvrir →",
+    url: "https://www.awin1.com/cread.php?s=4811291&v=127433&q=607801&r=2932851",
+    image: "https://www.awin1.com/cshow.php?s=4811291&v=127433&q=607801&r=2932851",
+  },
+  {
+    icon: "🛋️",
+    title: "Moskera",
+    desc: "Mobilier et décoration d'intérieur",
+    cta: "Découvrir →",
+    url: "https://www.awin1.com/cread.php?s=4814317&v=128253&q=608010&r=2932851",
+    image: "https://www.awin1.com/cshow.php?s=4814317&v=128253&q=608010&r=2932851",
+  },
+],
 };
 function getPartnerOffers() {
   const cc = _detectCountry();
