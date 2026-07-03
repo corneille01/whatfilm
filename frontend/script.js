@@ -1,3 +1,9 @@
+// ════ SERVICE EXTERNE — LIEUX DE TOURNAGE ════
+// Plateforme ciné-tourisme séparée (filming-service), pas encore déployée sur Render.
+// Mets à jour cette URL une fois le domaine choisi (ex: https://lieux.pelify.app
+// ou https://maps.pelify.app) et le service en ligne.
+const FILMING_SERVICE_URL = "https://lieux.pelify.app";
+
 // ════ CACHE ════
 const apiCache = {};
 const CACHE_TTL = 300000;
@@ -846,8 +852,7 @@ function genererNav() {
       <span>${g.series || "Séries"}</span>
     </a>
 
-    <a class="btn-genre home-action filming" href="/lieux-de-tournage"
-       onclick="chargerLieuxDeTournage(); return false;">
+    <a class="btn-genre home-action filming" href="${FILMING_SERVICE_URL}" target="_blank" rel="noopener">
       <i class="fas fa-map-marker-alt"></i>
       <span>${ld.filming_btn || "Lieux de tournage"}</span>
     </a>
