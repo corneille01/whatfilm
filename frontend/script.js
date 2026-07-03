@@ -1705,7 +1705,7 @@ function afficherNotFound(data){
   document.getElementById("back-label").innerText=t("back_home");
   ["fake_alert","detail_tags","detail_rating","cast_section","trailer_section","similar_section","seasons_section"].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML="";});
   document.getElementById("confidence_wrap").style.display="none";
-  document.getElementById("food-partner").classList.remove("visible");
+  document.getElementById("partner-offer")?.classList.remove("visible");
   document.getElementById("affiche_film").style.display="none";
   document.getElementById("titre_film").innerText=t("not_found_title");
   document.getElementById("synopsis_film").innerText=data.message||"";
@@ -1757,7 +1757,7 @@ function showDetailLoading(){
   ["synopsis_film","detail_tags","detail_rating","streaming_section","cast_section","trailer_section","similar_section","seasons_section","fake_alert","alternatives_section"].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML="";});
   ["crew_section","locations_section","finance_section","eidr_badge"].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML="";});
   document.getElementById("confidence_wrap").style.display="none";
-  document.getElementById("food-partner").classList.remove("visible");
+  document.getElementById("partner-offer")?.classList.remove("visible");
 }
 function afficherDetailFilm(data) {
   document.getElementById("page-film-detail").style.display = "block";
@@ -2150,6 +2150,47 @@ function _renderAdContent() {
     </div>
   `;
 }
+
+// ════ BANNIÈRE BAS DE PAGE — rotation automatique des offres ════
+let _bannerBottomInterval = null;
+let _bannerBottomIndex = 0;
+
+function initBannerBottom() {
+  const link = document.getElementById("banner-bottom-link");
+  const text = document.getElementById("banner-bottom-text");
+  if (!link || !text) return;
+
+  const offers = getPartnerOffers();
+  if (!offers.length) return;
+
+  _bannerBottomIndex = 0;
+  _renderBannerBottomOffer(offers[_bannerBottomIndex], link, text);
+
+  if (_bannerBottomInterval) clearInterval(_bannerBottomInterval);
+
+  if (offers.length <= 1) return;
+
+  _bannerBottomInterval = setInterval(() => {
+    const banner = document.getElementById("banner-bottom");
+    if (!banner || banner.style.display === "none") {
+      clearInterval(_bannerBottomInterval);
+      _bannerBottomInterval = null;
+      return;
+    }
+    _bannerBottomIndex = (_bannerBottomIndex + 1) % offers.length;
+    _renderBannerBottomOffer(offers[_bannerBottomIndex], link, text);
+  }, 8000);
+}
+
+function _renderBannerBottomOffer(offer, link, text) {
+  text.style.transition = "opacity 0.3s";
+  text.style.opacity = "0";
+  setTimeout(() => {
+    link.href = offer.url;
+    text.innerHTML = `${offer.icon} <strong>${escapeHtml(offer.title)}</strong> — ${escapeHtml(offer.desc)}`;
+    text.style.opacity = "1";
+  }, 300);
+}
 function demarrerPub(){
   const modal=document.getElementById('ad-modal'),closeBtn=document.getElementById('ad-close-btn'),countdown=document.getElementById('ad-countdown');
   if(!modal)return;
@@ -2310,6 +2351,7 @@ function routerInit(){
 
 window.onload=()=>{
   initLang();
+  initBannerBottom();
  if (!routerInit()) {
   setHomeMode();
   document.getElementById("hero").style.display = "block";
