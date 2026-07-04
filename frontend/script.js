@@ -164,6 +164,7 @@ let _immersiveAudioCtx = null;
 let _immersiveGain = null;
 let _immersiveOsc = null;
 let _immersiveInterval = null;
+let _cameFromAnalysis = false;
 
 let _correctionUrl = null, _correctionTranscript = "", _correctionOcr = "";
 let _correctionDebounce = null;
@@ -1807,6 +1808,7 @@ function afficherNotFound(data){
 
 // ════ DÉTAILS ════
 async function afficherDetails(movieId, mediaType="movie", pushHistory=true){
+   _cameFromAnalysis = false; 
   if (pushHistory) _pushNav(`/film/${movieId}`, {type:"detail", id:movieId, mediaType});
   if(currentMovieId&&currentMovieId!==movieId)navStack.push({id:currentMovieId,type:currentMediaType});
  
@@ -1838,6 +1840,7 @@ function showDetailLoading(){
   document.getElementById("confidence_wrap").style.display="none";
   document.getElementById("partner-offer")?.classList.remove("visible");
 }
+
 function afficherDetailFilm(data) {
   document.getElementById("page-film-detail").style.display = "block";
   document.getElementById("genre-grid").style.display = "none";
@@ -1897,6 +1900,8 @@ function afficherDetailFilm(data) {
       altEl.innerHTML = "";
     }
   }
+  const reportWrap = document.getElementById("report-wrong-wrap");
+  if (reportWrap) reportWrap.style.display = _cameFromAnalysis ? "block" : "none";
 
   // Note
   const ratingEl = document.getElementById("detail_rating");
@@ -1921,7 +1926,7 @@ function afficherDetailFilm(data) {
     synEl.textContent = data.synopsis || t("no_synopsis");
   }
 
-  // ─── OFFRE PARTENAIRE (Amazon + programmes Awin géociblés) ──────
+ 
   // ─── OFFRE PARTENAIRE (Amazon + programmes Awin géociblés) ──────
   const partnerEl = document.getElementById("partner-offer");
   if (partnerEl) {
@@ -2083,6 +2088,9 @@ if (isAmazon) {
 
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
+
+
+
 function afficherAlternatives(container, alternatives) {
   const lbl =
     currentLang === "es" ? "¿No es la película correcta? También podría ser:" :
@@ -2310,6 +2318,7 @@ function fermerPub(){const closeBtn=document.getElementById('ad-close-btn');if(c
 function _publicitéTerminée(){_adFinished=true;const modal=document.getElementById('ad-modal');if(modal)modal.style.display='none';if(_analysisResult!==null){_afficherResultatFinal(_analysisResult);_analysisResult=null;}}
 function _afficherResultatFinal(data){
   if(!_adFinished){_analysisResult=data;return;}
+   _cameFromAnalysis = true;
   _correctionTranscript = data._transcript || "";
   _correctionOcr = data._ocr_text || "";
   const overlay=document.getElementById("loading-overlay"),progressBar=document.getElementById("prog-fill"),percentLabel=document.getElementById("prog-percent");

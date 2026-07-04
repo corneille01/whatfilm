@@ -517,7 +517,6 @@ async def _run_download_and_analyse(session_id, url, platform, lang, browser_lan
     video_path = session["video_path"]; audio_path = session["audio_path"]; frame_dir = session["frame_dir"]
     need_client_fallback = False
     try:
-        # URL directe → Gemini (sauf TikTok), pas de download si concluant
         if platform != "tiktok":
             session["status"] = "processing"
             try:
@@ -534,7 +533,6 @@ async def _run_download_and_analyse(session_id, url, platform, lang, browser_lan
             except Exception as e:
                 print(f"⚠️ URL directe exception: {e} → download", flush=True)
 
-        # Download
         session["status"] = "downloading"
         print(f"📥 DOWNLOAD [{platform}] session={session_id}", flush=True)
         dl = await download_video(url, video_path, platform)
@@ -549,28 +547,34 @@ async def _run_download_and_analyse(session_id, url, platform, lang, browser_lan
             return
         print(f"✅ Vidéo téléchargée ({os.path.getsize(video_path)/1024/1024:.1f} MB)", flush=True)
 
-        # Fichier local → Gemini fichier → frames/transcription
         need_client_fallback = await _process_local_file(
             session, video_path, audio_path, frame_dir, url, lang, browser_lang)
 
     except Exception:
         print(f"❌ _run_download_and_analyse: {traceback.format_exc()}", flush=True)
-        session["status"] = "error"
-        session["result"] = {"status": "error", "code": "unexpected",
-                             "message": "Une erreur inattendue s'est produite. Réessayez."}
-    finally:
-        if not need_client_fallback:
-            cleanup_files(video_path, audio_path, frame_dir, True)
-        session["timestamp"] = time.time()
 
-        # Libère le verrou anti-doublons quel que soit le résultat
-        # (succès, erreur, ou besoin de fallback client). Garantit que le
-        # verrou ne reste jamais bloqué indéfiniment même si une exception
-        # imprévue survient plus haut dans le bloc try.
-        lock_key = session.get("_lock_key")
-        lock_token = session.get("_lock_token")
-        if lock_key and lock_token:
-            release_lock(lock_key, lock_token)
+    finally:
+        # ── Filet de sécurité : la session ne doit JAMAIS rester bloquée
+        # sur "processing"/"downloading" si le bloc ci-dessus a planté
+        # après avoir déjà écrit un résultat en cache (ou pas du tout).
+        if session.get("status") not in ("done", "error"):
+            print(f"⚠️ Session {session_id} restée en '{session.get('status')}' "
+                  f"après une exception → forcée en erreur", flush=True)
+            session["status"] = "error"
+            session["result"] = {
+                "status": "error", "code": "internal_error",
+                "message": "Une erreur inattendue est survenue pendant l'analyse. Réessayez.",
+            }
+        if not need_client_fallback:
+            for p in (video_path, audio_path):
+                if p and os.path.exists(p):
+                    try: os.remove(p)
+                    except Exception: pass
+            if frame_dir and os.path.isdir(frame_dir):
+                try:
+                    import shutil; shutil.rmtree(frame_dir, ignore_errors=True)
+                except Exception: pass
+
 # ════════════════════════════════════════════════════════════════
 # ENDPOINT PRINCIPAL
 # ════════════════════════════════════════════════════════════════
