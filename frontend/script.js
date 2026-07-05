@@ -2309,10 +2309,21 @@ function _renderBannerBottomOffer(offer, link, text) {
 function demarrerPub(){
   const modal=document.getElementById('ad-modal'),closeBtn=document.getElementById('ad-close-btn'),countdown=document.getElementById('ad-countdown');
   if(!modal)return;
-  _renderAdContent(); // ← ajoute cette ligne
+  _renderAdContent();
   _adFinished=false;modal.style.display='flex';closeBtn.disabled=true;closeBtn.style.background='rgba(255,255,255,0.1)';closeBtn.style.color='var(--text)';
-  let seconds=5;countdown.textContent=seconds;
-  _adCountdownInterval=setInterval(()=>{seconds--;countdown.textContent=seconds;if(seconds<=0){clearInterval(_adCountdownInterval);closeBtn.disabled=false;countdown.textContent='✕';closeBtn.style.background='rgba(0,255,204,0.2)';closeBtn.style.color='var(--primary)';_publicitéTerminée();}},1000);
+  let seconds=15;countdown.textContent=seconds;
+  const switchAt = Math.floor(seconds / 2);   // ← bascule à mi-parcours
+  _adCountdownInterval=setInterval(()=>{
+    seconds--;
+    countdown.textContent=seconds;
+    if (seconds === switchAt) _renderAdContent();   // ← affiche une nouvelle offre
+    if(seconds<=0){
+      clearInterval(_adCountdownInterval);
+      closeBtn.disabled=false;countdown.textContent='✕';
+      closeBtn.style.background='rgba(0,255,204,0.2)';closeBtn.style.color='var(--primary)';
+      _publicitéTerminée();
+    }
+  },1000);
 }
 function fermerPub(){const closeBtn=document.getElementById('ad-close-btn');if(closeBtn&&closeBtn.disabled)return;clearInterval(_adCountdownInterval);_publicitéTerminée();}
 function _publicitéTerminée(){_adFinished=true;const modal=document.getElementById('ad-modal');if(modal)modal.style.display='none';if(_analysisResult!==null){_afficherResultatFinal(_analysisResult);_analysisResult=null;}}
