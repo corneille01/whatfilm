@@ -194,7 +194,7 @@
       />
     </noscript>
 
-    <link rel="stylesheet" href="/frontend/style.css?v=53" />
+    <link rel="stylesheet" href="/frontend/style.css?v=54" />
   </head>
   <body>
     <input
@@ -298,7 +298,10 @@
           <i class="fas fa-camera"></i>
           <span data-i18n="badge">Shazam pour les films</span>
         </div>
-        <h1><span data-i18n="title">PELIFY</span></h1>
+
+        <h1>
+          <span data-i18n="title">PELIFY</span>
+        </h1>
 
         <p class="hero-subtitle" data-i18n="subtitle">
           Vous venez de voir un extrait de film sur TikTok ou en story sans
@@ -306,46 +309,53 @@
           casting.
         </p>
 
-        <!-- Étapes -->
         <ol class="hero-steps" aria-label="Fonctionnement de Pelify">
           <li class="hero-step">
-            <span class="hero-step-num"><i class="fas fa-link"></i></span>
-            <span data-i18n="step1"
-              >Collez un lien TikTok, Instagram, Facebook, YouTube, X,
-              LinkedIn... ou importez la vidéo</span
-            >
+            <span class="hero-step-num">
+              <i class="fas fa-link"></i>
+            </span>
+            <span data-i18n="step1">
+              Collez un lien TikTok, Instagram, Facebook, YouTube, X,
+              LinkedIn... ou importez la vidéo
+            </span>
           </li>
+
           <li class="hero-step">
-            <span class="hero-step-num"><i class="fas fa-brain"></i></span>
-            <span data-i18n="step2"
-              >Nous analysons l'extrait en quelques secondes</span
-            >
+            <span class="hero-step-num">
+              <i class="fas fa-brain"></i>
+            </span>
+            <span data-i18n="step2">
+              Nous analysons l'extrait en quelques secondes
+            </span>
           </li>
+
           <li class="hero-step">
-            <span class="hero-step-num"
-              ><i class="fas fa-clapperboard"></i
-            ></span>
-            <span data-i18n="step3"
-              >Le film, la série ou l'animé s'affiche, avec où le regarder</span
-            >
+            <span class="hero-step-num">
+              <i class="fas fa-clapperboard"></i>
+            </span>
+            <span data-i18n="step3">
+              Le film, la série ou l'animé s'affiche, avec où le regarder
+            </span>
           </li>
+
           <li class="hero-step">
-            <span class="hero-step-num"
-              ><i class="fas fa-map-location-dot"></i
-            ></span>
-            <span data-i18n="step4"
-              >Bonus : explorez les vrais lieux de tournage sur une carte avec
-              les comodités autour de chaque lieu de tournage</span
-            >
+            <span class="hero-step-num">
+              <i class="fas fa-map-location-dot"></i>
+            </span>
+            <span data-i18n="step4">
+              Bonus : explorez les vrais lieux de tournage sur une carte avec
+              les commodités autour de chaque lieu de tournage
+            </span>
           </li>
         </ol>
 
-        <!-- Barre de recherche centrale -->
         <div class="hero-search-wrap">
           <i class="fas fa-search hero-search-icon"></i>
+
           <input
             type="text"
             id="hero-search-input"
+            data-i18n-placeholder="placeholder"
             placeholder="Collez un lien TikTok/Reel/YouTube, importez une vidéo, ou tapez un titre..."
             autocomplete="off"
             spellcheck="false"
@@ -357,6 +367,7 @@
               }
             "
           />
+
           <button
             class="hero-search-btn"
             onclick="document.getElementById('video-upload-input').click()"
@@ -366,6 +377,7 @@
           >
             <i class="fas fa-paperclip"></i>
           </button>
+
           <button class="hero-search-btn" onclick="rechercheHero()">
             <i class="fas fa-search"></i>
             <span data-i18n="cta">Identifier</span>
@@ -786,8 +798,8 @@
       >
     </footer>
     <!-- Notre script principal -->
-    <script src="/frontend/script.js?v=53" defer></script>
-    <script src="/frontend/filming.js?v=37" defer></script>
+    <script src="/frontend/script.js?v=54" defer></script>
+    <script src="/frontend/filming.js?v=38" defer></script>
     <!-- MODALE PUBLICITÉ -->
     <div
       id="ad-modal"
