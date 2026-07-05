@@ -194,7 +194,7 @@
       />
     </noscript>
 
-    <link rel="stylesheet" href="/frontend/style.css?v=54" />
+    <link rel="stylesheet" href="/frontend/style.css?v=55" />
   </head>
   <body>
     <input
@@ -526,9 +526,19 @@
               style="font-size: 0.78rem; padding: 6px 12px"
               onclick="ouvrirCorrection()"
             >
-              <i class="fas fa-flag"></i> Ce n'est pas le bon film ?
+              <i class="fas fa-flag"></i> Si ce n'est pas le bon film, cliquez
+              ici !
             </button>
           </div>
+          <button
+            class="btn-stream"
+            style="margin-top: 8px"
+            onclick="partagerFilm()"
+            aria-label="Partager"
+            data-i18n-aria="share_label"
+          >
+            <i class="fas fa-share-alt"></i>
+          </button>
 
           <div
             id="correction-modal"
@@ -798,8 +808,8 @@
       >
     </footer>
     <!-- Notre script principal -->
-    <script src="/frontend/script.js?v=54" defer></script>
-    <script src="/frontend/filming.js?v=38" defer></script>
+    <script src="/frontend/script.js?v=55" defer></script>
+    <script src="/frontend/filming.js?v=39" defer></script>
     <!-- MODALE PUBLICITÉ -->
     <div
       id="ad-modal"

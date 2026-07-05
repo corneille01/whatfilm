@@ -1239,6 +1239,30 @@ function tErr(code){
   return map[code]||d.err_generic;
 }
 
+
+async function partagerFilm() {
+  const slug = (document.getElementById("titre_film")?.innerText || "")
+    .toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  const url = `https://pelify.app/film/${currentMovieId}${slug ? "/" + slug : ""}`;
+  const title = document.getElementById("titre_film")?.innerText || "Ce film";
+  const text = `J'ai trouvé ce film grâce à Pelify : ${title} 🎬`;
+
+  if (navigator.share) {
+    try {
+      await navigator.share({ title, text, url });
+    } catch (e) {
+      if (e.name !== "AbortError") console.warn("Partage échoué", e);
+    }
+  } else {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast("Lien copié dans le presse-papier !");
+    } catch (e) {
+      toast("Impossible de copier le lien.");
+    }
+  }
+}
 // ════ INIT LANGUE ════
 function initLang(){
   const pathLang=window.location.pathname.replace(/\//g,"");
