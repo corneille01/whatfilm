@@ -432,15 +432,33 @@ async def _process_local_file(
                 prefetched_extraction=file_ext)
             session["status"] = "done"; session["result"] = result
             return False
-        print("⚠️ Gemini fichier non concluant → frames + transcription", flush=True)
+        print("⚠️ Gemini fichier non concluant → Qwen VL", flush=True)
     except Exception as e:
-        print(f"⚠️ Gemini fichier KO: {e} → frames", flush=True)
+        print(f"⚠️ Gemini fichier KO: {e} → Qwen VL", flush=True)
     finally:
         if gemini_path != video_path and os.path.exists(gemini_path):
             try:
                 os.remove(gemini_path)
             except Exception:
                 pass
+
+    # 2b) Qwen VL (DashScope) — relais quand Gemini échoue ou n'est pas concluant.
+    # Isolé dans son propre try/except pour la même raison que Gemini ci-dessus :
+    # son échec ne doit jamais empêcher le fallback frames plus bas.
+    try:
+        from core.extraction import _extract_qwen_vl
+        qwen_ext = await _extract_qwen_vl(video_path)
+        if _extraction_is_useful(qwen_ext):
+            print("✅ Qwen VL concluant → pas de frames", flush=True)
+            result = await process_analysis(
+                frames=[], ocr_text="", transcript=qwen_ext.get("_transcript_raw", ""),
+                url=url_label, lang=lang, browser_lang=browser_lang,
+                prefetched_extraction=qwen_ext)
+            session["status"] = "done"; session["result"] = result
+            return False
+        print("⚠️ Qwen VL non concluant → frames + transcription", flush=True)
+    except Exception as e:
+        print(f"⚠️ Qwen VL KO: {e} → frames", flush=True)
 
     # 3) Audio
     try:
