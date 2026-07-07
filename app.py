@@ -1,4 +1,5 @@
 import os
+from sys import path
 import uuid
 import shutil
 import subprocess
@@ -7,6 +8,7 @@ import base64
 import time
 import asyncio
 import re
+from flask import session
 import httpx
 from core.embeddings_engine import check_known_film, store_film_signature
 from core.quote_search import find_quote_corroboration
@@ -426,8 +428,17 @@ async def _process_local_file(
     try:
         from core.extraction import _extract_gemini_video_file
         file_ext = await _extract_gemini_video_file(gemini_path)
+        if _extraction_is_useful(file_ext):
+            print("✅ Gemini fichier concluant → pas de frames", flush=True)
+            result = await process_analysis(
+                frames=[], ocr_text="", transcript=file_ext.get("_transcript_raw", ""),
+                url=url_label, lang=lang, browser_lang=browser_lang,
+                prefetched_extraction=file_ext)
+            session["status"] = "done"; session["result"] = result
+            return False
+        print("⚠️ Gemini fichier non concluant → Qwen VL", flush=True)
     except Exception as e:
-        print(f"⚠️ Gemini fichier KO: {e} → frames", flush=True)
+        print(f"⚠️ Gemini fichier KO: {e} → Qwen VL", flush=True)
     finally:
         if gemini_path != video_path and os.path.exists(gemini_path):
             try:
@@ -435,15 +446,51 @@ async def _process_local_file(
             except Exception:
                 pass
 
-    if _extraction_is_useful(file_ext):
-        print("✅ Gemini fichier concluant → pas de frames", flush=True)
+                            # 2b) Qwen VL (DashScope) — relais quand Gemini échoue ou n'est pas concluant.
+    QWEN_MAX_SECONDS = 90   # fenêtre plus large que Gemini pour ne pas dupliquer son angle mort
+
+    qwen_path = video_path
+    if duration > QWEN_MAX_SECONDS:
+        try:
+            qwen_trimmed = video_path.replace(".mp4", f"_q{QWEN_MAX_SECONDS}.mp4")
+            subprocess.run(
+                ["ffmpeg", "-i", video_path, "-t", str(QWEN_MAX_SECONDS),
+                   "-c", "copy", "-y", qwen_trimmed],
+                capture_output=True, timeout=30)
+            if os.path.exists(qwen_trimmed) and os.path.getsize(qwen_trimmed) > 1000:
+                qwen_path = qwen_trimmed
+                print(f"✂️ Tronquée à {QWEN_MAX_SECONDS}s pour Qwen VL", flush=True)
+        except Exception as e:
+            print(f"⚠️ Troncature Qwen KO: {e} → vidéo entière", flush=True)
+
+    async def _safe_qwen_vl(path: str) -> dict | None:
+        try:
+            from core.extraction import _extract_qwen_vl
+            return await _extract_qwen_vl(path)
+        except Exception as e:
+            print(f"⚠️ Qwen VL KO: {e} → frames", flush=True)
+            return None
+
+    try:
+        qwen_ext = await _safe_qwen_vl(qwen_path)
+    finally:
+        if qwen_path != video_path and os.path.exists(qwen_path):
+            try:
+                os.remove(qwen_path)
+            except Exception:
+                pass
+
+    if _extraction_is_useful(qwen_ext):
+        print("✅ Qwen VL concluant → pas de frames", flush=True)
         result = await process_analysis(
-            frames=[], ocr_text="", transcript=file_ext.get("_transcript_raw", ""),
+            frames=[], ocr_text="", transcript=qwen_ext.get("_transcript_raw", ""),
             url=url_label, lang=lang, browser_lang=browser_lang,
-            prefetched_extraction=file_ext)
+            prefetched_extraction=qwen_ext)
         session["status"] = "done"; session["result"] = result
         return False
-    print("⚠️ Gemini fichier non concluant → frames + transcription", flush=True)
+    print("⚠️ Qwen VL non concluant → frames + transcription", flush=True)
+
+# 3) Audio
 
     # 3) Audio
     try:
