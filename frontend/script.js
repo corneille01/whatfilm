@@ -2595,67 +2595,454 @@ function _detectCountry(){
 // aléatoire entre elles (et avec Amazon) automatiquement.
 // Pour ajouter un nouveau programme : ajoute un objet dans le tableau
 // du bon pays, ou crée une nouvelle clé pays si besoin.
+// ════ OFFRES PARTENAIRES GÉOCIBLÉES — AVEC EARFUN + HTVRONT ════
+// Remplace intégralement ta constante AWIN_OFFERS_BY_COUNTRY par ce bloc.
+
 const AWIN_OFFERS_BY_COUNTRY = {
   DE: [
     { icon: "💪", title: "PROGRAMM 21", desc: "21 Tage. 21 Minuten. 21 Lebensmittel.", cta: "Entdecken →", url: "https://www.awin1.com/awclick.php?gid=606436&mid=127263&awinaffid=2932851&linkid=4793651&clickref=pelify" },
     { icon: "🏺", title: "Casa Moro", desc: "5% Rabatt — Marokkanisches Wohndesign & Beleuchtung", cta: "Entdecken →", url: "https://www.awin1.com/cread.php?s=3190082&v=31431&q=442216&r=2932851", image: "https://www.awin1.com/cshow.php?s=3190082&v=31431&q=442216&r=2932851" },
     { icon: "🎯", title: "Snipster", desc: "Cool bleiben. Clever bieten.", cta: "Entdecken →", url: "https://www.awin1.com/cread.php?s=2526726&v=17469&q=377673&r=2932851", image: "https://www.awin1.com/cshow.php?s=2526726&v=17469&q=377673&r=2932851" },
     { icon: "🔒", title: "FastestVPN", desc: "Sicheres, privates Surfen — 256-Bit-Verschlüsselung", cta: "Entdecken →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Preisgekrönte kabellose Kopfhörer & Lautsprecher", cta: "Entdecken →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV-Vinyl, Klebefolien, Maschinen und Werkzeuge für kreative DIY-Projekte", cta: "Entdecken →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  {
+  icon: "💍",
+  title: "Ultrahuman",
+  desc: "Smartring für Schlaf, Erholung, HRV, Hauttemperatur und Stress — ohne Abo",
+  cta: "Entdecken →",
+  url: "https://www.awin1.com/cread.php?s=4052116&v=69428&q=531112&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4052116&v=69428&q=531112&r=2932851"
+}
+  
   ],
+
   FR: [
     { icon: "🏡", title: "Festivilla", desc: "Villas de groupe pour anniversaires, EVG/EVJF, séminaires...", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4712338&v=117343&q=599044&r=2932851", image: "https://www.awin1.com/cshow.php?s=4712338&v=117343&q=599044&r=2932851" },
     { icon: "🐾", title: "Suitical", desc: "Vêtements de protection et de récupération pour animaux", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4811291&v=127433&q=607801&r=2932851", image: "https://www.awin1.com/cshow.php?s=4811291&v=127433&q=607801&r=2932851" },
     { icon: "🛋️", title: "Moskera", desc: "Mobilier et décoration d'intérieur", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4814317&v=128253&q=608010&r=2932851", image: "https://www.awin1.com/cshow.php?s=4814317&v=128253&q=608010&r=2932851" },
     { icon: "🔒", title: "FastestVPN", desc: "Navigation privée et sécurisée — chiffrement 256 bits", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Écouteurs et enceintes sans fil primés", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "Machines, vinyles HTV, vinyles adhésifs et outils créatifs pour personnaliser vos projets", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+    {
+  icon: "💍",
+  title: "Ultrahuman",
+  desc: "Bague connectée pour suivre sommeil, récupération, VFC, température et stress, sans abonnement",
+  cta: "Découvrir →",
+  url: "https://www.awin1.com/cread.php?s=4052116&v=69428&q=531112&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4052116&v=69428&q=531112&r=2932851"
+}
   ],
-  AU: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  AT: [{ icon: "🔒", title: "FastestVPN", desc: "Sicheres, privates Surfen — 256-Bit-Verschlüsselung", cta: "Entdecken →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  BE: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  BR: [{ icon: "🔒", title: "FastestVPN", desc: "Navegação segura e privada — criptografia de 256 bits", cta: "Descobrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  CA: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  IN: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  IE: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  IT: [{ icon: "🔒", title: "FastestVPN", desc: "Navigazione sicura e privata — crittografia a 256 bit", cta: "Scopri →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  JP: [{ icon: "🔒", title: "FastestVPN", desc: "安全でプライベートなブラウジング — 256ビット暗号化", cta: "詳しく見る →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  MX: [{ icon: "🔒", title: "FastestVPN", desc: "Navegación segura y privada — cifrado de 256 bits", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  NL: [{ icon: "🔒", title: "FastestVPN", desc: "Veilig en privé browsen — 256-bit encryptie", cta: "Ontdekken →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  PL: [{ icon: "🔒", title: "FastestVPN", desc: "Bezpieczne, prywatne przeglądanie — szyfrowanie 256-bit", cta: "Odkryj →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  SG: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  ES: [{ icon: "🔒", title: "FastestVPN", desc: "Navegación privada y segura — cifrado de 256 bits", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  SE: [{ icon: "🔒", title: "FastestVPN", desc: "Säker, privat surfning — 256-bitars kryptering", cta: "Upptäck →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  TR: [{ icon: "🔒", title: "FastestVPN", desc: "Güvenli, gizli tarama — 256-bit şifreleme", cta: "Keşfet →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  AE: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  GB: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  US: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  AR: [{ icon: "🔒", title: "FastestVPN", desc: "Navegación segura y privada — cifrado de 256 bits", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  CL: [{ icon: "🔒", title: "FastestVPN", desc: "Navegación segura y privada — cifrado de 256 bits", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  CN: [{ icon: "🔒", title: "FastestVPN", desc: "安全私密浏览 — 256位加密", cta: "了解更多 →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  CO: [{ icon: "🔒", title: "FastestVPN", desc: "Navegación segura y privada — cifrado de 256 bits", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  DK: [{ icon: "🔒", title: "FastestVPN", desc: "Sikker, privat browsing — 256-bit kryptering", cta: "Opdag →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  FI: [{ icon: "🔒", title: "FastestVPN", desc: "Turvallinen, yksityinen selailu — 256-bitin salaus", cta: "Tutustu →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  NO: [{ icon: "🔒", title: "FastestVPN", desc: "Sikker, privat nettlesing — 256-bit kryptering", cta: "Oppdag →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  PT: [{ icon: "🔒", title: "FastestVPN", desc: "Navegação segura e privada — encriptação de 256 bits", cta: "Descobrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  RU: [{ icon: "🔒", title: "FastestVPN", desc: "Безопасный, приватный просмотр — 256-битное шифрование", cta: "Узнать →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  CH: [{ icon: "🔒", title: "FastestVPN", desc: "Sicheres, privates Surfen — 256-Bit-Verschlüsselung", cta: "Entdecken →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  UA: [{ icon: "🔒", title: "FastestVPN", desc: "Безпечний, приватний перегляд — 256-бітне шифрування", cta: "Дізнатись →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  HR: [{ icon: "🔒", title: "FastestVPN", desc: "Sigurno, privatno pregledavanje — 256-bitna enkripcija", cta: "Otkrij →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  CZ: [{ icon: "🔒", title: "FastestVPN", desc: "Bezpečné, soukromé prohlížení — 256bitové šifrování", cta: "Objevit →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  GR: [{ icon: "🔒", title: "FastestVPN", desc: "Ασφαλής, ιδιωτική περιήγηση — κρυπτογράφηση 256-bit", cta: "Ανακάλυψε →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  HU: [{ icon: "🔒", title: "FastestVPN", desc: "Biztonságos, privát böngészés — 256 bites titkosítás", cta: "Fedezd fel →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  LV: [{ icon: "🔒", title: "FastestVPN", desc: "Droša, privāta pārlūkošana — 256 bitu šifrēšana", cta: "Atklāt →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  LT: [{ icon: "🔒", title: "FastestVPN", desc: "Saugus, privatus naršymas — 256 bitų šifravimas", cta: "Sužinoti →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  NZ: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  PE: [{ icon: "🔒", title: "FastestVPN", desc: "Navegación segura y privada — cifrado de 256 bits", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  RO: [{ icon: "🔒", title: "FastestVPN", desc: "Navigare sigură și privată — criptare pe 256 de biți", cta: "Descoperă →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  SK: [{ icon: "🔒", title: "FastestVPN", desc: "Bezpečné, súkromné prehliadanie — 256-bitové šifrovanie", cta: "Objaviť →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  SI: [{ icon: "🔒", title: "FastestVPN", desc: "Varno, zasebno brskanje — 256-bitno šifriranje", cta: "Odkrij →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  ZA: [{ icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
-  BG: [{ icon: "🔒", title: "FastestVPN", desc: "Сигурно, лично сърфиране — 256-битово криптиране", cta: "Открий →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" }],
+
+  AU: [
+    { icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Award-winning wireless earbuds & speakers", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  ],
+
+  AT: [
+    { icon: "🔒", title: "FastestVPN", desc: "Sicheres, privates Surfen — 256-Bit-Verschlüsselung", cta: "Entdecken →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Preisgekrönte kabellose Kopfhörer & Lautsprecher", cta: "Entdecken →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV-Vinyl, Klebefolien, Maschinen und Werkzeuge für kreative DIY-Projekte", cta: "Entdecken →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  BE: [
+    { icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Award-winning wireless earbuds & speakers", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  BR: [
+    { icon: "🔒", title: "FastestVPN", desc: "Navegação segura e privada — criptografia de 256 bits", cta: "Descobrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Fones de ouvido e caixas de som sem fio premiados", cta: "Descobrir →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  {
+  icon: "💍",
+  title: "Ultrahuman",
+  desc: "Anel inteligente para sono, recuperação, VFC, temperatura da pele e stress, sem assinatura",
+  cta: "Descobrir →",
+  url: "https://www.awin1.com/cread.php?s=4052116&v=69428&q=531112&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4052116&v=69428&q=531112&r=2932851"
+},
+  
+  ],
+
+  CA: [
+    { icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Award-winning wireless earbuds & speakers", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  ],
+
+  IN: [
+    { icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Award-winning wireless earbuds & speakers", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  ],
+
+  IE: [
+    { icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Award-winning wireless earbuds & speakers", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  IT: [
+    { icon: "🔒", title: "FastestVPN", desc: "Navigazione sicura e privata — crittografia a 256 bit", cta: "Scopri →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Auricolari e speaker wireless pluripremiati", cta: "Scopri →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "Vinile HTV, vinile adesivo, macchine e strumenti per progetti creativi", cta: "Scopri →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  {
+  icon: "💍",
+  title: "Ultrahuman",
+  desc: "Anello smart per sonno, recupero, HRV, temperatura cutanea e stress, senza abbonamento",
+  cta: "Scopri →",
+  url: "https://www.awin1.com/cread.php?s=4052116&v=69428&q=531112&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4052116&v=69428&q=531112&r=2932851"
+}
+  ],
+
+  JP: [
+    { icon: "🔒", title: "FastestVPN", desc: "安全でプライベートなブラウジング — 256ビット暗号化", cta: "詳しく見る →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "受賞歴のあるワイヤレスイヤホン＆スピーカー", cta: "詳しく見る →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  ],
+
+  MX: [
+    { icon: "🔒", title: "FastestVPN", desc: "Navegación segura y privada — cifrado de 256 bits", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Auriculares y altavoces inalámbricos galardonados", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  {
+  icon: "💍",
+  title: "Ultrahuman",
+  desc: "Anillo inteligente para sueño, recuperación, VFC, temperatura cutánea y estrés, sin suscripción",
+  cta: "Descubrir →",
+  url: "https://www.awin1.com/cread.php?s=4052116&v=69428&q=531112&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4052116&v=69428&q=531112&r=2932851"
+},
+  ],
+
+  NL: [
+    { icon: "🔒", title: "FastestVPN", desc: "Veilig en privé browsen — 256-bit encryptie", cta: "Ontdekken →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Bekroonde draadloze oordopjes & speakers", cta: "Ontdekken →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV-vinyl, zelfklevend vinyl, machines en tools voor creatieve projecten", cta: "Ontdekken →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  PL: [
+    { icon: "🔒", title: "FastestVPN", desc: "Bezpieczne, prywatne przeglądanie — szyfrowanie 256-bit", cta: "Odkryj →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Nagradzane słuchawki bezprzewodowe i głośniki", cta: "Odkryj →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "Folie HTV, winyle samoprzylepne, maszyny i narzędzia do projektów kreatywnych", cta: "Odkryj →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  SG: [
+    { icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Award-winning wireless earbuds & speakers", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  ],
+
+  ES: [
+    { icon: "🔒", title: "FastestVPN", desc: "Navegación privada y segura — cifrado de 256 bits", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Auriculares y altavoces inalámbricos galardonados", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "Vinilo HTV, vinilo adhesivo, máquinas y herramientas para proyectos creativos", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+ {
+  icon: "💍",
+  title: "Ultrahuman",
+  desc: "Anillo inteligente para sueño, recuperación, VFC, temperatura cutánea y estrés, sin suscripción",
+  cta: "Descubrir →",
+  url: "https://www.awin1.com/cread.php?s=4052116&v=69428&q=531112&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4052116&v=69428&q=531112&r=2932851"
+},
+  ],
+
+  SE: [
+    { icon: "🔒", title: "FastestVPN", desc: "Säker, privat surfning — 256-bitars kryptering", cta: "Upptäck →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Prisbelönta trådlösa hörlurar & högtalare", cta: "Upptäck →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  TR: [
+    { icon: "🔒", title: "FastestVPN", desc: "Güvenli, gizli tarama — 256-bit şifreleme", cta: "Keşfet →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Ödüllü kablosuz kulaklık ve hoparlörler", cta: "Keşfet →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  ],
+
+  AE: [
+    { icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Award-winning wireless earbuds & speakers", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  ],
+
+  GB: [
+    { icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Award-winning wireless earbuds & speakers", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  ],
+
+  US: [
+    { icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Award-winning wireless earbuds & speakers", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+ {
+  icon: "💍",
+  title: "Ultrahuman",
+  desc: "Smart ring for sleep, recovery, HRV, skin temperature and stress tracking, with no subscription",
+  cta: "Discover →",
+  url: "https://www.awin1.com/cread.php?s=4052116&v=69428&q=531112&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4052116&v=69428&q=531112&r=2932851"
+},
+ 
+  ],
+
+  AR: [
+    { icon: "🔒", title: "FastestVPN", desc: "Navegación segura y privada — cifrado de 256 bits", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Auriculares y altavoces inalámbricos galardonados", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  {
+  icon: "💍",
+  title: "Ultrahuman",
+  desc: "Anillo inteligente para sueño, recuperación, VFC, temperatura cutánea y estrés, sin suscripción",
+  cta: "Descubrir →",
+  url: "https://www.awin1.com/cread.php?s=4052116&v=69428&q=531112&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4052116&v=69428&q=531112&r=2932851"
+},
+  ],
+
+  CL: [
+    { icon: "🔒", title: "FastestVPN", desc: "Navegación segura y privada — cifrado de 256 bits", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Auriculares y altavoces inalámbricos galardonados", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  {
+  icon: "💍",
+  title: "Ultrahuman",
+  desc: "Anillo inteligente para sueño, recuperación, VFC, temperatura cutánea y estrés, sin suscripción",
+  cta: "Descubrir →",
+  url: "https://www.awin1.com/cread.php?s=4052116&v=69428&q=531112&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4052116&v=69428&q=531112&r=2932851"
+},
+  ],
+
+  CN: [
+    { icon: "🔒", title: "FastestVPN", desc: "安全私密浏览 — 256位加密", cta: "了解更多 →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "屡获殊荣的无线耳机与音箱", cta: "了解更多 →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  {
+  icon: "💍",
+  title: "Ultrahuman",
+  desc: "智能戒指，用于睡眠、恢复、HRV、皮肤温度和压力追踪，无需订阅",
+  cta: "了解更多 →",
+  url: "https://www.awin1.com/cread.php?s=4052116&v=69428&q=531112&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4052116&v=69428&q=531112&r=2932851"
+},
+  
+  ],
+
+  CO: [
+    { icon: "🔒", title: "FastestVPN", desc: "Navegación segura y privada — cifrado de 256 bits", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Auriculares y altavoces inalámbricos galardonados", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  {
+  icon: "💍",
+  title: "Ultrahuman",
+  desc: "Anillo inteligente para sueño, recuperación, VFC, temperatura cutánea y estrés, sin suscripción",
+  cta: "Descubrir →",
+  url: "https://www.awin1.com/cread.php?s=4052116&v=69428&q=531112&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4052116&v=69428&q=531112&r=2932851"
+},
+  ],
+
+  DK: [
+    { icon: "🔒", title: "FastestVPN", desc: "Sikker, privat browsing — 256-bit kryptering", cta: "Opdag →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Prisvindende trådløse hovedtelefoner & højttalere", cta: "Opdag →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  FI: [
+    { icon: "🔒", title: "FastestVPN", desc: "Turvallinen, yksityinen selailu — 256-bitin salaus", cta: "Tutustu →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Palkitut langattomat kuulokkeet ja kaiuttimet", cta: "Tutustu →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  NO: [
+    { icon: "🔒", title: "FastestVPN", desc: "Sikker, privat nettlesing — 256-bit kryptering", cta: "Oppdag →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Prisvinnende trådløse hodetelefoner & høyttalere", cta: "Oppdag →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  PT: [
+    { icon: "🔒", title: "FastestVPN", desc: "Navegação segura e privada — encriptação de 256 bits", cta: "Descobrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Auscultadores e colunas sem fios premiados", cta: "Descobrir →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "Vinil HTV, vinil adesivo, máquinas e ferramentas para projetos criativos", cta: "Descobrir →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  {
+  icon: "💍",
+  title: "Ultrahuman",
+  desc: "Anel inteligente para sono, recuperação, VFC, temperatura da pele e stress, sem assinatura",
+  cta: "Descobrir →",
+  url: "https://www.awin1.com/cread.php?s=4052116&v=69428&q=531112&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4052116&v=69428&q=531112&r=2932851"
+},
+  ],
+
+  RU: [
+    { icon: "🔒", title: "FastestVPN", desc: "Безопасный, приватный просмотр — 256-битное шифрование", cta: "Узнать →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Отмеченные наградами беспроводные наушники и колонки", cta: "Узнать →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  ],
+
+  CH: [
+    { icon: "🔒", title: "FastestVPN", desc: "Sicheres, privates Surfen — 256-Bit-Verschlüsselung", cta: "Entdecken →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Preisgekrönte kabellose Kopfhörer & Lautsprecher", cta: "Entdecken →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV-Vinyl, Klebefolien, Maschinen und Werkzeuge für kreative DIY-Projekte", cta: "Entdecken →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  UA: [
+    { icon: "🔒", title: "FastestVPN", desc: "Безпечний, приватний перегляд — 256-бітне шифрування", cta: "Дізнатись →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Відзначені нагородами бездротові навушники та колонки", cta: "Дізнатись →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  HR: [
+    { icon: "🔒", title: "FastestVPN", desc: "Sigurno, privatno pregledavanje — 256-bitna enkripcija", cta: "Otkrij →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Nagrađivane bežične slušalice i zvučnici", cta: "Otkrij →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  CZ: [
+    { icon: "🔒", title: "FastestVPN", desc: "Bezpečné, soukromé prohlížení — 256bitové šifrování", cta: "Objevit →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Oceňovaná bezdrátová sluchátka a reproduktory", cta: "Objevit →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  GR: [
+    { icon: "🔒", title: "FastestVPN", desc: "Ασφαλής, ιδιωτική περιήγηση — κρυπτογράφηση 256-bit", cta: "Ανακάλυψε →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Βραβευμένα ασύρματα ακουστικά και ηχεία", cta: "Ανακάλυψε →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  HU: [
+    { icon: "🔒", title: "FastestVPN", desc: "Biztonságos, privát böngészés — 256 bites titkosítás", cta: "Fedezd fel →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Díjnyertes vezeték nélküli fülhallgatók és hangszórók", cta: "Fedezd fel →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  LV: [
+    { icon: "🔒", title: "FastestVPN", desc: "Droša, privāta pārlūkošana — 256 bitu šifrēšana", cta: "Atklāt →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Balvu ieguvušas bezvadu austiņas un skaļruņi", cta: "Atklāt →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  LT: [
+    { icon: "🔒", title: "FastestVPN", desc: "Saugus, privatus naršymas — 256 bitų šifravimas", cta: "Sužinoti →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Apdovanotos belaidės ausinės ir garsiakalbiai", cta: "Sužinoti →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  NZ: [
+    { icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Award-winning wireless earbuds & speakers", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  ],
+
+  PE: [
+    { icon: "🔒", title: "FastestVPN", desc: "Navegación segura y privada — cifrado de 256 bits", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Auriculares y altavoces inalámbricos galardonados", cta: "Descubrir →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  {
+  icon: "💍",
+  title: "Ultrahuman",
+  desc: "Anillo inteligente para sueño, recuperación, VFC, temperatura cutánea y estrés, sin suscripción",
+  cta: "Descubrir →",
+  url: "https://www.awin1.com/cread.php?s=4052116&v=69428&q=531112&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4052116&v=69428&q=531112&r=2932851"
+},
+  
+  ]
+  ,
+
+  RO: [
+    { icon: "🔒", title: "FastestVPN", desc: "Navigare sigură și privată — criptare pe 256 de biți", cta: "Descoperă →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Căști și boxe wireless premiate", cta: "Descoperă →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  SK: [
+    { icon: "🔒", title: "FastestVPN", desc: "Bezpečné, súkromné prehliadanie — 256-bitové šifrovanie", cta: "Objaviť →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Ocenené bezdrôtové slúchadlá a reproduktory", cta: "Objaviť →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  SI: [
+    { icon: "🔒", title: "FastestVPN", desc: "Varno, zasebno brskanje — 256-bitno šifriranje", cta: "Odkrij →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Nagrajene brezžične slušalke in zvočniki", cta: "Odkrij →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
+
+  ZA: [
+    { icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Award-winning wireless earbuds & speakers", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  ],
+
+  BG: [
+    { icon: "🔒", title: "FastestVPN", desc: "Сигурно, лично сърфиране — 256-битово криптиране", cta: "Открий →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
+    { icon: "🎧", title: "EarFun", desc: "Наградени безжични слушалки и колони", cta: "Открий →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+    { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
+  ],
 };
+
+
+// ════ EARFUN — 3 VISUELS AWIN POUR ROTATION A/B ════
+const EARFUN_CREATIVES = [
+  {
+    ab: "earfun-a",
+    url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851",
+    image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851"
+  },
+  {
+    ab: "earfun-b",
+    url: "https://www.awin1.com/cread.php?s=3996845&v=61233&q=525399&r=2932851",
+    image: "https://www.awin1.com/cshow.php?s=3996845&v=61233&q=525399&r=2932851"
+  },
+  {
+    ab: "earfun-c",
+    url: "https://www.awin1.com/cread.php?s=3996846&v=61233&q=525399&r=2932851",
+    image: "https://www.awin1.com/cshow.php?s=3996846&v=61233&q=525399&r=2932851"
+  }
+];
+
+// ════ ULTRAHUMAN — 3 VISUELS AWIN POUR ROTATION A/B ════
+const ULTRAHUMAN_CREATIVES = [
+  {
+    ab: "ultrahuman-a",
+    url: "https://www.awin1.com/cread.php?s=4052116&v=69428&q=531112&r=2932851",
+    image: "https://www.awin1.com/cshow.php?s=4052116&v=69428&q=531112&r=2932851"
+  },
+  {
+    ab: "ultrahuman-b",
+    url: "https://www.awin1.com/cread.php?s=4052112&v=69428&q=531112&r=2932851",
+    image: "https://www.awin1.com/cshow.php?s=4052112&v=69428&q=531112&r=2932851"
+  },
+  {
+    ab: "ultrahuman-c",
+    url: "https://www.awin1.com/cread.php?s=4052111&v=69428&q=531112&r=2932851",
+    image: "https://www.awin1.com/cshow.php?s=4052111&v=69428&q=531112&r=2932851"
+  }
+];
+
+function expandUltrahumanCreatives(offers) {
+  return offers.flatMap(offer => {
+    if (!offer || offer.title !== "Ultrahuman") return [offer];
+
+    return ULTRAHUMAN_CREATIVES.map(creative => ({
+      ...offer,
+      url: creative.url,
+      image: creative.image,
+      ab: creative.ab
+    }));
+  });
+}
+
+function expandEarFunCreatives(offers) {
+  return offers.flatMap(offer => {
+    if (!offer || offer.title !== "EarFun") return [offer];
+
+    return EARFUN_CREATIVES.map(creative => ({
+      ...offer,
+      url: creative.url,
+      image: creative.image,
+      ab: creative.ab
+    }));
+  });
+}
 function getPartnerOffers() {
   const cc = _detectCountry();
   const awinOffers = AWIN_OFFERS_BY_COUNTRY[cc] || [];
-  return [getAmazonPrimeOffer(), ...awinOffers];
+
+  // EarFun : transforme 1 offre en 3 variantes visuelles
+  const withEarFunVariants = expandEarFunCreatives(awinOffers);
+
+  // Ultrahuman : transforme 1 offre en 3 variantes visuelles
+  const withUltrahumanVariants = expandUltrahumanCreatives(withEarFunVariants);
+
+  return [getAmazonPrimeOffer(), ...withUltrahumanVariants];
 }
 
 function getRandomPartnerOffer() {
