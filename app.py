@@ -535,61 +535,65 @@ async def _run_download_and_analyse(session_id, url, platform, lang, browser_lan
         return
     video_path = session["video_path"]; audio_path = session["audio_path"]; frame_dir = session["frame_dir"]
     need_client_fallback = False
-    try:
-        # URL directe → Gemini (sauf TikTok), pas de download si concluant
-        if platform != "tiktok":
-            session["status"] = "processing"
-            try:
-                from core.extraction import _extract_gemini_url_direct
-                extraction = await _extract_gemini_url_direct(url)
-                if _extraction_is_useful(extraction):
-                    result = await process_analysis(
-                        frames=[], ocr_text="", transcript=extraction.get("_transcript_raw", ""),
-                        url=url, lang=lang, browser_lang=browser_lang,
-                        prefetched_extraction=extraction)
-                    session["status"] = "done"; session["result"] = result
-                    return
-                print(f"⚠️ URL directe non concluante [{platform}] → download", flush=True)
-            except Exception as e:
-                print(f"⚠️ URL directe exception: {e} → download", flush=True)
+    # Sémaphore réellement acquis ici (avant, il n'était que vérifié via
+    # .locked() sans jamais être pris => aucune limite de concurrence
+    # effective, cause probable des OOM sur l'instance Render à 512Mo).
+    async with _analysis_semaphore:
+        try:
+            # URL directe → Gemini (sauf TikTok), pas de download si concluant
+            if platform != "tiktok":
+                session["status"] = "processing"
+                try:
+                    from core.extraction import _extract_gemini_url_direct
+                    extraction = await _extract_gemini_url_direct(url)
+                    if _extraction_is_useful(extraction):
+                        result = await process_analysis(
+                            frames=[], ocr_text="", transcript=extraction.get("_transcript_raw", ""),
+                            url=url, lang=lang, browser_lang=browser_lang,
+                            prefetched_extraction=extraction)
+                        session["status"] = "done"; session["result"] = result
+                        return
+                    print(f"⚠️ URL directe non concluante [{platform}] → download", flush=True)
+                except Exception as e:
+                    print(f"⚠️ URL directe exception: {e} → download", flush=True)
 
-        # Download
-        session["status"] = "downloading"
-        print(f"📥 DOWNLOAD [{platform}] session={session_id}", flush=True)
-        dl = await download_video(url, video_path, platform)
-        if not dl["ok"]:
+            # Download
+            session["status"] = "downloading"
+            print(f"📥 DOWNLOAD [{platform}] session={session_id}", flush=True)
+            dl = await download_video(url, video_path, platform)
+            if not dl["ok"]:
+                session["status"] = "error"
+                session["result"] = {"status": "error", "code": dl["code"], "message": dl["message"]}
+                return
+            if not os.path.exists(video_path) or os.path.getsize(video_path) < 1000:
+                session["status"] = "error"
+                session["result"] = {"status": "error", "code": "download_empty",
+                                     "message": "Le fichier vidéo est vide ou corrompu."}
+                return
+            print(f"✅ Vidéo téléchargée ({os.path.getsize(video_path)/1024/1024:.1f} MB)", flush=True)
+
+            # Fichier local → Gemini fichier → frames/transcription
+            need_client_fallback = await _process_local_file(
+                session, video_path, audio_path, frame_dir, url, lang, browser_lang)
+
+        except Exception:
+            print(f"❌ _run_download_and_analyse: {traceback.format_exc()}", flush=True)
             session["status"] = "error"
-            session["result"] = {"status": "error", "code": dl["code"], "message": dl["message"]}
-            return
-        if not os.path.exists(video_path) or os.path.getsize(video_path) < 1000:
-            session["status"] = "error"
-            session["result"] = {"status": "error", "code": "download_empty",
-                                 "message": "Le fichier vidéo est vide ou corrompu."}
-            return
-        print(f"✅ Vidéo téléchargée ({os.path.getsize(video_path)/1024/1024:.1f} MB)", flush=True)
+            session["result"] = {"status": "error", "code": "unexpected",
+                                 "message": "Une erreur inattendue s'est produite. Réessayez."}
+        finally:
+            if not need_client_fallback:
+                cleanup_files(video_path, audio_path, frame_dir, True)
+            session["timestamp"] = time.time()
 
-        # Fichier local → Gemini fichier → frames/transcription
-        need_client_fallback = await _process_local_file(
-            session, video_path, audio_path, frame_dir, url, lang, browser_lang)
-
-    except Exception:
-        print(f"❌ _run_download_and_analyse: {traceback.format_exc()}", flush=True)
-        session["status"] = "error"
-        session["result"] = {"status": "error", "code": "unexpected",
-                             "message": "Une erreur inattendue s'est produite. Réessayez."}
-    finally:
-        if not need_client_fallback:
-            cleanup_files(video_path, audio_path, frame_dir, True)
-        session["timestamp"] = time.time()
-
-        # Libère le verrou anti-doublons quel que soit le résultat
-        # (succès, erreur, ou besoin de fallback client). Garantit que le
-        # verrou ne reste jamais bloqué indéfiniment même si une exception
-        # imprévue survient plus haut dans le bloc try.
-        lock_key = session.get("_lock_key")
-        lock_token = session.get("_lock_token")
-        if lock_key and lock_token:
-            release_lock(lock_key, lock_token)
+            # Libère le verrou anti-doublons quel que soit le résultat
+            # (succès, erreur, ou besoin de fallback client). Garantit que le
+            # verrou ne reste jamais bloqué indéfiniment même si une exception
+            # imprévue survient plus haut dans le bloc try.
+            lock_key = session.get("_lock_key")
+            lock_token = session.get("_lock_token")
+            if lock_key and lock_token:
+                release_lock(lock_key, lock_token)
 # ════════════════════════════════════════════════════════════════
 # ENDPOINT PRINCIPAL
 # ════════════════════════════════════════════════════════════════
@@ -681,18 +685,19 @@ async def _run_uploaded_analyse(session_id, lang, browser_lang):
         return
     vp, ap, fd = session["video_path"], session["audio_path"], session["frame_dir"]
     need_client_fallback = False
-    try:
-        need_client_fallback = await _process_local_file(
-            session, vp, ap, fd, session["url"], lang, browser_lang)
-    except Exception:
-        print(f"❌ _run_uploaded_analyse: {traceback.format_exc()}", flush=True)
-        session["status"] = "error"
-        session["result"] = {"status": "error", "code": "unexpected",
-                             "message": "Une erreur inattendue s'est produite. Réessayez."}
-    finally:
-        if not need_client_fallback:
-            cleanup_files(vp, ap, fd, True)
-        session["timestamp"] = time.time()
+    async with _analysis_semaphore:
+        try:
+            need_client_fallback = await _process_local_file(
+                session, vp, ap, fd, session["url"], lang, browser_lang)
+        except Exception:
+            print(f"❌ _run_uploaded_analyse: {traceback.format_exc()}", flush=True)
+            session["status"] = "error"
+            session["result"] = {"status": "error", "code": "unexpected",
+                                 "message": "Une erreur inattendue s'est produite. Réessayez."}
+        finally:
+            if not need_client_fallback:
+                cleanup_files(vp, ap, fd, True)
+            session["timestamp"] = time.time()
 
 
 @app.post("/analyser-upload")
