@@ -3,9 +3,6 @@
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
   "extraKnownMarketplaces": {
-    "cynical-sally": {
-      "source": { "source": "github", "repo": "w1ckedxt/cynical-sally" }
-    },
     "superpowers": {
       "source": { "source": "github", "repo": "obra/superpowers" }
     },
@@ -17,9 +14,6 @@
     },
     "mempalace": {
       "source": { "source": "github", "repo": "MemPalace/mempalace" }
-    },
-    "firecrawl-lean": {
-      "source": { "source": "github", "repo": "alexsmedile/firecrawl-lean" }
     }
   }
 }
