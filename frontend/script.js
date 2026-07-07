@@ -428,7 +428,7 @@ async function selectDetailFilmingLocation(index) {
 const dict = {
   "en-US": {
     partner_title: "Want to go further?",
-
+report_wrong_btn: "Not the right movie?",
     filming_no_result: "No result.",
     filming_load_error: "Loading error.",
     filming_no_movie: "No movie found.",
@@ -550,7 +550,7 @@ const dict = {
 
   "en-GB": {
     partner_title: "Want to go further?",
-
+report_wrong_btn: "Not the right movie?",
     filming_no_result: "No result.",
     filming_load_error: "Loading error.",
     filming_no_movie: "No movie found.",
@@ -672,7 +672,7 @@ const dict = {
 
   fr: {
     partner_title: "Envie d'aller plus loin ?",
-
+report_wrong_btn: "Ce n'est pas le bon film ?",
     filming_no_result: "Aucun résultat.",
     filming_load_error: "Erreur de chargement.",
     filming_no_movie: "Aucun film trouvé.",
@@ -794,7 +794,7 @@ const dict = {
 
   es: {
     partner_title: "¿Quieres ir más lejos?",
-
+report_wrong_btn: "¿No es la película correcta?",
     filming_no_result: "Sin resultados.",
     filming_load_error: "Error de carga.",
     filming_no_movie: "No se encontró ninguna película.",
@@ -916,7 +916,7 @@ const dict = {
 
   de: {
     partner_title: "Möchten Sie mehr erfahren?",
-
+report_wrong_btn: "Nicht der richtige Film?",
     filming_no_result: "Kein Ergebnis.",
     filming_load_error: "Fehler beim Laden.",
     filming_no_movie: "Kein Film gefunden.",
@@ -1038,7 +1038,7 @@ const dict = {
 
   zh: {
     partner_title: "想要更进一步？",
-
+report_wrong_btn: "不是这部电影？",
     filming_no_result: "没有结果。",
     filming_load_error: "加载错误。",
     filming_no_movie: "未找到电影。",
@@ -2202,6 +2202,7 @@ function afficherNotFound(data){
   ["fake_alert","detail_tags","detail_rating","cast_section","trailer_section","similar_section","seasons_section"].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML="";});
   document.getElementById("confidence_wrap").style.display="none";
   document.getElementById("partner-offer")?.classList.remove("visible");
+  document.getElementById("report-wrong-wrap").style.display = _cameFromAnalysis ? "block" : "none";
   document.getElementById("affiche_film").style.display="none";
   document.getElementById("titre_film").innerText=t("not_found_title");
   document.getElementById("synopsis_film").innerText=data.message||"";
