@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="{{ html_lang }}">
   <head>
     <meta charset="UTF-8" />
     <meta
@@ -7,17 +7,17 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes"
     />
 
-    <title>Trouver un film à partir d’un TikTok, Reel ou Short — Pelify</title>
+    <title>{{ title }}</title>
 
     <!-- SEO UNIQUE + GLOBAL + CHINE -->
     <meta
       name="description"
-      content="Trouve instantanément un film, une série ou un anime à partir d’un TikTok, Reel ou YouTube Short. Identify movies from video links in seconds. 找电影 / 视频找电影 / 电影识别工具 — gratuit."
+      content="{{ meta_description }}"
     />
 
     <meta
       name="keywords"
-      content="trouver film tiktok, identifier film vidéo, quel film est cette scène, movie finder, shazam film, find movie from video, film identifier, anime finder, série identifier, tiktok film, 电影识别, 找电影, 视频找电影, 影视识别, 取景地, film location finder"
+      content="{{ meta_keywords }}"
     />
 
     <meta name="author" content="Pelify" />
@@ -36,7 +36,7 @@
       content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"
     />
 
-    <link rel="canonical" href="https://pelify.app/" />
+    <link rel="canonical" href="{{ canonical }}" />
 
     <!-- HREFLANG GLOBAL SEO -->
     <link rel="alternate" hreflang="fr" href="https://pelify.app/fr" />
@@ -47,20 +47,20 @@
     <link rel="alternate" hreflang="x-default" href="https://pelify.app/" />
 
     <!-- OPEN GRAPH -->
-    <meta property="og:type" content="website" />
+    <meta property="og:type" content="{{ og_type }}" />
     <meta property="og:site_name" content="Pelify" />
     <meta
       property="og:title"
-      content="🎬 Trouver un film depuis TikTok & Reels — Pelify"
+      content="{{ og_title }}"
     />
     <meta
       property="og:description"
-      content="Colle un lien TikTok ou Reel — trouve instantanément le film, la série ou l’anime + où le regarder en streaming et visiter les lieux de tournage."
+      content="{{ og_description }}"
     />
-    <meta property="og:url" content="https://pelify.app/" />
+    <meta property="og:url" content="{{ og_url }}" />
     <meta
       property="og:image"
-      content="https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=1200&auto=format"
+      content="{{ og_image }}"
     />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
@@ -73,15 +73,15 @@
     <meta name="twitter:site" content="@pelify_app" />
     <meta
       name="twitter:title"
-      content="🎬 Find movies from TikTok & Reels — Pelify"
+      content="{{ twitter_title }}"
     />
     <meta
       name="twitter:description"
-      content="Paste a TikTok or Reel link — find any movie in seconds and visit the filming locations. Free worldwide."
+      content="{{ twitter_description }}"
     />
     <meta
       name="twitter:image"
-      content="https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=1200&auto=format"
+      content="{{ twitter_image }}"
     />
 
     <!-- STRUCTURED DATA - FAQ -->
@@ -159,6 +159,13 @@
         ]
       }
     </script>
+
+    {% if extra_jsonld %}
+    <!-- STRUCTURED DATA - PAGE SPECIFIQUE -->
+    <script type="application/ld+json">
+      {{ extra_jsonld | safe }}
+    </script>
+    {% endif %}
 
     <!-- PERFORMANCE -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />

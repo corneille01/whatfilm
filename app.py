@@ -31,6 +31,9 @@ from pydantic import BaseModel
 from core.web_search import should_trigger_web_fallback, web_search_fallback
 from core.wikidata import wikidata_search_candidates, should_trigger_wikidata, get_wikidata_enrichment, get_filming_locations
 from core import filming_catalogue
+from core.seo_meta import (
+    render_index, genre_meta, provider_meta, series_meta, lieux_meta, film_meta, lang_meta,
+)
 
 
 from vision.scene_detection import extract_keyframes
@@ -1570,8 +1573,8 @@ async def robots():
     )
 
 @app.get("/")
-async def index():
-    return FileResponse("frontend/index.html")
+async def index(request: Request):
+    return render_index(request)
 
 @app.get("/health")
 async def health():
@@ -1634,31 +1637,69 @@ async def cache_debug_key(key_type: str, value: str, lang: str = "fr"):
     return {"key": key, "found": data is not None, "data": data}
 
 @app.get("/genre/{genre_name}")
-async def page_genre(genre_name: str):
-    return FileResponse("frontend/index.html")
+async def page_genre(request: Request, genre_name: str):
+    return render_index(request, **genre_meta(genre_name))
 
 @app.get("/plateforme/{provider_key}")
-async def page_plateforme(provider_key: str):
-    return FileResponse("frontend/index.html")
+async def page_plateforme(request: Request, provider_key: str):
+    return render_index(request, **provider_meta(provider_key))
+
+
+async def _fetch_film_details_for_seo(film_id: int, type: str) -> tuple[dict, str]:
+    """Récupère les détails TMDB (avec cache) pour construire les meta d'une
+    page /film/{id}, en essayant l'autre media_type si le premier échoue."""
+    effective_type = type
+    cache_key = f"movie:{effective_type}:{film_id}:fr"
+    details = cache_get_generic(cache_key)
+    if details:
+        return details, effective_type
+    try:
+        details = (
+            await get_tv_details(film_id, "fr") if effective_type == "tv"
+            else await get_movie_details(film_id, "fr")
+        )
+    except Exception:
+        effective_type = "tv" if effective_type == "movie" else "movie"
+        details = (
+            await get_tv_details(film_id, "fr") if effective_type == "tv"
+            else await get_movie_details(film_id, "fr")
+        )
+    cache_set_generic(f"movie:{effective_type}:{film_id}:fr", details, ttl=86400)
+    return details, effective_type
+
+
+async def _render_film_page(request: Request, film_id: int, type: str):
+    try:
+        details, effective_type = await _fetch_film_details_for_seo(film_id, type)
+        return render_index(request, **film_meta(details, effective_type, film_id))
+    except Exception as e:
+        print(f"⚠️ SEO meta film id={film_id} KO: {e}", flush=True)
+        return render_index(request)
+
 
 @app.get("/film/{film_id}")
-async def page_film(film_id: int):
-    return FileResponse("frontend/index.html")
+async def page_film(request: Request, film_id: int, type: str = "movie"):
+    return await _render_film_page(request, film_id, type)
 
 @app.get("/film/{film_id}/{slug}")
-async def page_film_slug(film_id: int, slug: str):
-    return FileResponse("frontend/index.html")
+async def page_film_slug(request: Request, film_id: int, slug: str, type: str = "movie"):
+    return await _render_film_page(request, film_id, type)
 
 @app.get("/series")
-async def page_series():
-    return FileResponse("frontend/index.html")
+async def page_series(request: Request):
+    return render_index(request, **series_meta())
 
 @app.get("/lieux-de-tournage")
-async def page_lieux():
-    return FileResponse("frontend/index.html")
+async def page_lieux(request: Request):
+    try:
+        stats = await filming_catalogue.get_filming_stats()
+    except Exception as e:
+        print(f"⚠️ SEO meta lieux-de-tournage KO: {e}", flush=True)
+        stats = None
+    return render_index(request, **lieux_meta(stats))
 
 @app.get("/{lang}")
-async def page_multilingue(lang: str):
+async def page_multilingue(request: Request, lang: str):
     if len(lang) != 2 or not lang.isalpha():
         return Response(status_code=404)
-    return FileResponse("frontend/index.html")
+    return render_index(request, **lang_meta(lang))

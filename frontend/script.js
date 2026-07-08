@@ -4,6 +4,42 @@
 // ou https://maps.pelify.app) et le service en ligne.
 const FILMING_SERVICE_URL = "https://lieux.pelify.app";
 
+// ════ MONÉTISATION ════
+// Remplace ces placeholders par tes propres identifiants une fois inscrit :
+//   - Booking.com   : https://www.booking.com/affiliate-program/v2/index.html (aid dans le tableau de bord)
+//   - GetYourGuide   : https://partner.getyourguide.com/ (partner_id dans le tableau de bord)
+//   - Buy Me a Coffee: https://www.buymeacoffee.com/ (ton nom d'utilisateur, dans l'URL de ta page)
+// Ces liens ne concernent que les données Wikidata/OSM (lieux de tournage),
+// pas le contenu TMDB — voir la discussion sur les CGU TMDB avant d'ajouter
+// des pubs ailleurs sur le site.
+const BOOKING_AFFILIATE_ID   = "YOUR_BOOKING_AID";
+const GETYOURGUIDE_PARTNER_ID = "YOUR_GYG_PARTNER_ID";
+const BUYMEACOFFEE_USERNAME  = "YOUR_BMC_USERNAME";
+
+function bookingAffiliateUrl(lat, lng, city) {
+  const params = new URLSearchParams({
+    aid: BOOKING_AFFILIATE_ID,
+    latitude: lat,
+    longitude: lng,
+    radius: 5,
+  });
+  if (city) params.set("ss", city);
+  return `https://www.booking.com/searchresults.html?${params.toString()}`;
+}
+
+function getYourGuideAffiliateUrl(city) {
+  const params = new URLSearchParams({
+    q: city || "",
+    partner_id: GETYOURGUIDE_PARTNER_ID,
+    cmp: "pelify_filming_locations",
+  });
+  return `https://www.getyourguide.com/s/?${params.toString()}`;
+}
+
+function buyMeACoffeeUrl() {
+  return `https://www.buymeacoffee.com/${encodeURIComponent(BUYMEACOFFEE_USERNAME)}`;
+}
+
 // ════ CACHE ════
 const apiCache = {};
 const CACHE_TTL = 300000;
@@ -198,6 +234,14 @@ function afficherTourismeTournage(container, locApiLocations = [], wdLocations =
             transports et activités proches.
           </p>
         </div>
+        <a class="btn-stream btn-support-coffee"
+           href="${buyMeACoffeeUrl()}"
+           target="_blank"
+           rel="noopener"
+           title="Soutenir Pelify">
+          <i class="fas fa-mug-hot"></i>
+          Soutenir Pelify
+        </a>
       </div>
 
       <div class="detail-tourism-grid">
@@ -341,12 +385,13 @@ async function selectDetailFilmingLocation(index) {
 
   const panel = document.getElementById("detail-nearby-panel");
   if (panel) {
+    const city = loc.city || loc.country || "";
     panel.innerHTML = `
-      <div class="tourism-coming-soon">
-        <strong>Guide touristique bientôt disponible</strong>
+      <div class="tourism-nearby-links">
+        <strong>Envie de visiter ce lieu ?</strong>
         <p>
-          Les hôtels, restaurants, transports et activités proches seront ajoutés
-          dans une prochaine version.
+          Prépare ton voyage autour de "${escapeHtml(loc.name)}"
+          ${city ? `à ${escapeHtml(city)}` : ""}.
         </p>
         <a class="btn-stream"
            href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(loc.lat + "," + loc.lng)}"
@@ -355,6 +400,23 @@ async function selectDetailFilmingLocation(index) {
           <i class="fas fa-map-location-dot"></i>
           Ouvrir ce lieu sur Google Maps
         </a>
+        <a class="btn-stream affiliate"
+           href="${bookingAffiliateUrl(loc.lat, loc.lng, city)}"
+           target="_blank"
+           rel="noopener sponsored">
+          <i class="fas fa-bed"></i>
+          Voir les hôtels à proximité
+        </a>
+        <a class="btn-stream affiliate"
+           href="${getYourGuideAffiliateUrl(city)}"
+           target="_blank"
+           rel="noopener sponsored">
+          <i class="fas fa-ticket"></i>
+          Activités & visites à ${city ? escapeHtml(city) : "proximité"}
+        </a>
+        <small class="tourism-affiliate-disclosure">
+          Liens partenaires — Pelify perçoit une commission sans surcoût pour toi.
+        </small>
       </div>
     `;
   }

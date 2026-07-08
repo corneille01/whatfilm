@@ -724,6 +724,39 @@ body {
   flex-shrink: 0;
 }
 
+/* LIEUX DE TOURNAGE — guide touristique + monétisation */
+.detail-tourism-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.btn-support-coffee {
+  border-color: rgba(255, 189, 46, 0.4);
+  white-space: nowrap;
+}
+.btn-support-coffee:hover {
+  background: rgba(255, 189, 46, 0.12);
+  border-color: #ffbd2e;
+  color: #ffbd2e;
+}
+.tourism-nearby-links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tourism-nearby-links .btn-stream {
+  width: 100%;
+  justify-content: center;
+}
+.tourism-affiliate-disclosure {
+  color: var(--text-dim, rgba(255, 255, 255, 0.5));
+  font-size: 0.75rem;
+  text-align: center;
+  margin-top: 2px;
+}
+
 /* CAST */
 #cast_section {
   margin-bottom: 24px;
