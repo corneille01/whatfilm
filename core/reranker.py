@@ -42,6 +42,35 @@ GEMINI_RERANK_DISABLED = os.environ.get("GEMINI_RERANK_DISABLED", "false").lower
 GEMINI_API_KEY    = os.environ.get("GEMINI_API_KEY", "")
 GROQ_API_KEY      = os.environ.get("GROQ_API_KEY", "")
 DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+
+OPENROUTER_RERANK_ENABLED = (
+    os.environ.get("OPENROUTER_RERANK_ENABLED", "true").lower() == "true"
+)
+
+OPENROUTER_BASE_URL = os.environ.get(
+    "OPENROUTER_BASE_URL",
+    "https://openrouter.ai/api/v1",
+).rstrip("/")
+
+OPENROUTER_RERANK_MODEL = os.environ.get(
+    "OPENROUTER_RERANK_MODEL",
+    "openrouter/free",
+)
+
+OPENROUTER_SITE_URL = os.environ.get(
+    "OPENROUTER_SITE_URL",
+    "https://pelify.app",
+)
+
+OPENROUTER_APP_NAME = os.environ.get(
+    "OPENROUTER_APP_NAME",
+    "Pelify",
+)
+
+OPENROUTER_RERANK_MAX_TOKENS = int(
+    os.environ.get("OPENROUTER_RERANK_MAX_TOKENS", "220")
+)
 
 GEMINI_URL    = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 GROQ_TEXT_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -362,7 +391,111 @@ def _direct_match(extraction: dict, candidates: list) -> Optional[dict]:
     return None
 
 # ═══════════════════════════ FONCTIONS LLM ════════════════════════
+async def _rerank_openrouter(extraction: dict, candidates: list) -> Optional[dict]:
+    """
+    Rerank via OpenRouter, placé en première tentative.
+    Si OpenRouter échoue, rate-limit, ou retourne un JSON invalide,
+    la cascade continue vers Gemini/Qwen/Groq.
+    """
+    if not OPENROUTER_RERANK_ENABLED:
+        return None
 
+    if not OPENROUTER_API_KEY:
+        return None
+
+    prompt = RERANK_PROMPT.format(
+        extraction_json=json.dumps(extraction, ensure_ascii=False),
+        candidates_json=json.dumps(_candidates_for_prompt(candidates), ensure_ascii=False),
+    )
+
+    forced_prompt = (
+        "INSTRUCTION ABSOLUE : réponds UNIQUEMENT avec un objet JSON minifié "
+        "sur UNE SEULE LIGNE. AUCUN texte avant ou après. AUCUN markdown. "
+        "La raison doit faire moins de 15 mots. "
+        'Format exact : {"id":123,"meilleur_titre":"Titre","score":75,"raison":"bref"}\n\n'
+        + prompt
+    )
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": OPENROUTER_SITE_URL,
+        "X-Title": OPENROUTER_APP_NAME,
+        "X-OpenRouter-Title": OPENROUTER_APP_NAME,
+    }
+
+    payload = {
+        "model": OPENROUTER_RERANK_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "Tu es un expert cinéma/séries/anime. "
+                    "Tu dois choisir uniquement parmi les candidats fournis. "
+                    "Réponds uniquement en JSON minifié sur une ligne. "
+                    'Format : {"id":123,"meilleur_titre":"Titre","score":75,"raison":"bref"}'
+                ),
+            },
+            {
+                "role": "user",
+                "content": forced_prompt,
+            },
+        ],
+        "temperature": 0.0,
+        "max_tokens": OPENROUTER_RERANK_MAX_TOKENS,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=25) as client:
+            resp = await client.post(
+                f"{OPENROUTER_BASE_URL}/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+
+        if resp.status_code == 429:
+            print("⚠️ Rerank OpenRouter: rate-limit/quota → Gemini", flush=True)
+            return None
+
+        if resp.status_code >= 400:
+            print(
+                f"⚠️ Rerank OpenRouter HTTP {resp.status_code}: {resp.text[:180]}",
+                flush=True,
+            )
+            return None
+
+        raw = resp.json()
+        content = (
+            raw.get("choices", [{}])[0]
+               .get("message", {})
+               .get("content", "")
+        )
+
+        if isinstance(content, list):
+            text = "\n".join(
+                part.get("text", "")
+                for part in content
+                if isinstance(part, dict)
+            ).strip()
+        else:
+            text = str(content or "").strip()
+
+        if not text:
+            print("⚠️ Rerank OpenRouter réponse vide", flush=True)
+            return None
+
+        result = _parse_rerank_response(text, candidates)
+        print(
+            f"✅ Rerank OpenRouter — {result['meilleur_titre']} "
+            f"(score={result['score']})",
+            flush=True,
+        )
+        return result
+
+    except Exception as e:
+        print(f"⚠️ Rerank OpenRouter KO: {str(e)[:120]}", flush=True)
+        return None
+    
 async def _rerank_gemini(extraction: dict, candidates: list) -> Optional[dict]:
     if not GEMINI_API_KEY:
         return None
@@ -501,52 +634,104 @@ def apply_quote_corroboration(result: dict, quote_candidate_ids: set) -> dict:
 
 async def rerank(extraction: dict, candidates: list) -> dict:
     """
-    Cascade : Gemini (optionnel) → Qwen → Groq → match direct → popularité.
-    Gemini peut être désactivé via GEMINI_RERANK_DISABLED=true (env var Render).
+    Cascade :
+      0. OpenRouter  → premier plan si activé
+      1. Gemini      → fallback
+      2. Qwen        → fallback
+      3. Groq        → fallback
+      4. Meilleur LLM sous seuil
+      5. Match direct
+      6. Popularité TMDB
+
+    Important :
+    Le rerank choisit toujours 1 meilleur résultat.
+    Les 3-4 alternatives sont construites ensuite dans app.py à partir des
+    autres candidats TMDB.
     """
     if not candidates:
-        return {"meilleur_titre": "Inconnu", "id": None, "score": 0, "media_type": "movie"}
+        return {
+            "meilleur_titre": "Inconnu",
+            "id": None,
+            "score": 0,
+            "media_type": "movie",
+        }
 
     if len(candidates) == 1:
         return _single_candidate_result(extraction, candidates[0])
 
-    # ── 0. Gemini Flash (désactivable) ──
+    # ── 0. OpenRouter en premier ────────────────────────────────
+    openrouter_result = await _rerank_openrouter(extraction, candidates)
+    if openrouter_result and openrouter_result.get("score", 0) >= GROQ_CONFIDENCE_THRESHOLD:
+        return openrouter_result
+    if openrouter_result:
+        print(
+            f"⚠️ OpenRouter score faible ({openrouter_result['score']}) → tentative Gemini",
+            flush=True,
+        )
+
+    # ── 1. Gemini Flash ─────────────────────────────────────────
     gemini_result = None
     if not GEMINI_RERANK_DISABLED:
         gemini_result = await _rerank_gemini(extraction, candidates)
         if gemini_result and gemini_result.get("score", 0) >= GROQ_CONFIDENCE_THRESHOLD:
             return gemini_result
         if gemini_result:
-            print(f"⚠️ Gemini score faible ({gemini_result['score']}) → tentative Qwen", flush=True)
+            print(
+                f"⚠️ Gemini score faible ({gemini_result['score']}) → tentative Qwen",
+                flush=True,
+            )
     else:
         print("ℹ️ Gemini rerank désactivé (GEMINI_RERANK_DISABLED=true)", flush=True)
 
-    # ── 1. Qwen ──
+    # ── 2. Qwen ─────────────────────────────────────────────────
     qwen_result = await _rerank_qwen(extraction, candidates)
     if qwen_result and qwen_result.get("score", 0) >= GROQ_CONFIDENCE_THRESHOLD:
         return qwen_result
     if qwen_result:
-        print(f"⚠️ Qwen score faible ({qwen_result['score']}) → tentative Groq", flush=True)
+        print(
+            f"⚠️ Qwen score faible ({qwen_result['score']}) → tentative Groq",
+            flush=True,
+        )
 
-    # ── 2. Groq ──
+    # ── 3. Groq ─────────────────────────────────────────────────
     groq_result = await _rerank_groq(extraction, candidates)
     if groq_result and groq_result.get("score", 0) >= GROQ_CONFIDENCE_THRESHOLD:
         return groq_result
     if groq_result:
-        print(f"⚠️ Groq score faible ({groq_result['score']}) → aucun LLM n'a atteint le seuil", flush=True)
+        print(
+            f"⚠️ Groq score faible ({groq_result['score']}) → aucun LLM n'a atteint le seuil",
+            flush=True,
+        )
 
-    # ── 3. Meilleur LLM sous le seuil ──
-    llm_results = [r for r in [gemini_result, qwen_result, groq_result] if r is not None]
+    # ── 4. Meilleur LLM sous le seuil ───────────────────────────
+    llm_results = [
+        r for r in [
+            openrouter_result,
+            gemini_result,
+            qwen_result,
+            groq_result,
+        ]
+        if r is not None
+    ]
+
     if llm_results:
         best_llm = max(llm_results, key=lambda r: r.get("score", 0))
-        print(f"⚠️ Meilleur LLM sous seuil retenu : {best_llm['meilleur_titre']} ({best_llm['score']})", flush=True)
+        print(
+            f"⚠️ Meilleur LLM sous seuil retenu : "
+            f"{best_llm['meilleur_titre']} ({best_llm['score']})",
+            flush=True,
+        )
         return best_llm
 
-    # ── 4. Match direct ──
+    # ── 5. Match direct ─────────────────────────────────────────
     direct_result = _direct_match(extraction, candidates)
     if direct_result:
-        print(f"⚠️ LLM tous KO → match direct ({direct_result['meilleur_titre']}, score={direct_result['score']})", flush=True)
+        print(
+            f"⚠️ LLM tous KO → match direct "
+            f"({direct_result['meilleur_titre']}, score={direct_result['score']})",
+            flush=True,
+        )
         return direct_result
 
-    # ── 5. Popularité ──
+    # ── 6. Popularité ───────────────────────────────────────────
     return _best_by_popularity(candidates)

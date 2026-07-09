@@ -48,6 +48,40 @@ from core.prompts import EXTRACTION_PROMPT
 # ═══════════════ CONFIGURATION ═══════════════
 GEMINI_API_KEY    = os.environ.get("GEMINI_API_KEY", "")
 DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
+# OpenRouter vidéo direct — fallback après Gemini/Qwen
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+
+OPENROUTER_VIDEO_ENABLED = (
+    os.environ.get("OPENROUTER_VIDEO_ENABLED", "false").lower() == "true"
+)
+
+OPENROUTER_BASE_URL = os.environ.get(
+    "OPENROUTER_BASE_URL",
+    "https://openrouter.ai/api/v1",
+).rstrip("/")
+
+OPENROUTER_VIDEO_MODEL = os.environ.get(
+    "OPENROUTER_VIDEO_MODEL",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+)
+
+OPENROUTER_SITE_URL = os.environ.get(
+    "OPENROUTER_SITE_URL",
+    "https://pelify.app",
+)
+
+OPENROUTER_APP_NAME = os.environ.get(
+    "OPENROUTER_APP_NAME",
+    "Pelify",
+)
+
+OPENROUTER_VIDEO_MAX_MB = float(
+    os.environ.get("OPENROUTER_VIDEO_MAX_MB", "18")
+)
+
+OPENROUTER_VIDEO_MAX_TOKENS = int(
+    os.environ.get("OPENROUTER_VIDEO_MAX_TOKENS", "1800")
+)
 
 GEMINI_URLS = [
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
@@ -699,6 +733,181 @@ async def multimodal_extract(frames, ocr_text, transcript):
     fallback["description_courte"] = combined[:500]
     return fallback
 
+
+
+
+# ═══════════════ FALLBACK OPENROUTER VIDEO ═══════════════
+
+def _guess_video_mime(video_path: str) -> str:
+    ext = os.path.splitext(video_path.lower())[1]
+    if ext == ".webm":
+        return "video/webm"
+    if ext == ".mov":
+        return "video/mov"
+    if ext in (".mpeg", ".mpg"):
+        return "video/mpeg"
+    return "video/mp4"
+
+
+async def _extract_openrouter_video(
+    video_path: str,
+    ocr_text: str = "",
+    transcript: str = "",
+) -> Optional[dict]:
+    """
+    Fallback vidéo direct via OpenRouter.
+    À utiliser après Gemini/Qwen, avant frames + OCR.
+
+    Important :
+    - Ne jamais appeler depuis le frontend.
+    - Utiliser une vidéo courte/compressée.
+    - Retourne None si OpenRouter échoue ou si JSON inexploitable.
+    """
+    if not OPENROUTER_VIDEO_ENABLED:
+        return None
+
+    if not OPENROUTER_API_KEY:
+        print("⚠️ OpenRouter vidéo désactivé : OPENROUTER_API_KEY absente", flush=True)
+        return None
+
+    if not OPENROUTER_VIDEO_MODEL:
+        print("⚠️ OpenRouter vidéo désactivé : OPENROUTER_VIDEO_MODEL absent", flush=True)
+        return None
+
+    if not video_path or not os.path.exists(video_path):
+        return None
+
+    try:
+        size_mb = os.path.getsize(video_path) / 1024 / 1024
+    except Exception:
+        size_mb = 0
+
+    if size_mb > OPENROUTER_VIDEO_MAX_MB:
+        print(
+            f"⚠️ OpenRouter vidéo ignoré : fichier trop lourd "
+            f"({size_mb:.1f} MB > {OPENROUTER_VIDEO_MAX_MB:.1f} MB)",
+            flush=True,
+        )
+        return None
+
+    try:
+        with open(video_path, "rb") as f:
+            video_b64 = base64.b64encode(f.read()).decode()
+    except Exception as e:
+        print(f"⚠️ OpenRouter vidéo — lecture impossible : {e}", flush=True)
+        return None
+
+    prompt = EXTRACTION_PROMPT.format(
+        ocr_text=(ocr_text or "")[:MAX_OCR_CHARS],
+        transcript=(
+            transcript[:MAX_TRANSCRIPT_CHARS]
+            if transcript
+            else (
+                "Analyse cette vidéo complète. Extrais les dialogues audibles, "
+                "les textes visibles, les acteurs reconnaissables, le titre apparent, "
+                "les objets importants, l'époque, le genre et les indices visuels. "
+                "Réponds uniquement en JSON valide."
+            )
+        ),
+    )
+
+    mime = _guess_video_mime(video_path)
+
+    payload = {
+        "model": OPENROUTER_VIDEO_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": prompt,
+                    },
+                    {
+                        "type": "video_url",
+                        "video_url": {
+                            "url": f"data:{mime};base64,{video_b64}"
+                        },
+                    },
+                ],
+            }
+        ],
+        "temperature": 0.1,
+        "max_tokens": OPENROUTER_VIDEO_MAX_TOKENS,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": OPENROUTER_SITE_URL,
+        "X-Title": OPENROUTER_APP_NAME,
+    }
+
+    try:
+        print(
+            f"🎬 OpenRouter vidéo → modèle={OPENROUTER_VIDEO_MODEL}, "
+            f"taille={size_mb:.1f} MB",
+            flush=True,
+        )
+
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(
+                f"{OPENROUTER_BASE_URL}/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+
+        if resp.status_code >= 400:
+            print(
+                f"⚠️ OpenRouter vidéo HTTP {resp.status_code}: "
+                f"{resp.text[:300]}",
+                flush=True,
+            )
+            return None
+
+        raw = resp.json()
+        content = (
+            raw.get("choices", [{}])[0]
+               .get("message", {})
+               .get("content", "")
+        )
+
+        if isinstance(content, list):
+            text = "\n".join(
+                part.get("text", "")
+                for part in content
+                if isinstance(part, dict)
+            ).strip()
+        else:
+            text = str(content or "").strip()
+
+        if not text:
+            print("⚠️ OpenRouter vidéo — réponse vide", flush=True)
+            return None
+
+        try:
+            data = json.loads(_clean_json_fences(text))
+        except json.JSONDecodeError:
+            data = _try_parse_partial_json(text)
+
+        if not data:
+            print("⚠️ OpenRouter vidéo — JSON inexploitable", flush=True)
+            return None
+
+        data["source"] = "openrouter_video"
+        data["_transcript_raw"] = transcript or ""
+        data = _normalize_all_fields(data, default_certitude=70)
+
+        print(
+            f"✅ OpenRouter vidéo OK — titres={data.get('titres_possibles')}",
+            flush=True,
+        )
+
+        return data
+
+    except Exception as e:
+        print(f"⚠️ OpenRouter vidéo KO : {e}", flush=True)
+        return None
 # ═══════════════ FALLBACK QWEN VL ═══════════════
 
 async def _extract_qwen_vl(video_path: str) -> Optional[dict]:
@@ -814,10 +1023,24 @@ async def extract(
     if result:
         return result
 
-    print("🔄 Fallback Qwen VL...", flush=True)
+    print("🔄 Fallback Qwen VL.", flush=True)
     result = await _extract_qwen_vl(video_path)
     if result:
         return result
+
+    print("🔄 Fallback OpenRouter vidéo.", flush=True)
+    result = await _extract_openrouter_video(
+        video_path,
+        ocr_text=ocr_text,
+        transcript=transcript,
+    )
+    if result:
+        return result
+
+    print("🔄 Fallback frames + Gemini vision.", flush=True)
+
+
+
 
     print("🔄 Fallback frames + Gemini vision...", flush=True)
     if not frames:

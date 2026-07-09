@@ -1,5 +1,5 @@
 import os
-from sys import path
+
 import uuid
 import shutil
 import subprocess
@@ -10,15 +10,17 @@ import asyncio
 import re
 
 import httpx
+
 from core.embeddings_engine import check_known_film, store_film_signature
 from core.quote_search import find_quote_corroboration
 from core.feedback import get_correction_for_extraction, save_extraction_snapshot
 
-from core.confidence import make_opinion, rank_opinions, MULTI_CANDIDATE_THRESHOLD
+
+from core.confidence import make_opinion, rank_opinions
 from core.feedback import save_candidates_snapshot, submit_feedback
 from core import extraction
 from routes_filming import router as filming_router
-from typing import Optional
+from typing import Optional, final
 from contextlib import asynccontextmanager
 from collections import defaultdict
 from storage.cache_engine.lock_manager import acquire_lock, release_lock
@@ -32,6 +34,10 @@ from pydantic import BaseModel
 from core.web_search import should_trigger_web_fallback, web_search_fallback
 from core.wikidata import wikidata_search_candidates, should_trigger_wikidata, get_wikidata_enrichment, get_filming_locations
 from core import filming_catalogue
+from core.web_enrichment import (
+    light_web_enrich_extraction,
+    result_supported_by_web_light,
+)
 
 
 from vision.scene_detection import extract_keyframes
@@ -162,8 +168,12 @@ async def _resolve_short_url(url: str) -> str:
 # CONSTANTES
 # ════════════════════════════════════════════════════════════════
 MAX_VIDEO_SECONDS = 120
-GEMINI_MAX_SECONDS = 60   # durée max envoyée à Gemini (coût + vitesse)
+GEMINI_MAX_SECONDS = 60
 MAX_FILE_SIZE_MB  = 50
+
+# Mode Shazam : afficher plusieurs possibilités si le résultat n'est pas ultra sûr
+SHOULD_SHOW_ALTERNATIVES_BELOW = 88
+ALTERNATIVES_CLOSE_GAP = 12
 
 # ── RATE LIMITING ────────────────────────────────────────────────
 _ip_minute: dict = defaultdict(list)
@@ -356,89 +366,166 @@ def _extraction_is_useful(ext) -> bool:
 # TÂCHE DE FOND : download + analyse complète
 # ════════════════════════════════════════════════════════════════
 async def _process_local_file(
-    session: dict, video_path: str, audio_path: str, frame_dir: str,
-    url_label: str, lang: str, browser_lang: str,
+    session: dict,
+    video_path: str,
+    audio_path: str,
+    frame_dir: str,
+    url_label: str,
+    lang: str,
+    browser_lang: str,
 ) -> bool:
     """
-    Fichier vidéo LOCAL (téléchargé OU uploadé) :
-      1) conversion codec + validation durée
-      2) Gemini sur la vidéo (tronquée à GEMINI_MAX_SECONDS) → si concluant : terminé
-      3) sinon : audio + frames + transcription → process_analysis
-      4) si aucune frame : transcription_needed (fallback client)
-    Retourne True si un fallback client est en attente (ne pas nettoyer les fichiers).
+    Fichier vidéo LOCAL (téléchargé OU uploadé).
+
+    Ordre :
+      1) Conversion codec + validation durée
+      2) Gemini vidéo fichier
+      3) Qwen VL vidéo
+      4) OpenRouter vidéo direct
+      5) Audio + frames + transcription
+      6) process_analysis
+      7) Fallback client si aucune frame mais audio disponible
+
+    Retourne True si un fallback client est en attente
+    et qu'il ne faut pas nettoyer les fichiers immédiatement.
     """
     audio_exists = False
     session["status"] = "processing"
 
-    # 1) Conversion codec
+    # ── 1. Conversion codec si nécessaire ───────────────────────
     if video_path.endswith(".mp4"):
         try:
             probe = subprocess.run(
-                ["ffprobe", "-v", "error", "-select_streams", "v:0",
-                 "-show_entries", "stream=codec_name",
-                 "-of", "default=noprint_wrappers=1:nokey=1", video_path],
-                capture_output=True, text=True, timeout=5)
+                [
+                    "ffprobe",
+                    "-v", "error",
+                    "-select_streams", "v:0",
+                    "-show_entries", "stream=codec_name",
+                    "-of", "default=noprint_wrappers=1:nokey=1",
+                    video_path,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
             codec = probe.stdout.strip()
+
             if codec and codec not in ("h264", "hevc", "h265", "avc"):
                 converted = video_path.replace(".mp4", "_conv.mp4")
+
                 subprocess.run(
-                    ["ffmpeg", "-i", video_path, "-c:v", "libx264", "-crf", "23",
-                     "-preset", "fast", "-c:a", "aac", "-y", converted],
-                    capture_output=True, timeout=60)
+                    [
+                        "ffmpeg",
+                        "-i", video_path,
+                        "-c:v", "libx264",
+                        "-crf", "23",
+                        "-preset", "fast",
+                        "-c:a", "aac",
+                        "-y", converted,
+                    ],
+                    capture_output=True,
+                    timeout=60,
+                )
+
                 if os.path.exists(converted) and os.path.getsize(converted) > 1000:
-                    os.remove(video_path); os.rename(converted, video_path)
+                    os.remove(video_path)
+                    os.rename(converted, video_path)
+
         except Exception as e:
             print(f"⚠️ Probe/convert: {e}", flush=True)
 
+    # ── 1b. Validation durée ────────────────────────────────────
     duration = 0.0
     try:
         dur = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", video_path],
-            capture_output=True, text=True, timeout=5)
+            [
+                "ffprobe",
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                video_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
         duration = float(dur.stdout.strip() or 0)
+
         if 0 < duration < 3:
             session["status"] = "error"
-            session["result"] = {"status": "error", "code": "video_too_short",
-                "message": f"Vidéo trop courte ({duration:.1f}s). Essayez au moins 3 secondes."}
+            session["result"] = {
+                "status": "error",
+                "code": "video_too_short",
+                "message": (
+                    f"Vidéo trop courte ({duration:.1f}s). "
+                    "Essayez au moins 3 secondes."
+                ),
+            }
             return False
+
     except Exception:
         pass
 
-    # 2) Gemini sur la vidéo (tronquée à GEMINI_MAX_SECONDS pour le coût + la vitesse)
+    # ── 2. Gemini vidéo fichier ─────────────────────────────────
     gemini_path = video_path
+
     if duration > GEMINI_MAX_SECONDS:
         try:
-            trimmed = video_path.replace(".mp4", f"_g{GEMINI_MAX_SECONDS}.mp4")
+            base, _ext = os.path.splitext(video_path)
+            trimmed = f"{base}_g{GEMINI_MAX_SECONDS}.mp4"
+
             subprocess.run(
-                ["ffmpeg", "-i", video_path, "-t", str(GEMINI_MAX_SECONDS),
-                 "-c", "copy", "-y", trimmed],
-                capture_output=True, timeout=30)
+                [
+                    "ffmpeg",
+                    "-i", video_path,
+                    "-t", str(GEMINI_MAX_SECONDS),
+                    "-c", "copy",
+                    "-y", trimmed,
+                ],
+                capture_output=True,
+                timeout=30,
+            )
+
             if os.path.exists(trimmed) and os.path.getsize(trimmed) > 1000:
                 gemini_path = trimmed
-                print(f"✂️ Tronquée à {GEMINI_MAX_SECONDS}s pour Gemini "
-                      f"(vidéo de {duration:.0f}s)", flush=True)
-        except Exception as e:
-            print(f"⚠️ Troncature KO: {e} → vidéo entière", flush=True)
+                print(
+                    f"✂️ Tronquée à {GEMINI_MAX_SECONDS}s pour Gemini "
+                    f"(vidéo de {duration:.0f}s)",
+                    flush=True,
+                )
 
-    # ── Appel Gemini isolé : son échec ne doit JAMAIS entraîner
-    # l'exécution accidentelle d'une deuxième analyse plus bas ──
+        except Exception as e:
+            print(f"⚠️ Troncature Gemini KO: {e} → vidéo entière", flush=True)
+
     print("🎬 Gemini sur la vidéo (fichier)...", flush=True)
-    file_ext = None
+
     try:
         from core.extraction import _extract_gemini_video_file
+
         file_ext = await _extract_gemini_video_file(gemini_path)
+
         if _extraction_is_useful(file_ext):
             print("✅ Gemini fichier concluant → pas de frames", flush=True)
+
             result = await process_analysis(
-                frames=[], ocr_text="", transcript=file_ext.get("_transcript_raw", ""),
-                url=url_label, lang=lang, browser_lang=browser_lang,
-                prefetched_extraction=file_ext)
-            session["status"] = "done"; session["result"] = result
+                frames=[],
+                ocr_text="",
+                transcript=file_ext.get("_transcript_raw", ""),
+                url=url_label,
+                lang=lang,
+                browser_lang=browser_lang,
+                prefetched_extraction=file_ext,
+            )
+
+            session["status"] = "done"
+            session["result"] = result
             return False
+
         print("⚠️ Gemini fichier non concluant → Qwen VL", flush=True)
+
     except Exception as e:
         print(f"⚠️ Gemini fichier KO: {e} → Qwen VL", flush=True)
+
     finally:
         if gemini_path != video_path and os.path.exists(gemini_path):
             try:
@@ -446,20 +533,31 @@ async def _process_local_file(
             except Exception:
                 pass
 
-                            # 2b) Qwen VL (DashScope) — relais quand Gemini échoue ou n'est pas concluant.
-    QWEN_MAX_SECONDS = 90   # fenêtre plus large que Gemini pour ne pas dupliquer son angle mort
-
+    # ── 3. Qwen VL vidéo ────────────────────────────────────────
+    QWEN_MAX_SECONDS = 90
     qwen_path = video_path
+
     if duration > QWEN_MAX_SECONDS:
         try:
-            qwen_trimmed = video_path.replace(".mp4", f"_q{QWEN_MAX_SECONDS}.mp4")
+            base, _ext = os.path.splitext(video_path)
+            qwen_trimmed = f"{base}_q{QWEN_MAX_SECONDS}.mp4"
+
             subprocess.run(
-                ["ffmpeg", "-i", video_path, "-t", str(QWEN_MAX_SECONDS),
-                   "-c", "copy", "-y", qwen_trimmed],
-                capture_output=True, timeout=30)
+                [
+                    "ffmpeg",
+                    "-i", video_path,
+                    "-t", str(QWEN_MAX_SECONDS),
+                    "-c", "copy",
+                    "-y", qwen_trimmed,
+                ],
+                capture_output=True,
+                timeout=30,
+            )
+
             if os.path.exists(qwen_trimmed) and os.path.getsize(qwen_trimmed) > 1000:
                 qwen_path = qwen_trimmed
                 print(f"✂️ Tronquée à {QWEN_MAX_SECONDS}s pour Qwen VL", flush=True)
+
         except Exception as e:
             print(f"⚠️ Troncature Qwen KO: {e} → vidéo entière", flush=True)
 
@@ -468,7 +566,7 @@ async def _process_local_file(
             from core.extraction import _extract_qwen_vl
             return await _extract_qwen_vl(path)
         except Exception as e:
-            print(f"⚠️ Qwen VL KO: {e} → frames", flush=True)
+            print(f"⚠️ Qwen VL KO: {e} → OpenRouter vidéo", flush=True)
             return None
 
     try:
@@ -482,81 +580,238 @@ async def _process_local_file(
 
     if _extraction_is_useful(qwen_ext):
         print("✅ Qwen VL concluant → pas de frames", flush=True)
+
         result = await process_analysis(
-            frames=[], ocr_text="", transcript=qwen_ext.get("_transcript_raw", ""),
-            url=url_label, lang=lang, browser_lang=browser_lang,
-            prefetched_extraction=qwen_ext)
-        session["status"] = "done"; session["result"] = result
+            frames=[],
+            ocr_text="",
+            transcript=qwen_ext.get("_transcript_raw", ""),
+            url=url_label,
+            lang=lang,
+            browser_lang=browser_lang,
+            prefetched_extraction=qwen_ext,
+        )
+
+        session["status"] = "done"
+        session["result"] = result
         return False
-    print("⚠️ Qwen VL non concluant → frames + transcription", flush=True)
 
+    print("⚠️ Qwen VL non concluant → OpenRouter vidéo", flush=True)
 
+    # ── 4. OpenRouter vidéo direct ──────────────────────────────
+    openrouter_path = video_path
+    openrouter_generated_path = None
 
-    # 3) Audio
+    try:
+        OPENROUTER_MAX_SECONDS = int(
+            os.environ.get("OPENROUTER_MAX_VIDEO_SECONDS", "45")
+        )
+        OPENROUTER_VIDEO_HEIGHT = int(
+            os.environ.get("OPENROUTER_VIDEO_HEIGHT", "480")
+        )
+
+        base, _ext = os.path.splitext(video_path)
+        openrouter_generated_path = f"{base}_or{OPENROUTER_MAX_SECONDS}.mp4"
+
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-i", video_path,
+                "-t", str(OPENROUTER_MAX_SECONDS),
+                "-map", "0:v:0",
+                "-map", "0:a?",
+                "-vf", f"scale=-2:{OPENROUTER_VIDEO_HEIGHT}",
+                "-r", "12",
+                "-c:v", "libx264",
+                "-preset", "veryfast",
+                "-crf", "30",
+                "-c:a", "aac",
+                "-b:a", "64k",
+                "-ac", "1",
+                "-ar", "16000",
+                "-movflags", "+faststart",
+                "-y", openrouter_generated_path,
+            ],
+            capture_output=True,
+            timeout=75,
+        )
+
+        if (
+            os.path.exists(openrouter_generated_path)
+            and os.path.getsize(openrouter_generated_path) > 1000
+        ):
+            openrouter_path = openrouter_generated_path
+            print(
+                f"🎬 Vidéo optimisée OpenRouter "
+                f"({os.path.getsize(openrouter_path) / 1024 / 1024:.1f} MB)",
+                flush=True,
+            )
+        else:
+            print("⚠️ Compression OpenRouter KO → vidéo originale", flush=True)
+            openrouter_path = video_path
+
+        try:
+            from core.extraction import _extract_openrouter_video
+
+            openrouter_ext = await _extract_openrouter_video(openrouter_path)
+
+        except Exception as e:
+            print(f"⚠️ OpenRouter vidéo exception: {e} → frames", flush=True)
+            openrouter_ext = None
+
+        if _extraction_is_useful(openrouter_ext):
+            print("✅ OpenRouter vidéo concluant → pas de frames", flush=True)
+
+            result = await process_analysis(
+                frames=[],
+                ocr_text="",
+                transcript=openrouter_ext.get("_transcript_raw", ""),
+                url=url_label,
+                lang=lang,
+                browser_lang=browser_lang,
+                prefetched_extraction=openrouter_ext,
+            )
+
+            session["status"] = "done"
+            session["result"] = result
+            return False
+
+    except Exception as e:
+        print(f"⚠️ Préparation OpenRouter vidéo KO: {e} → frames", flush=True)
+
+    finally:
+        if (
+            openrouter_generated_path
+            and openrouter_generated_path != video_path
+            and os.path.exists(openrouter_generated_path)
+        ):
+            try:
+                os.remove(openrouter_generated_path)
+            except Exception:
+                pass
+
+    print("⚠️ OpenRouter vidéo non concluant → frames + transcription", flush=True)
+
+    # ── 5. Audio ────────────────────────────────────────────────
     try:
         subprocess.run(
-            ["ffmpeg", "-i", video_path, "-t", str(MAX_VIDEO_SECONDS),
-             "-vn", "-acodec", "libmp3lame", "-ar", "16000", "-ac", "1",
-             "-b:a", "64k", "-y", audio_path],
-            check=True, capture_output=True, timeout=30)
+            [
+                "ffmpeg",
+                "-i", video_path,
+                "-t", str(MAX_VIDEO_SECONDS),
+                "-vn",
+                "-acodec", "libmp3lame",
+                "-ar", "16000",
+                "-ac", "1",
+                "-b:a", "64k",
+                "-y", audio_path,
+            ],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
         audio_exists = os.path.exists(audio_path) and os.path.getsize(audio_path) > 100
+
     except Exception:
         try:
             subprocess.run(
-                ["ffmpeg", "-i", video_path, "-t", str(MAX_VIDEO_SECONDS),
-                 "-vn", "-ar", "16000", "-ac", "1", "-f", "mp3", "-y", audio_path],
-                check=True, capture_output=True, timeout=30)
+                [
+                    "ffmpeg",
+                    "-i", video_path,
+                    "-t", str(MAX_VIDEO_SECONDS),
+                    "-vn",
+                    "-ar", "16000",
+                    "-ac", "1",
+                    "-f", "mp3",
+                    "-y", audio_path,
+                ],
+                check=True,
+                capture_output=True,
+                timeout=30,
+            )
             audio_exists = os.path.exists(audio_path) and os.path.getsize(audio_path) > 100
+
         except Exception as e2:
             print(f"⚠️ Audio KO: {str(e2)[:80]}", flush=True)
 
-    # 4) Frames
+    # ── 6. Frames ───────────────────────────────────────────────
     try:
         frames = extract_keyframes(video_path, frame_dir, max_frames=6) or []
     except Exception as e:
-        print(f"⚠️ Keyframes: {e}", flush=True); frames = []
-    frames = [f for f in frames if os.path.exists(f) and os.path.getsize(f) > 0]
+        print(f"⚠️ Keyframes: {e}", flush=True)
+        frames = []
+
+    frames = [
+        f for f in frames
+        if os.path.exists(f) and os.path.getsize(f) > 0
+    ]
+
     print(f"✅ Frames valides: {len(frames)}", flush=True)
 
     if not frames and not audio_exists:
         session["status"] = "error"
-        session["result"] = {"status": "error", "code": "no_frames",
-            "message": "Impossible d'extraire des images ou de l'audio de cette vidéo."}
+        session["result"] = {
+            "status": "error",
+            "code": "no_frames",
+            "message": "Impossible d'extraire des images ou de l'audio de cette vidéo.",
+        }
         return False
 
-    # 5) Transcription
+    # ── 7. Transcription ────────────────────────────────────────
     transcript = ""
+
     if audio_exists:
         try:
             transcript = transcribe(audio_path, enabled=True) or ""
         except Exception as e:
             print(f"⚠️ Transcription KO: {e}", flush=True)
 
-    # 6) Analyse via frames
+    # ── 8. Analyse via frames ───────────────────────────────────
     if frames:
-        result = await process_analysis(frames, "", transcript, url_label, lang, browser_lang)
-        session["status"] = "done"; session["result"] = result
+        result = await process_analysis(
+            frames,
+            "",
+            transcript,
+            url_label,
+            lang,
+            browser_lang,
+        )
+
+        session["status"] = "done"
+        session["result"] = result
         return False
 
-    # 7) Fallback client (aucune frame)
+    # ── 9. Fallback client si aucune frame mais audio disponible ─
     audio_b64 = ""
+
     if audio_exists:
         try:
             with open(audio_path, "rb") as f:
                 audio_b64 = base64.b64encode(f.read()).decode()
         except Exception:
             pass
+
     fallback_sid = str(uuid.uuid4())[:12]
+
     sessions[fallback_sid] = {
-        "url": url_label, "lang": lang, "browser_lang": browser_lang,
-        "video_path": video_path, "audio_path": audio_path, "frame_dir": frame_dir,
-        "ocr_text": "", "timestamp": time.time()}
+        "url": url_label,
+        "lang": lang,
+        "browser_lang": browser_lang,
+        "video_path": video_path,
+        "audio_path": audio_path,
+        "frame_dir": frame_dir,
+        "ocr_text": "",
+        "timestamp": time.time(),
+    }
+
     session["status"] = "done"
-    session["result"] = {"status": "transcription_needed", "session_id": fallback_sid,
-                         "frames_base64": [], "audio_base64": audio_b64}
+    session["result"] = {
+        "status": "transcription_needed",
+        "session_id": fallback_sid,
+        "frames_base64": [],
+        "audio_base64": audio_b64,
+    }
+
     return True
-
-
 async def _run_download_and_analyse(session_id, url, platform, lang, browser_lang):
     session = _dl_sessions.get(session_id)
     if not session:
@@ -893,8 +1148,9 @@ async def _finalize_with_known_result(
                      est sous MULTI_CANDIDATE_THRESHOLD
     """
     confidence = result.get("score", 0)
+    alternatives = alternatives or []
 
-    if confidence >= 30 and result.get("id"):
+    if confidence >= SHOULD_SHOW_ALTERNATIVES_BELOW and result.get("id"):
         film_hit = get_cache_by_film(result["id"], lang)
         if film_hit:
             set_cache(url, film_hit, transcript=transcript or "", ocr_text=ocr_text or "")
@@ -1000,34 +1256,108 @@ async def _finalize_with_known_result(
     }
 
     # ── Multi-candidats : propose des alternatives si confiance faible ──
-    if confidence < MULTI_CANDIDATE_THRESHOLD and alternatives:
+    # ── Multi-candidats façon Shazam ─────────────────────────────
+# On propose plusieurs films si la confiance est moyenne/faible.
+# Même si le score dépasse légèrement le seuil, on garde des alternatives
+# quand le résultat n'est pas ultra sûr.
+    show_multi_candidates = _should_show_shazam_choices(
+    result,
+    alternatives,
+    hard_threshold=SHOULD_SHOW_ALTERNATIVES_BELOW,
+    close_gap=ALTERNATIVES_CLOSE_GAP,
+)
+
+    if show_multi_candidates and alternatives:
         alt_details = []
-        for alt in alternatives[:2]:
+        for alt in alternatives[:4]:
             try:
                 d = (
                     await get_tv_details(alt["id"], details_lang)
                     if alt.get("media_type") == "tv"
                     else await get_movie_details(alt["id"], details_lang)
-                )
+                    )
                 alt_details.append({
                     "id":          alt["id"],
-                    "title":       alt["meilleur_titre"] or d.get("title") or d.get("name"),
+                    "title":       alt.get("meilleur_titre") or d.get("title") or d.get("name"),
                     "media_type":  alt.get("media_type", "movie"),
                     "poster_path": d.get("poster_path"),
                     "year":        (d.get("release_date") or d.get("first_air_date") or "")[:4],
-                    "confidence":  alt["score"],
+                    "confidence":  alt.get("score", 0),
                 })
             except Exception:
                 continue
+
         if alt_details:
-            final["alternatives"]       = alt_details
+            final["alternatives"] = alt_details
             final["needs_confirmation"] = True
-    final["_transcript"] = transcript or ""
-    final["_ocr_text"]   = ocr_text or ""
+            final["message"] = (
+            "Nous pensons avoir trouvé le film, mais voici d'autres possibilités proches."
+            )
+
+# Cache toujours le résultat final fiable, avec ou sans alternatives
     if confidence >= 50:
         set_cache(url, final, transcript=transcript or "", ocr_text=ocr_text or "")
 
     return final
+
+
+
+
+
+
+def _make_candidate_alternatives(
+    candidates: list,
+    best_result: dict,
+    max_items: int = 4,
+) -> list:
+    """
+    Fabrique des alternatives façon Shazam à partir des candidats TMDB.
+    On exclut le résultat principal et on garde les candidats les plus plausibles.
+    """
+    if not candidates or not best_result:
+        return []
+
+    best_id = best_result.get("id")
+    alternatives = []
+
+    for c in candidates:
+        if c.get("id") == best_id:
+            continue
+
+        title = c.get("title") or c.get("name") or ""
+        if not title:
+            continue
+
+        media_type = c.get("media_type")
+        if not media_type:
+            media_type = "tv" if c.get("first_air_date") else "movie"
+
+        year = (c.get("release_date") or c.get("first_air_date") or "")[:4]
+
+        # Score indicatif : ce n'est pas une certitude LLM,
+        # juste une plausibilité pour affichage.
+        alt_score = max(
+            35,
+            min(
+                82,
+                int((c.get("vote_average") or 5) * 8)
+            )
+        )
+
+        alternatives.append({
+            "id": c.get("id"),
+            "meilleur_titre": title,
+            "media_type": media_type,
+            "score": alt_score,
+            "year": year,
+        })
+
+        if len(alternatives) >= max_items:
+            break
+
+    return alternatives
+
+
 async def process_analysis(
     frames,
     ocr_text,
@@ -1137,6 +1467,21 @@ async def process_analysis(
             }],
         )
 
+    
+    # ── 2c. Web clue enrichment léger AVANT TMDB ─────────────────
+    # Objectif : enrichir extraction_json avec quelques titres/années web,
+    # puis laisser run_cascade_search interroger TMDB proprement.
+    try:
+        extraction = await light_web_enrich_extraction(
+            extraction,
+            ocr_text=ocr_text or "",
+            transcript=transcript or "",
+            browser_lang=browser_lang,
+        )
+    except Exception as e:
+        print(f"⚠️ Web light enrichment KO: {str(e)[:120]}", flush=True)
+    
+    
     # ── 3. Langue de la transcription ────────────────────────────
     transcript_lang = extraction.get("langue_originale") or None
     if not transcript_lang and detected_script != "latin":
@@ -1222,6 +1567,7 @@ async def process_analysis(
     candidates = []
     result     = None
     opinions   = []   # ← accumule les avis de chaque canal indépendant
+    candidate_alternatives = []
 
     # ── 5. Recherche via acteurs ─────────────────────────────────
     actor_candidates = await build_candidates_from_actors(
@@ -1277,6 +1623,11 @@ async def process_analysis(
         )
         if candidates:
             result = await rerank(extraction, candidates)
+            candidate_alternatives = _make_candidate_alternatives(
+                candidates,
+                result,
+                max_items=4,
+                )
             opinions.append(make_opinion(result, "cascade"))
             if not result or not result.get("id"):
                 result = {
@@ -1285,6 +1636,20 @@ async def process_analysis(
                     "score":          35,
                     "media_type":     candidates[0].get("media_type", "movie"),
                 }
+        # ── 6a+. Corroboration par web léger ─────────────────────────
+    if result and result_supported_by_web_light(result, extraction):
+        web_light_score = min(92, max(result.get("score", 0), 70) + 5)
+        web_light_result = {
+            **result,
+            "score": web_light_score,
+            "raison": "corroboration web léger",
+        }
+        opinions.append(make_opinion(web_light_result, "web_light"))
+        print(
+            f"🌐 Web light corrobore {result.get('meilleur_titre')} "
+            f"→ opinion score={web_light_score}",
+            flush=True,
+        )
 
     # ── 6b. Wikidata fallback ─────────────────────────────────────
     current_score = result.get("score", 0) if result else 0
@@ -1343,40 +1708,47 @@ async def process_analysis(
                 candidates = merged_candidates
 
     # ── 6d. Score composite + classement multi-candidats ──────────
-    ranked = rank_opinions(opinions, max_results=3)
+  
+    ranked = rank_opinions(opinions, max_results=5)
+
     alternatives = []
     if ranked:
         top = ranked[0]
         if not result or top["score"] > result.get("score", 0):
             result = {
-                "id":             top["id"],
-                "meilleur_titre": top["meilleur_titre"],
-                "media_type":     top["media_type"],
-                "score":          top["score"],
-            }
+            "id":             top["id"],
+            "meilleur_titre": top["meilleur_titre"],
+            "media_type":     top["media_type"],
+            "score":          top["score"],
+        }
+
+    # Alternatives issues des sources indépendantes : cascade, web, Wikidata, quote...
         alternatives = ranked[1:]
 
-    # ── Aucun résultat ────────────────────────────────────────────
-    if not candidates and not result:
-        titres    = extraction.get("titres_possibles", [])
-        titre     = str(titres[0]).lstrip("?") if titres else ""
-        not_found = {
-            "status":         "not_found",
-            "message":        "Aucun film ou série trouvé pour cette vidéo.",
-            "search_youtube": f"https://www.youtube.com/results?search_query={titre}+film",
-            "search_google":  f"https://www.google.com/search?q={titre}+film",
-            "search_tmdb":    f"https://www.themoviedb.org/search?query={titre}",
-        }
-        set_cache(url, not_found, transcript=transcript or "", ocr_text=ocr_text or "")
-        return not_found
+# Alternatives issues des candidats TMDB, façon Shazam
+    if candidates and result:
+        candidate_alternatives = _make_candidate_alternatives(
+            candidates,
+            result,
+            max_items=4,
+    )
 
-    if not result or not result.get("id"):
-        result = {
-            "meilleur_titre": candidates[0].get("title") or candidates[0].get("name", "Inconnu"),
-            "id":             candidates[0]["id"],
-            "score":          35,
-            "media_type":     candidates[0].get("media_type", "movie"),
-        }
+# Fusion propre : alternatives sources + alternatives TMDB
+    seen_alt_ids = {result.get("id")} if result else set()
+    merged_alternatives = []
+
+    for alt in (alternatives + candidate_alternatives):
+        alt_id = alt.get("id")
+        if not alt_id or alt_id in seen_alt_ids:
+            continue
+        seen_alt_ids.add(alt_id)
+        merged_alternatives.append(alt)
+        if len(merged_alternatives) >= 4:
+            break
+
+    alternatives = merged_alternatives
+
+
 
     # ── 7. Finalisation (détails TMDB + construction du résultat) ──
     final = await _finalize_with_known_result(
@@ -1409,6 +1781,29 @@ async def process_analysis(
 
     return final
 
+
+
+
+def _should_show_shazam_choices(
+    result: dict,
+    alternatives: list,
+    hard_threshold: int = 88,
+    close_gap: int = 12,
+) -> bool:
+    if not result:
+        return False
+
+    score = result.get("score", 0)
+
+    if score < hard_threshold:
+        return True
+
+    if alternatives:
+        best_alt_score = max((a.get("score", 0) for a in alternatives), default=0)
+        if best_alt_score and (score - best_alt_score) <= close_gap:
+            return True
+
+    return False
 # ════════════════════════════════════════════════════════════════
 # ROUTES PUBLIQUES
 # ════════════════════════════════════════════════════════════════

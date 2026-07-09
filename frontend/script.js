@@ -2309,17 +2309,24 @@ function afficherDetailFilm(data) {
     confWrap.style.display = "none";
   }
   // ─── ALTERNATIVES (multi-candidats) ──────────────────────────
-  const altEl = document.getElementById("alternatives_section");
-  if (altEl) {
-    if (data.needs_confirmation && Array.isArray(data.alternatives) && data.alternatives.length > 0) {
-      afficherAlternatives(altEl, data.alternatives);
-    } else {
-      altEl.innerHTML = "";
-    }
-  }
-  const reportWrap = document.getElementById("report-wrong-wrap");
-  if (reportWrap) reportWrap.style.display = _cameFromAnalysis ? "block" : "none";
+const altEl = document.getElementById("alternatives_section");
 
+if (altEl) {
+  if (
+    data.needs_confirmation &&
+    Array.isArray(data.alternatives) &&
+    data.alternatives.length > 0
+  ) {
+    altEl.style.display = "block";
+    afficherAlternatives(altEl, data.alternatives);
+  } else {
+    altEl.innerHTML = "";
+    altEl.style.display = "none";
+  }
+}
+
+  
+  
   // Note
   const ratingEl = document.getElementById("detail_rating");
   ratingEl.innerHTML = data.vote_average
