@@ -441,7 +441,7 @@ def _video_prompt() -> str:
             "Extrais tous les dialogues audibles, textes visibles à l'écran, "
             "noms d'acteurs reconnaissables, et tout titre apparent. "
             "IMPORTANT pour les acteurs : ne liste un acteur QUE si tu le reconnais "
-            "formellement avec une certitude ≥ 70%. Si le visage n'est pas clairement "
+            "formellement avec une certitude ≥ 90%. Si le visage n'est pas clairement "
             "visible ou si tu n'es pas certain, laisse acteurs=[] et acteurs_certitude=[]. "
             "Détecte aussi si le contenu est généré par IA (is_ai_generated). "
             "Pour YouTube : utilise aussi les sous-titres automatiques si disponibles.)"
@@ -834,6 +834,9 @@ async def _extract_openrouter_video(
         ],
         "temperature": 0.1,
         "max_tokens": OPENROUTER_VIDEO_MAX_TOKENS,
+        "response_format": {
+            "type": "json_object"
+        },
     }
 
     headers = {
@@ -930,7 +933,9 @@ async def _extract_qwen_vl(video_path: str) -> Optional[dict]:
         ocr_text="",
         transcript=(
             "Analyse cette vidéo complète. Extrais tous les dialogues audibles, "
-            "textes visibles, noms d'acteurs reconnaissables, titre apparent, etc."
+            "textes visibles, titre apparent, objets importants et indices visuels. "
+            "IMPORTANT : ne liste un acteur QUE si son visage est clairement visible "
+            "et reconnu avec une certitude ≥ 90%. Si doute, acteurs=[] et acteurs_certitude=[]."
         ),
     )
     messages = [{

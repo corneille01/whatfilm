@@ -137,25 +137,43 @@ RÈGLES STRICTES
      titres_possibles = ["Black Mirror", "?San Junipero"]
 
 2. "acteurs" et "acteurs_certitude" — RÈGLE ABSOLUE ANTI-HALLUCINATION :
-   Un acteur ne doit être listé QUE si tu le reconnais avec une certitude ≥ 70%.
 
-   Pour chaque acteur listé dans "acteurs", tu DOIS fournir un score de certitude
-   dans "acteurs_certitude" (même index, même ordre) :
-   - 90-100 : visage net, bien éclairé, reconnaissable sans AUCUN doute
-   - 70-89  : reconnaissable mais angle ou éclairage imparfait
-   - 50-69  : ressemblance forte mais incertain → NE PAS lister
-   - <50    : simple impression → NE PAS lister
+Un acteur ne doit être listé QUE s'il est reconnu VISUELLEMENT dans les images
+avec une certitude réelle ≥ 90%.
 
-   INTERDICTIONS ABSOLUES :
-   - JAMAIS deviner depuis un profil de dos, flou, partiellement visible
-   - JAMAIS inférer depuis le style du film, le genre, la nationalité
-   - JAMAIS "compléter" avec un acteur probable si non certain à 70%+
-   - Si doute → acteurs=[] et acteurs_certitude=[]
+NE LISTE PAS un acteur parce que :
+- tu crois avoir reconnu le film,
+- le titre_possible te fait penser à ce casting,
+- le synopsis correspond à un film connu,
+- la vidéo ressemble à un film avec cet acteur,
+- le commentaire mentionne un film dans lequel cet acteur joue,
+- tu fais une déduction à partir du genre, de l'année ou du pays.
 
-   Format : "Prénom Nom"
-   Exemple correct :
-     acteurs=["Brad Pitt", "Angelina Jolie"]
-     acteurs_certitude=[95, 72]
+IMPORTANT :
+Si tu proposes un titre avec "?", alors les acteurs associés à ce titre
+NE DOIVENT PAS être listés sauf si leur visage est clairement visible dans les frames.
+
+Pour chaque acteur listé dans "acteurs", tu DOIS fournir un score de certitude
+dans "acteurs_certitude" :
+- 95-100 : visage net, frontal, bien éclairé, aucun doute
+- 90-94  : visage reconnaissable avec très faible doute
+- <90    : NE PAS LISTER
+
+INTERDICTIONS ABSOLUES :
+- JAMAIS deviner depuis un profil de dos, flou ou partiellement visible
+- JAMAIS inférer depuis un film supposé
+- JAMAIS compléter le casting d'un titre_possible
+- JAMAIS utiliser les acteurs connus d'un film si tu n'as pas vu leur visage
+- Si doute → acteurs=[] et acteurs_certitude=[]
+
+Si tu n'es pas certain à 90% ou plus :
+acteurs=[]
+acteurs_certitude=[]
+
+Format : "Prénom Nom"
+Exemple correct :
+acteurs=["Brad Pitt"]
+acteurs_certitude=[96]
 
 3. "personnages" : noms de personnages vus à l'écran ou cités dans les dialogues/commentaires.
 
@@ -185,26 +203,97 @@ Réponds UNIQUEMENT avec ce JSON valide sur une seule ligne, sans markdown ni ex
 {{"titres_possibles":[],"acteurs":[],"acteurs_certitude":[],"personnages":[],"objets_importants":[],"description_courte":"","genre_apparent":"","annee_estimee":null,"langue_originale":"","indices_visuels":[],"is_ai_generated":false}}"""
 
 
-RERANK_PROMPT = """Tu es un expert en identification de films et séries TV du monde entier.
 
-Voici les indices extraits de la vidéo :
+
+
+
+
+
+
+
+
+RERANK_PROMPT = """Tu es un moteur strict de vérification de candidats TMDB.
+
+Tu ne dois PAS deviner le film.
+Tu dois seulement choisir le candidat TMDB le moins mauvais parmi la liste fournie.
+
+Indices extraits de la vidéo :
 {extraction_json}
 
-Voici les candidats trouvés sur TMDB :
+Candidats TMDB :
 {candidates_json}
 
-RÈGLES STRICTES :
-- Compare titres_possibles, acteurs, personnages, objets_importants, indices_visuels
-  et description_courte avec le titre et synopsis de chaque candidat.
-- Si un titre_possible correspond exactement à un candidat → score 90+.
-- Si description_courte et synopsis concordent clairement → score 70+.
-- Si acteurs ou personnages correspondent → bonus +10.
-- Si l'année correspond → bonus +5.
-- Si aucun candidat ne correspond vraiment → score < 30 mais choisis quand même le plus probable.
-- Le score va de 0 (aucune confiance) à 100 (certitude absolue).
-- "meilleur_titre" doit être le titre EXACT du champ "title" du candidat choisi.
-- JAMAIS inventer un candidat qui n'est pas dans la liste.
-- Tu DOIS toujours retourner un id valide parmi les candidats listés. JAMAIS null.
+════════════════════════════════════════
+RÈGLES ABSOLUES
+════════════════════════════════════════
+1. Tu dois choisir UNIQUEMENT un id présent dans candidats_json.
+2. Tu ne dois JAMAIS inventer un film, une série, un acteur ou une année.
+3. Si les indices sont faibles, contradictoires ou basés seulement sur des acteurs incertains,
+   tu dois donner un score BAS.
+4. Un acteur seul ne suffit JAMAIS pour donner un score élevé.
+5. Un titre_possible préfixé par "?" est une hypothèse faible, pas une preuve.
+6. Si le titre_possible commence par "?", le score maximum est 80 sauf si le synopsis,
+   l'année ou les objets visuels confirment fortement.
+7. Si le match repose seulement sur les acteurs, le score maximum est 65.
+8. Si les acteurs semblent incompatibles avec le candidat, score maximum 45.
+9. Si le synopsis du candidat ne correspond pas à description_courte / indices_visuels,
+   score maximum 60.
+10. Si aucun candidat ne correspond vraiment, choisis le moins mauvais mais score < 35.
 
-Réponds UNIQUEMENT avec ce JSON minifié sur UNE SEULE LIGNE sans espace superflu, sans markdown :
-{{"id":<id>,"meilleur_titre":"<titre>","score":<0-100>,"raison":"<max 15 mots>"}}"""
+════════════════════════════════════════
+BARÈME DE SCORE
+════════════════════════════════════════
+95-100 :
+- Titre exact vu/cité SANS "?"
+- Et synopsis/année/visuel compatibles
+
+85-94 :
+- Titre quasi exact
+- Et au moins un autre indice fort confirme
+
+70-84 :
+- Titre hypothétique avec "?"
+- Ou description visuelle très compatible
+- Mais pas de preuve absolue
+
+50-69 :
+- Match possible mais fragile
+- Acteurs ou genre seulement
+- Pas assez de preuves visuelles
+
+30-49 :
+- Candidat très incertain
+- Quelques éléments vagues seulement
+
+0-29 :
+- Aucun candidat ne correspond vraiment
+
+════════════════════════════════════════
+RÈGLE SPÉCIALE ACTEURS
+════════════════════════════════════════
+Les acteurs extraits peuvent être faux.
+Ne fais pas confiance aux acteurs si :
+- ils viennent d'une hypothèse de titre,
+- ils ne sont pas explicitement visibles,
+- ils ne sont pas confirmés par titre/synopsis/personnage.
+
+Si le meilleur candidat est choisi principalement grâce aux acteurs,
+mets un score maximum de 65.
+
+════════════════════════════════════════
+RÈGLE SPÉCIALE TITRE
+════════════════════════════════════════
+- titre_possible sans "?" = indice fort.
+- titre_possible avec "?" = hypothèse.
+- Si un titre avec "?" correspond à un candidat mais que le synopsis ne confirme pas,
+  score maximum 70.
+
+════════════════════════════════════════
+SORTIE OBLIGATOIRE
+════════════════════════════════════════
+Réponds UNIQUEMENT avec ce JSON valide, minifié, sur UNE SEULE LIGNE.
+Aucun markdown. Aucun raisonnement. Aucun texte avant ou après.
+
+Format exact :
+{{"id":123,"meilleur_titre":"Titre exact TMDB","score":65,"raison":"max 15 mots"}}
+"""

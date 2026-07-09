@@ -55,7 +55,7 @@ OPENROUTER_BASE_URL = os.environ.get(
 
 OPENROUTER_RERANK_MODEL = os.environ.get(
     "OPENROUTER_RERANK_MODEL",
-    "openrouter/free",
+    "qwen/qwen3-next-80b-a3b-instruct:free",
 )
 
 OPENROUTER_SITE_URL = os.environ.get(
@@ -312,11 +312,11 @@ def _has_corroboration(extraction: dict, candidate: Dict[str, Any]) -> bool:
     if candidate_title in titres_incertains:
         return True
 
-    # Acteurs avec certitude élevée (≥70, seuil fixé par le prompt d'extraction)
+    # Acteurs avec certitude très élevée (≥90, cohérent avec le prompt d'extraction)
     acteurs    = extraction.get("acteurs", []) or []
     certitudes = extraction.get("acteurs_certitude", []) or []
     if acteurs and any(
-        (c if isinstance(c, (int, float)) else 0) >= 70 for c in certitudes
+        (c if isinstance(c, (int, float)) else 0) >= 90 for c in certitudes
     ):
         return True
 

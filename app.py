@@ -20,7 +20,7 @@ from core.confidence import make_opinion, rank_opinions
 from core.feedback import save_candidates_snapshot, submit_feedback
 from core import extraction
 from routes_filming import router as filming_router
-from typing import Optional, final
+from typing import Optional
 from contextlib import asynccontextmanager
 from collections import defaultdict
 from storage.cache_engine.lock_manager import acquire_lock, release_lock
@@ -356,7 +356,7 @@ class ContinueRequest(BaseModel):
 
 def _extraction_is_useful(ext) -> bool:
     """Gemini a-t-il reconnu quelque chose d'exploitable ?"""
-    if not ext:
+    if not ext: 
         return False
     if ext.get("is_ai_generated"):
         return True
@@ -367,54 +367,111 @@ def _extraction_is_useful(ext) -> bool:
 
 
 
-def _extraction_confidence(ext: dict | None) -> int:
-    if not ext:
-        return 0
-
-    certitudes = []
-
-    for key in ("titres_possibles", "acteurs"):
-        values = ext.get(key) or []
-        if isinstance(values, list):
-            for item in values:
-                if isinstance(item, dict):
-                    certitudes.append(int(item.get("certitude", 0) or 0))
-
-    if ext.get("titre_exact"):
-        certitudes.append(95)
-
-    if ext.get("is_ai_generated"):
-        certitudes.append(90)
-
-    if not certitudes and (ext.get("titres_possibles") or ext.get("acteurs")):
-        return 65
-
-    return max(certitudes or [0])
 
 
-def _should_verify_with_other_video_models(ext: dict | None, duration: float = 0.0) -> bool:
-    """
-    On ne fait plus confiance à Gemini seul quand :
-    - vidéo longue tronquée,
-    - pas de titre exact,
-    - seulement acteurs/titre possible,
-    - certitude moyenne.
-    """
-    if not _extraction_is_useful(ext):
-        return True
 
-    confidence = _extraction_confidence(ext)
 
-    if ext.get("is_ai_generated"):
+
+
+
+
+
+def _has_exact_title(extraction: dict | None) -> bool:
+    if not extraction:
         return False
 
-    if duration > GEMINI_MAX_SECONDS:
-        return True
+    for t in extraction.get("titres_possibles", []) or []:
+        s = str(t or "").strip()
+        if s and not s.startswith("?"):
+            return True
 
-    if not ext.get("titre_exact") and confidence < 95:
-        return True
+    return bool(extraction.get("titre_exact"))
 
-    return confidence < 90
+
+def _sanitize_actors_for_search(extraction: dict | None) -> dict:
+    """
+    Empêche les acteurs halluciné par Gemini/Qwen/OpenRouter de polluer TMDB.
+    On garde les acteurs seulement s'ils sont très sûrs.
+    """
+    if not extraction:
+        return extraction or {}
+
+    extraction = dict(extraction)
+
+    actors = extraction.get("acteurs") or []
+    certs = extraction.get("acteurs_certitude") or []
+    source = str(extraction.get("source", "")).lower()
+
+    if not actors:
+        return extraction
+
+    has_exact_title = _has_exact_title(extraction)
+
+    # Sources vidéo LLM : très fortes en description, mais peuvent halluciner les visages.
+    video_sources = (
+        "qwen" in source
+        or "gemini" in source
+        or "openrouter" in source
+        or "video" in source
+    )
+
+    # Si le titre est seulement hypothétique, on durcit beaucoup.
+    # Ex: titres=['?The Covenant'] → acteurs à ignorer sauf certitude énorme.
+    if video_sources and not has_exact_title:
+        min_cert = 92
+    elif video_sources:
+        min_cert = 88
+    else:
+        min_cert = 85
+
+    kept_actors = []
+    kept_certs = []
+
+    for i, actor in enumerate(actors):
+        actor_name = str(actor or "").strip()
+        if not actor_name:
+            continue
+
+        try:
+            cert = int(certs[i]) if i < len(certs) else 0
+        except Exception:
+            cert = 0
+
+        if cert >= min_cert:
+            kept_actors.append(actor_name)
+            kept_certs.append(cert)
+        else:
+            print(
+                f"🧹 Acteur ignoré car trop incertain: "
+                f"{actor_name} ({cert}<{min_cert}, source={source or 'unknown'})",
+                flush=True,
+            )
+
+    # Sécurité supplémentaire :
+    # si le modèle a proposé un titre avec "?" et moins de 2 acteurs très sûrs,
+    # on coupe la recherche acteurs pour éviter les faux candidats.
+    titles = extraction.get("titres_possibles") or []
+    has_only_uncertain_titles = bool(titles) and all(
+        str(t or "").strip().startswith("?") for t in titles
+    )
+
+    if has_only_uncertain_titles and len(kept_actors) < 2:
+        if kept_actors:
+            print(
+                "🧹 Acteurs supprimés : titre uniquement hypothétique "
+                "et pas assez d'acteurs confirmés.",
+                flush=True,
+            )
+        kept_actors = []
+        kept_certs = []
+
+    extraction["acteurs"] = kept_actors
+    extraction["acteurs_certitude"] = kept_certs
+
+    return extraction
+
+
+
 # ════════════════════════════════════════════════════════════════
 # TÂCHE DE FOND : download + analyse complète
 # ════════════════════════════════════════════════════════════════
@@ -430,13 +487,18 @@ async def _process_local_file(
     """
     Fichier vidéo LOCAL (téléchargé OU uploadé).
 
-    Ordre :
+    Mode économique :
       1) Conversion codec + validation durée
       2) Gemini vidéo fichier
+         → si extraction utile : STOP
       3) Qwen VL vidéo
+         → appelé seulement si Gemini échoue ou ne trouve rien
+         → si extraction utile : STOP
       4) OpenRouter vidéo direct
+         → appelé seulement si Gemini + Qwen échouent
+         → si extraction utile : STOP
       5) Audio + frames + transcription
-      6) process_analysis
+      6) process_analysis via frames
       7) Fallback client si aucune frame mais audio disponible
 
     Retourne True si un fallback client est en attente
@@ -444,6 +506,23 @@ async def _process_local_file(
     """
     audio_exists = False
     session["status"] = "processing"
+
+    async def _finish_with_extraction(ext: dict, label: str) -> bool:
+        print(f"✅ {label} → process_analysis sans frames", flush=True)
+
+        result = await process_analysis(
+            frames=[],
+            ocr_text="",
+            transcript=ext.get("_transcript_raw", ""),
+            url=url_label,
+            lang=lang,
+            browser_lang=browser_lang,
+            prefetched_extraction=ext,
+        )
+
+        session["status"] = "done"
+        session["result"] = result
+        return False
 
     # ── 1. Conversion codec si nécessaire ───────────────────────
     if video_path.endswith(".mp4"):
@@ -461,6 +540,7 @@ async def _process_local_file(
                 text=True,
                 timeout=5,
             )
+
             codec = probe.stdout.strip()
 
             if codec and codec not in ("h264", "hevc", "h265", "avc"):
@@ -489,6 +569,7 @@ async def _process_local_file(
 
     # ── 1b. Validation durée ────────────────────────────────────
     duration = 0.0
+
     try:
         dur = subprocess.run(
             [
@@ -502,6 +583,7 @@ async def _process_local_file(
             text=True,
             timeout=5,
         )
+
         duration = float(dur.stdout.strip() or 0)
 
         if 0 < duration < 3:
@@ -519,7 +601,7 @@ async def _process_local_file(
     except Exception:
         pass
 
-    # ── 2. Gemini vidéo fichier ─────────────────────────────────
+    # ── 2. Gemini vidéo fichier — modèle principal ──────────────
     gemini_path = video_path
 
     if duration > GEMINI_MAX_SECONDS:
@@ -550,9 +632,7 @@ async def _process_local_file(
         except Exception as e:
             print(f"⚠️ Troncature Gemini KO: {e} → vidéo entière", flush=True)
 
-        print("🎬 Gemini sur la vidéo (fichier)...", flush=True)
-
-    file_ext = None
+    print("🎬 Gemini sur la vidéo (fichier)...", flush=True)
 
     try:
         from core.extraction import _extract_gemini_video_file
@@ -560,38 +640,15 @@ async def _process_local_file(
         file_ext = await _extract_gemini_video_file(gemini_path)
 
         if _extraction_is_useful(file_ext):
-            gemini_conf = _extraction_confidence(file_ext)
-
-            print(
-                f"✅ Gemini fichier utile "
-                f"(confiance extraction≈{gemini_conf})",
-                flush=True,
+            return await _finish_with_extraction(
+                file_ext,
+                "Gemini fichier concluant",
             )
 
-            if not _should_verify_with_other_video_models(file_ext, duration):
-                print("✅ Gemini assez sûr → pas de Qwen/OpenRouter vidéo", flush=True)
-
-                result = await process_analysis(
-                    frames=[],
-                    ocr_text="",
-                    transcript=file_ext.get("_transcript_raw", ""),
-                    url=url_label,
-                    lang=lang,
-                    browser_lang=browser_lang,
-                    prefetched_extraction=file_ext,
-                )
-
-                session["status"] = "done"
-                session["result"] = result
-                return False
-
-            print("⚠️ Gemini utile mais à vérifier → Qwen/OpenRouter vidéo", flush=True)
-
-        else:
-            print("⚠️ Gemini fichier non concluant → Qwen VL", flush=True)
+        print("⚠️ Gemini fichier non concluant → fallback Qwen VL", flush=True)
 
     except Exception as e:
-        print(f"⚠️ Gemini fichier KO: {e} → Qwen VL", flush=True)
+        print(f"⚠️ Gemini fichier KO: {e} → fallback Qwen VL", flush=True)
 
     finally:
         if gemini_path != video_path and os.path.exists(gemini_path):
@@ -600,7 +657,7 @@ async def _process_local_file(
             except Exception:
                 pass
 
-    # ── 3. Qwen VL vidéo ────────────────────────────────────────
+    # ── 3. Qwen VL vidéo — fallback seulement si Gemini échoue ──
     QWEN_MAX_SECONDS = 90
     qwen_path = video_path
 
@@ -628,16 +685,22 @@ async def _process_local_file(
         except Exception as e:
             print(f"⚠️ Troncature Qwen KO: {e} → vidéo entière", flush=True)
 
-    async def _safe_qwen_vl(path: str) -> dict | None:
-        try:
-            from core.extraction import _extract_qwen_vl
-            return await _extract_qwen_vl(path)
-        except Exception as e:
-            print(f"⚠️ Qwen VL KO: {e} → OpenRouter vidéo", flush=True)
-            return None
-
     try:
-        qwen_ext = await _safe_qwen_vl(qwen_path)
+        from core.extraction import _extract_qwen_vl
+
+        qwen_ext = await _extract_qwen_vl(qwen_path)
+
+        if _extraction_is_useful(qwen_ext):
+            return await _finish_with_extraction(
+                qwen_ext,
+                "Qwen VL concluant",
+            )
+
+        print("⚠️ Qwen VL non concluant → fallback OpenRouter vidéo", flush=True)
+
+    except Exception as e:
+        print(f"⚠️ Qwen VL KO: {e} → fallback OpenRouter vidéo", flush=True)
+
     finally:
         if qwen_path != video_path and os.path.exists(qwen_path):
             try:
@@ -645,26 +708,7 @@ async def _process_local_file(
             except Exception:
                 pass
 
-    if _extraction_is_useful(qwen_ext):
-        print("✅ Qwen VL concluant → pas de frames", flush=True)
-
-        result = await process_analysis(
-            frames=[],
-            ocr_text="",
-            transcript=qwen_ext.get("_transcript_raw", ""),
-            url=url_label,
-            lang=lang,
-            browser_lang=browser_lang,
-            prefetched_extraction=qwen_ext,
-        )
-
-        session["status"] = "done"
-        session["result"] = result
-        return False
-
-    print("⚠️ Qwen VL non concluant → OpenRouter vidéo", flush=True)
-
-    # ── 4. OpenRouter vidéo direct ──────────────────────────────
+    # ── 4. OpenRouter vidéo direct — dernier fallback vidéo ─────
     openrouter_path = video_path
     openrouter_generated_path = None
 
@@ -707,11 +751,13 @@ async def _process_local_file(
             and os.path.getsize(openrouter_generated_path) > 1000
         ):
             openrouter_path = openrouter_generated_path
+
             print(
                 f"🎬 Vidéo optimisée OpenRouter "
                 f"({os.path.getsize(openrouter_path) / 1024 / 1024:.1f} MB)",
                 flush=True,
             )
+
         else:
             print("⚠️ Compression OpenRouter KO → vidéo originale", flush=True)
             openrouter_path = video_path
@@ -721,29 +767,19 @@ async def _process_local_file(
 
             openrouter_ext = await _extract_openrouter_video(openrouter_path)
 
+            if _extraction_is_useful(openrouter_ext):
+                return await _finish_with_extraction(
+                    openrouter_ext,
+                    "OpenRouter vidéo concluant",
+                )
+
+            print("⚠️ OpenRouter vidéo non concluant → frames + transcription", flush=True)
+
         except Exception as e:
-            print(f"⚠️ OpenRouter vidéo exception: {e} → frames", flush=True)
-            openrouter_ext = None
-
-        if _extraction_is_useful(openrouter_ext):
-            print("✅ OpenRouter vidéo concluant → pas de frames", flush=True)
-
-            result = await process_analysis(
-                frames=[],
-                ocr_text="",
-                transcript=openrouter_ext.get("_transcript_raw", ""),
-                url=url_label,
-                lang=lang,
-                browser_lang=browser_lang,
-                prefetched_extraction=openrouter_ext,
-            )
-
-            session["status"] = "done"
-            session["result"] = result
-            return False
+            print(f"⚠️ OpenRouter vidéo exception: {e} → frames + transcription", flush=True)
 
     except Exception as e:
-        print(f"⚠️ Préparation OpenRouter vidéo KO: {e} → frames", flush=True)
+        print(f"⚠️ Préparation OpenRouter vidéo KO: {e} → frames + transcription", flush=True)
 
     finally:
         if (
@@ -755,33 +791,6 @@ async def _process_local_file(
                 os.remove(openrouter_generated_path)
             except Exception:
                 pass
-
-
-
-    best_ext = _pick_best_extraction(file_ext, qwen_ext, openrouter_ext)
-
-    if best_ext:
-        print(
-            f"✅ Meilleure extraction vidéo retenue: "
-            f"{best_ext.get('source', 'unknown')} "
-            f"(confiance≈{_extraction_confidence(best_ext)})",
-            flush=True,
-        )
-
-        result = await process_analysis(
-            frames=[],
-            ocr_text="",
-            transcript=best_ext.get("_transcript_raw", ""),
-            url=url_label,
-            lang=lang,
-            browser_lang=browser_lang,
-            prefetched_extraction=best_ext,
-        )
-
-        session["status"] = "done"
-        session["result"] = result
-        return False
-    print("⚠️ OpenRouter vidéo non concluant → frames + transcription", flush=True)
 
     # ── 5. Audio ────────────────────────────────────────────────
     try:
@@ -801,7 +810,11 @@ async def _process_local_file(
             capture_output=True,
             timeout=30,
         )
-        audio_exists = os.path.exists(audio_path) and os.path.getsize(audio_path) > 100
+
+        audio_exists = (
+            os.path.exists(audio_path)
+            and os.path.getsize(audio_path) > 100
+        )
 
     except Exception:
         try:
@@ -820,7 +833,11 @@ async def _process_local_file(
                 capture_output=True,
                 timeout=30,
             )
-            audio_exists = os.path.exists(audio_path) and os.path.getsize(audio_path) > 100
+
+            audio_exists = (
+                os.path.exists(audio_path)
+                and os.path.getsize(audio_path) > 100
+            )
 
         except Exception as e2:
             print(f"⚠️ Audio KO: {str(e2)[:80]}", flush=True)
@@ -904,6 +921,11 @@ async def _process_local_file(
     }
 
     return True
+
+
+
+
+
 async def _run_download_and_analyse(session_id, url, platform, lang, browser_lang):
     session = _dl_sessions.get(session_id)
     if not session:
@@ -1194,35 +1216,8 @@ async def analyser_continue(req: ContinueRequest):
 
 
 
-def _pick_best_extraction(*items: dict | None) -> dict | None:
-    usable = [x for x in items if _extraction_is_useful(x)]
 
-    if not usable:
-        return None
 
-    def score(ext: dict) -> int:
-        base = _extraction_confidence(ext)
-
-        source = str(ext.get("source", "")).lower()
-        if "openrouter" in source:
-            base += 4
-        elif "qwen" in source:
-            base += 3
-        elif "gemini" in source:
-            base += 1
-
-        if ext.get("titre_exact"):
-            base += 10
-
-        if ext.get("titres_possibles"):
-            base += 5
-
-        if ext.get("acteurs"):
-            base += 3
-
-        return base
-
-    return max(usable, key=score)
 # ════════════════════════════════════════════════════════════════
 # PURGE CACHE
 # ════════════════════════════════════════════════════════════════
@@ -1593,18 +1588,27 @@ async def process_analysis(
                 "title": "", "popularity": 0,
             }],
         )
-
+    extraction = _sanitize_actors_for_search(extraction)
     
     # ── 2c. Web clue enrichment léger AVANT TMDB ─────────────────
     # Objectif : enrichir extraction_json avec quelques titres/années web,
     # puis laisser run_cascade_search interroger TMDB proprement.
     try:
+        web_light_extraction = dict(extraction)
+
+        # Sécurité : le web light ne doit pas amplifier des acteurs halluciné.
+        # On garde les acteurs seulement si un titre exact est déjà présent.
+        if not _has_exact_title(web_light_extraction):
+            web_light_extraction["acteurs"] = []
+            web_light_extraction["acteurs_certitude"] = []
+
         extraction = await light_web_enrich_extraction(
-            extraction,
+            web_light_extraction,
             ocr_text=ocr_text or "",
             transcript=transcript or "",
             browser_lang=browser_lang,
         )
+
     except Exception as e:
         print(f"⚠️ Web light enrichment KO: {str(e)[:120]}", flush=True)
     
@@ -1697,9 +1701,16 @@ async def process_analysis(
     candidate_alternatives = []
 
     # ── 5. Recherche via acteurs ─────────────────────────────────
-    actor_candidates = await build_candidates_from_actors(
-        extraction, lang=transcript_lang or browser_lang or lang
-    )
+    actor_candidates = []
+
+    if extraction.get("acteurs"):
+        actor_candidates = await build_candidates_from_actors(
+            extraction,
+            lang=transcript_lang or browser_lang or lang,
+        )
+    else:
+        print("🧹 Recherche acteurs ignorée : aucun acteur fiable après filtrage", flush=True)
+
     if actor_candidates:
         print(f"🎭 Recherche via acteurs: {len(actor_candidates)} candidats", flush=True)
         actor_result = await rerank(extraction, actor_candidates)
@@ -1875,7 +1886,30 @@ async def process_analysis(
 
     alternatives = merged_alternatives
 
+        # ── Sécurité : aucun candidat fiable trouvé ─────────────────
+    if not result or not result.get("id"):
+        not_found = {
+            "status": "not_found",
+            "message": (
+                "Film non identifié avec certitude. "
+                "Aucun candidat fiable n'a été trouvé."
+            ),
+            "titre_gemini": (
+                extraction.get("titres_possibles", [""])[0]
+                if extraction.get("titres_possibles")
+                else ""
+            ),
+            "search_youtube": "",
+        }
 
+        set_cache(
+            url,
+            not_found,
+            transcript=transcript or "",
+            ocr_text=ocr_text or "",
+        )
+
+        return not_found
 
     # ── 7. Finalisation (détails TMDB + construction du résultat) ──
     final = await _finalize_with_known_result(
