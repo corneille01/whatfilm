@@ -425,26 +425,63 @@ async def _rerank_openrouter(extraction: dict, candidates: list) -> Optional[dic
     }
 
     payload = {
-        "model": OPENROUTER_RERANK_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "Tu es un expert cinéma/séries/anime. "
-                    "Tu dois choisir uniquement parmi les candidats fournis. "
-                    "Réponds uniquement en JSON minifié sur une ligne. "
-                    'Format : {"id":123,"meilleur_titre":"Titre","score":75,"raison":"bref"}'
-                ),
-            },
-            {
-                "role": "user",
-                "content": forced_prompt,
-            },
-        ],
-        "temperature": 0.0,
-        "max_tokens": OPENROUTER_RERANK_MAX_TOKENS,
-    }
+    "model": OPENROUTER_RERANK_MODEL,
+    "messages": [
+        {
+            "role": "system",
+            "content": (
+                "Tu es un moteur de reranking cinéma. "
+                "Tu dois choisir uniquement parmi les candidats fournis. "
+                "Réponds uniquement en JSON valide. "
+                "Aucun raisonnement, aucun markdown, aucun texte hors JSON."
+            ),
+        },
+        {
+            "role": "user",
+            "content": forced_prompt,
+        },
+    ],
+    "temperature": 0.0,
+    "max_tokens": OPENROUTER_RERANK_MAX_TOKENS,
 
+    # IMPORTANT : empêche les réponses du type
+    # "The user wants me to..."
+    "response_format": {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "pelify_rerank",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": ["integer", "null"]
+                    },
+                    "meilleur_titre": {
+                        "type": "string"
+                    },
+                    "score": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 100
+                    },
+                    "raison": {
+                        "type": "string"
+                    }
+                },
+                "required": ["id", "meilleur_titre", "score", "raison"],
+                "additionalProperties": False
+            }
+        }
+    },
+
+    # Optionnel mais utile avec certains modèles OpenRouter
+    "plugins": [
+        {
+            "id": "response-healing"
+        }
+    ],
+}
     try:
         async with httpx.AsyncClient(timeout=25) as client:
             resp = await client.post(

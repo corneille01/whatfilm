@@ -36,7 +36,7 @@ MAX_COMPOSITE_SCORE = 97
 
 # En dessous de ce seuil de confiance composite, le pipeline doit
 # proposer des alternatives plutôt qu'un résultat unique affirmé.
-MULTI_CANDIDATE_THRESHOLD = 65
+MULTI_CANDIDATE_THRESHOLD = 88
 
 
 def make_opinion(result: Optional[dict], source: str) -> Optional[dict]:
@@ -52,7 +52,184 @@ def make_opinion(result: Optional[dict], source: str) -> Optional[dict]:
     }
 
 
-def rank_opinions(opinions: list, max_results: int = 3) -> list[dict]:
+def rank_opinions(opinions: list, max_results: int = 5) -> list[dict]:
+    """
+    Regroupe les avis par id de candidat, calcule un score composite
+    plus fiable que le score brut du LLM.
+
+    Principe :
+      - un seul canal ne peut pas donner une certitude trop élevée ;
+      - plusieurs sources indépendantes qui pointent vers le même film augmentent la confiance ;
+      - les sources fortes comme quote/web/wikidata renforcent davantage ;
+      - les sources faibles/corrélées comme cascade/actors seules restent plafonnées.
+
+    Chaque élément retourné :
+      {
+        "id", "meilleur_titre", "media_type",
+        "score",            # score composite final
+        "raw_score",        # meilleur score brut LLM
+        "agreement_count",  # nombre de sources d'accord
+        "sources",          # liste des sources
+      }
+    """
+    valid = [o for o in opinions if o and o.get("id")]
+    if not valid:
+        return []
+
+    def _safe_int(value, default: int = 0) -> int:
+        try:
+            return int(value)
+        except Exception:
+            return default
+
+    def _clamp(value: int, low: int = 0, high: int = 100) -> int:
+        return max(low, min(high, value))
+
+    # Sources considérées plus fortes car elles apportent une preuve externe.
+    strong_sources = {
+        "quote",       # réplique exacte / dialogue
+        "web",         # recherche web complète
+        "web_light",   # corroboration web léger
+        "wikidata",    # source structurée externe
+    }
+
+    # Sources utiles mais faibles seules, car elles peuvent être corrélées
+    # avec les mêmes indices d'entrée ou produire des faux positifs.
+    weak_sources = {
+        "cascade",
+        "actors",
+    }
+
+    # Plafonds si UNE SEULE source soutient le résultat.
+    # Objectif : ne plus avoir un faux 95 avec sources=['cascade'].
+    single_source_caps = {
+        "cascade": 78,
+        "actors": 80,
+        "web_light": 82,
+        "web": 84,
+        "wikidata": 84,
+        "quote": 88,
+    }
+
+    grouped: dict[int, dict] = {}
+
+    for o in valid:
+        cid = o["id"]
+        source = str(o.get("source", "unknown"))
+        score = _clamp(_safe_int(o.get("score", 0)))
+
+        if cid not in grouped:
+            grouped[cid] = {
+                "id": cid,
+                "meilleur_titre": o.get("meilleur_titre", "Inconnu"),
+                "media_type": o.get("media_type", "movie"),
+                "best_score": score,
+                "sources": set(),
+                "scores": [],
+            }
+
+        grouped[cid]["sources"].add(source)
+        grouped[cid]["scores"].append(score)
+
+        if score > grouped[cid]["best_score"]:
+            grouped[cid]["best_score"] = score
+            grouped[cid]["meilleur_titre"] = o.get("meilleur_titre", "Inconnu")
+            grouped[cid]["media_type"] = o.get("media_type", "movie")
+
+    ranked = []
+
+    for cid, g in grouped.items():
+        sources = set(g["sources"])
+        sorted_sources = sorted(sources)
+        agreement_count = len(sources)
+
+        raw_score = _clamp(g["best_score"])
+        score = raw_score
+
+        has_strong_source = bool(sources & strong_sources)
+        has_only_weak_sources = sources.issubset(weak_sources)
+
+        # ── 1. Une seule source : plafonnement anti faux positif ──
+        if agreement_count == 1:
+            only_source = next(iter(sources))
+            cap = single_source_caps.get(only_source, 82)
+            score = min(score, cap)
+
+        # ── 2. Deux sources ou plus : bonus d'accord ──────────────
+        else:
+            extra_sources = agreement_count - 1
+            score += AGREEMENT_BONUS_PER_EXTRA_SOURCE * extra_sources
+
+            # Si l'accord vient seulement de sources faibles/corrélées
+            # ex: actors + cascade, on évite la fausse certitude.
+            if has_only_weak_sources:
+                score = min(score, 88)
+
+            # Si au moins une source forte confirme, on autorise plus haut.
+            elif has_strong_source:
+                if agreement_count == 2:
+                    score = min(score, 93)
+                else:
+                    score = min(score, MAX_COMPOSITE_SCORE)
+
+            # Cas intermédiaire : plusieurs sources, mais pas très fortes.
+            else:
+                score = min(score, 90)
+
+        # ── 3. Règle finale de sécurité ──────────────────────────
+        # Aucun résultat ne doit dépasser 88 si une seule source le soutient.
+        # Cela force l'affichage des alternatives côté frontend.
+        if agreement_count <= 1:
+            score = min(score, 84)
+
+        # Cascade seule = cas le plus dangereux pour les faux positifs.
+        if sources == {"cascade"}:
+            score = min(score, 78)
+
+        score = _clamp(score, 0, MAX_COMPOSITE_SCORE)
+
+        ranked.append({
+            "id": cid,
+            "meilleur_titre": g["meilleur_titre"],
+            "media_type": g["media_type"],
+            "score": score,
+            "raw_score": raw_score,
+            "agreement_count": agreement_count,
+            "sources": sorted_sources,
+        })
+
+    # Tri :
+    # 1. score composite
+    # 2. nombre de sources d'accord
+    # 3. score brut
+    ranked.sort(
+        key=lambda r: (
+            r["score"],
+            r["agreement_count"],
+            r["raw_score"],
+        ),
+        reverse=True,
+    )
+
+    if ranked:
+        top = ranked[0]
+        print(
+            f"🧮 Confiance composite — {top['meilleur_titre']} : "
+            f"score={top['score']} "
+            f"(brut={top['raw_score']}, "
+            f"accord={top['agreement_count']} "
+            f"sources={top['sources']})",
+            flush=True,
+        )
+
+        if top["agreement_count"] <= 1:
+            print(
+                "⚠️ Confiance plafonnée : une seule source soutient ce résultat. "
+                "Les alternatives doivent être affichées si disponibles.",
+                flush=True,
+            )
+
+    return ranked[:max_results]
     """
     Regroupe les avis par id de candidat, calcule un score composite
     (meilleur score brut + bonus d'accord entre sources indépendantes),

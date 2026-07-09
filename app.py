@@ -362,6 +362,59 @@ def _extraction_is_useful(ext) -> bool:
         return True
     return bool(ext.get("titres_possibles") or ext.get("acteurs"))
 
+
+
+
+
+
+def _extraction_confidence(ext: dict | None) -> int:
+    if not ext:
+        return 0
+
+    certitudes = []
+
+    for key in ("titres_possibles", "acteurs"):
+        values = ext.get(key) or []
+        if isinstance(values, list):
+            for item in values:
+                if isinstance(item, dict):
+                    certitudes.append(int(item.get("certitude", 0) or 0))
+
+    if ext.get("titre_exact"):
+        certitudes.append(95)
+
+    if ext.get("is_ai_generated"):
+        certitudes.append(90)
+
+    if not certitudes and (ext.get("titres_possibles") or ext.get("acteurs")):
+        return 65
+
+    return max(certitudes or [0])
+
+
+def _should_verify_with_other_video_models(ext: dict | None, duration: float = 0.0) -> bool:
+    """
+    On ne fait plus confiance à Gemini seul quand :
+    - vidéo longue tronquée,
+    - pas de titre exact,
+    - seulement acteurs/titre possible,
+    - certitude moyenne.
+    """
+    if not _extraction_is_useful(ext):
+        return True
+
+    confidence = _extraction_confidence(ext)
+
+    if ext.get("is_ai_generated"):
+        return False
+
+    if duration > GEMINI_MAX_SECONDS:
+        return True
+
+    if not ext.get("titre_exact") and confidence < 95:
+        return True
+
+    return confidence < 90
 # ════════════════════════════════════════════════════════════════
 # TÂCHE DE FOND : download + analyse complète
 # ════════════════════════════════════════════════════════════════
@@ -497,7 +550,9 @@ async def _process_local_file(
         except Exception as e:
             print(f"⚠️ Troncature Gemini KO: {e} → vidéo entière", flush=True)
 
-    print("🎬 Gemini sur la vidéo (fichier)...", flush=True)
+        print("🎬 Gemini sur la vidéo (fichier)...", flush=True)
+
+    file_ext = None
 
     try:
         from core.extraction import _extract_gemini_video_file
@@ -505,23 +560,35 @@ async def _process_local_file(
         file_ext = await _extract_gemini_video_file(gemini_path)
 
         if _extraction_is_useful(file_ext):
-            print("✅ Gemini fichier concluant → pas de frames", flush=True)
+            gemini_conf = _extraction_confidence(file_ext)
 
-            result = await process_analysis(
-                frames=[],
-                ocr_text="",
-                transcript=file_ext.get("_transcript_raw", ""),
-                url=url_label,
-                lang=lang,
-                browser_lang=browser_lang,
-                prefetched_extraction=file_ext,
+            print(
+                f"✅ Gemini fichier utile "
+                f"(confiance extraction≈{gemini_conf})",
+                flush=True,
             )
 
-            session["status"] = "done"
-            session["result"] = result
-            return False
+            if not _should_verify_with_other_video_models(file_ext, duration):
+                print("✅ Gemini assez sûr → pas de Qwen/OpenRouter vidéo", flush=True)
 
-        print("⚠️ Gemini fichier non concluant → Qwen VL", flush=True)
+                result = await process_analysis(
+                    frames=[],
+                    ocr_text="",
+                    transcript=file_ext.get("_transcript_raw", ""),
+                    url=url_label,
+                    lang=lang,
+                    browser_lang=browser_lang,
+                    prefetched_extraction=file_ext,
+                )
+
+                session["status"] = "done"
+                session["result"] = result
+                return False
+
+            print("⚠️ Gemini utile mais à vérifier → Qwen/OpenRouter vidéo", flush=True)
+
+        else:
+            print("⚠️ Gemini fichier non concluant → Qwen VL", flush=True)
 
     except Exception as e:
         print(f"⚠️ Gemini fichier KO: {e} → Qwen VL", flush=True)
@@ -689,6 +756,31 @@ async def _process_local_file(
             except Exception:
                 pass
 
+
+
+    best_ext = _pick_best_extraction(file_ext, qwen_ext, openrouter_ext)
+
+    if best_ext:
+        print(
+            f"✅ Meilleure extraction vidéo retenue: "
+            f"{best_ext.get('source', 'unknown')} "
+            f"(confiance≈{_extraction_confidence(best_ext)})",
+            flush=True,
+        )
+
+        result = await process_analysis(
+            frames=[],
+            ocr_text="",
+            transcript=best_ext.get("_transcript_raw", ""),
+            url=url_label,
+            lang=lang,
+            browser_lang=browser_lang,
+            prefetched_extraction=best_ext,
+        )
+
+        session["status"] = "done"
+        session["result"] = result
+        return False
     print("⚠️ OpenRouter vidéo non concluant → frames + transcription", flush=True)
 
     # ── 5. Audio ────────────────────────────────────────────────
@@ -1096,6 +1188,41 @@ async def analyser_continue(req: ContinueRequest):
                 if p and os.path.exists(p):
                     shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
 
+
+
+
+
+
+
+def _pick_best_extraction(*items: dict | None) -> dict | None:
+    usable = [x for x in items if _extraction_is_useful(x)]
+
+    if not usable:
+        return None
+
+    def score(ext: dict) -> int:
+        base = _extraction_confidence(ext)
+
+        source = str(ext.get("source", "")).lower()
+        if "openrouter" in source:
+            base += 4
+        elif "qwen" in source:
+            base += 3
+        elif "gemini" in source:
+            base += 1
+
+        if ext.get("titre_exact"):
+            base += 10
+
+        if ext.get("titres_possibles"):
+            base += 5
+
+        if ext.get("acteurs"):
+            base += 3
+
+        return base
+
+    return max(usable, key=score)
 # ════════════════════════════════════════════════════════════════
 # PURGE CACHE
 # ════════════════════════════════════════════════════════════════
