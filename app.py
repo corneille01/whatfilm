@@ -282,7 +282,9 @@ app = FastAPI(title="Pelify", lifespan=lifespan)
 app.include_router(filming_router)
 from poi_proxy import router as poi_router
 app.include_router(poi_router)
-_analysis_semaphore = asyncio.Semaphore(3)
+_analysis_semaphore = asyncio.Semaphore(
+    int(os.environ.get("ANALYSIS_MAX_CONCURRENT", "1"))
+)
 
 
 @app.middleware("http")
@@ -1023,24 +1025,36 @@ async def analyser(req: VideoRequest, request: Request):
     # retentent le cache, sans jamais lancer leur propre download/Gemini.
     from storage.cache_engine.hash_utils import key_url
     lock_key = key_url(url)
-    lock_token = acquire_lock(lock_key, ttl=120)
+    lock_token = acquire_lock(lock_key, ttl=900)
 
     if lock_token is None:
-        # Verrou déjà pris par une autre requête en cours sur cette URL.
-        # On attend que la première requête finisse (max ~8s par tentative,
-        # quelques tentatives), puis on relit le cache plutôt que de
-        # dupliquer le pipeline complet.
-        max_wait_seconds = 90
-        poll_interval = 1.5
+        # Une analyse de cette URL est déjà en cours.
+        # Surtout NE PAS relancer download + ffmpeg + LLM en parallèle.
+        max_wait_seconds = 20
+        poll_interval = 2
         attempts = int(max_wait_seconds / poll_interval)
+
         for _ in range(attempts):
             await asyncio.sleep(poll_interval)
+
             cached = get_cache(url)
             if cached:
                 print(f"✅ Cache hit après attente verrou: {url[:60]}", flush=True)
                 return {"status": "cached", **cached}
 
-        print(f"⚠️ Verrou actif mais pas de cache après {max_wait_seconds}s, on continue normalement: {url[:60]}", flush=True)
+        print(
+            f"⏳ Analyse déjà en cours pour cette URL, refus de duplication: {url[:60]}",
+            flush=True,
+        )
+
+        return {
+            "status": "error",
+            "code": "analysis_already_running",
+            "message": (
+                "Cette vidéo est déjà en cours d'analyse. "
+                "Attendez quelques secondes puis réessayez."
+            ),
+        }
 
     if _analysis_semaphore.locked():
         if lock_token:

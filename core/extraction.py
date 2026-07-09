@@ -105,7 +105,7 @@ GEMINI_VIDEO_MEDIA_RESOLUTION = os.environ.get("GEMINI_VIDEO_MEDIA_RESOLUTION", 
 GEMINI_MAX_CONCURRENT = int(os.environ.get("GEMINI_MAX_CONCURRENT", "3"))
 _gemini_semaphore = asyncio.Semaphore(GEMINI_MAX_CONCURRENT)
 
-GEMINI_MAX_RETRIES = 3
+GEMINI_MAX_RETRIES = int(os.environ.get("GEMINI_MAX_RETRIES", "1"))
 GEMINI_BASE_DELAY  = 1.0  # secondes
 
 
@@ -190,6 +190,14 @@ def _gemini_ttl() -> Optional[int]:
     except Exception:
         return 90 * 24 * 3600  # 90 jours fallback
 
+
+
+
+def _safe_error(e: Exception, limit: int = 200) -> str:
+    msg = str(e)
+    msg = re.sub(r"key=[^&\s']+", "key=***", msg)
+    msg = re.sub(r"Bearer\s+[A-Za-z0-9._-]+", "Bearer ***", msg)
+    return msg[:limit]
 # ═══════════════ UTILITAIRES ═══════════════
 
 def _clean_json_fences(text: str) -> str:
@@ -516,7 +524,7 @@ async def _gemini_video_generate(
         return _normalize_all_fields(data, default_certitude=75)
 
     except Exception as e:
-        print(f"❌ Gemini {label} KO : {str(e)[:200]}", flush=True)
+        print(f"❌ Gemini {label} KO : {_safe_error(e)}", flush=True)
         return None
 
 
