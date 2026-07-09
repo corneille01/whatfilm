@@ -711,88 +711,107 @@ async def _process_local_file(
                 pass
 
     # ── 4. OpenRouter vidéo direct — dernier fallback vidéo ─────
-    openrouter_path = video_path
-    openrouter_generated_path = None
+        # ── 4. OpenRouter vidéo direct — désactivé par défaut ───────
+    # Important :
+    # OpenRouter vidéo demande une balance payante dans ton cas.
+    # Sur Render 512 MB, on évite aussi la compression ffmpeg inutile.
+    if os.environ.get("OPENROUTER_VIDEO_ENABLED", "false").lower() == "true":
+        openrouter_path = video_path
+        openrouter_generated_path = None
 
-    try:
-        OPENROUTER_MAX_SECONDS = int(
-            os.environ.get("OPENROUTER_MAX_VIDEO_SECONDS", "45")
-        )
-        OPENROUTER_VIDEO_HEIGHT = int(
-            os.environ.get("OPENROUTER_VIDEO_HEIGHT", "480")
-        )
+        try:
+            OPENROUTER_MAX_SECONDS = int(
+                os.environ.get("OPENROUTER_MAX_VIDEO_SECONDS", "45")
+            )
+            OPENROUTER_VIDEO_HEIGHT = int(
+                os.environ.get("OPENROUTER_VIDEO_HEIGHT", "480")
+            )
 
-        base, _ext = os.path.splitext(video_path)
-        openrouter_generated_path = f"{base}_or{OPENROUTER_MAX_SECONDS}.mp4"
+            base, _ext = os.path.splitext(video_path)
+            openrouter_generated_path = f"{base}_or{OPENROUTER_MAX_SECONDS}.mp4"
 
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-i", video_path,
-                "-t", str(OPENROUTER_MAX_SECONDS),
-                "-map", "0:v:0",
-                "-map", "0:a?",
-                "-vf", f"scale=-2:{OPENROUTER_VIDEO_HEIGHT}",
-                "-r", "12",
-                "-c:v", "libx264",
-                "-preset", "veryfast",
-                "-crf", "30",
-                "-c:a", "aac",
-                "-b:a", "64k",
-                "-ac", "1",
-                "-ar", "16000",
-                "-movflags", "+faststart",
-                "-y", openrouter_generated_path,
-            ],
-            capture_output=True,
-            timeout=75,
-        )
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-i", video_path,
+                    "-t", str(OPENROUTER_MAX_SECONDS),
+                    "-map", "0:v:0",
+                    "-map", "0:a?",
+                    "-vf", f"scale=-2:{OPENROUTER_VIDEO_HEIGHT}",
+                    "-r", "12",
+                    "-c:v", "libx264",
+                    "-preset", "veryfast",
+                    "-crf", "30",
+                    "-c:a", "aac",
+                    "-b:a", "64k",
+                    "-ac", "1",
+                    "-ar", "16000",
+                    "-movflags", "+faststart",
+                    "-y", openrouter_generated_path,
+                ],
+                capture_output=True,
+                timeout=75,
+            )
 
-        if (
-            os.path.exists(openrouter_generated_path)
-            and os.path.getsize(openrouter_generated_path) > 1000
-        ):
-            openrouter_path = openrouter_generated_path
+            if (
+                os.path.exists(openrouter_generated_path)
+                and os.path.getsize(openrouter_generated_path) > 1000
+            ):
+                openrouter_path = openrouter_generated_path
 
+                print(
+                    f"🎬 Vidéo optimisée OpenRouter "
+                    f"({os.path.getsize(openrouter_path) / 1024 / 1024:.1f} MB)",
+                    flush=True,
+                )
+
+            else:
+                print("⚠️ Compression OpenRouter KO → vidéo originale", flush=True)
+                openrouter_path = video_path
+
+            try:
+                from core.extraction import _extract_openrouter_video
+
+                openrouter_ext = await _extract_openrouter_video(openrouter_path)
+
+                if _extraction_is_useful(openrouter_ext):
+                    return await _finish_with_extraction(
+                        openrouter_ext,
+                        "OpenRouter vidéo concluant",
+                    )
+
+                print(
+                    "⚠️ OpenRouter vidéo non concluant → frames + transcription",
+                    flush=True,
+                )
+
+            except Exception as e:
+                print(
+                    f"⚠️ OpenRouter vidéo exception: {str(e)[:120]} "
+                    "→ frames + transcription",
+                    flush=True,
+                )
+
+        except Exception as e:
             print(
-                f"🎬 Vidéo optimisée OpenRouter "
-                f"({os.path.getsize(openrouter_path) / 1024 / 1024:.1f} MB)",
+                f"⚠️ Préparation OpenRouter vidéo KO: {str(e)[:120]} "
+                "→ frames + transcription",
                 flush=True,
             )
 
-        else:
-            print("⚠️ Compression OpenRouter KO → vidéo originale", flush=True)
-            openrouter_path = video_path
+        finally:
+            if (
+                openrouter_generated_path
+                and openrouter_generated_path != video_path
+                and os.path.exists(openrouter_generated_path)
+            ):
+                try:
+                    os.remove(openrouter_generated_path)
+                except Exception:
+                    pass
 
-        try:
-            from core.extraction import _extract_openrouter_video
-
-            openrouter_ext = await _extract_openrouter_video(openrouter_path)
-
-            if _extraction_is_useful(openrouter_ext):
-                return await _finish_with_extraction(
-                    openrouter_ext,
-                    "OpenRouter vidéo concluant",
-                )
-
-            print("⚠️ OpenRouter vidéo non concluant → frames + transcription", flush=True)
-
-        except Exception as e:
-            print(f"⚠️ OpenRouter vidéo exception: {e} → frames + transcription", flush=True)
-
-    except Exception as e:
-        print(f"⚠️ Préparation OpenRouter vidéo KO: {e} → frames + transcription", flush=True)
-
-    finally:
-        if (
-            openrouter_generated_path
-            and openrouter_generated_path != video_path
-            and os.path.exists(openrouter_generated_path)
-        ):
-            try:
-                os.remove(openrouter_generated_path)
-            except Exception:
-                pass
+    else:
+        print("ℹ️ OpenRouter vidéo désactivé → frames + transcription", flush=True)
 
     # ── 5. Audio ────────────────────────────────────────────────
     try:
@@ -932,68 +951,124 @@ async def _run_download_and_analyse(session_id, url, platform, lang, browser_lan
     session = _dl_sessions.get(session_id)
     if not session:
         return
-    video_path = session["video_path"]; audio_path = session["audio_path"]; frame_dir = session["frame_dir"]
+
+    video_path = session["video_path"]
+    audio_path = session["audio_path"]
+    frame_dir = session["frame_dir"]
+
     need_client_fallback = False
-    # Sémaphore réellement acquis ici (avant, il n'était que vérifié via
-    # .locked() sans jamais être pris => aucune limite de concurrence
-    # effective, cause probable des OOM sur l'instance Render à 512Mo).
+
     async with _analysis_semaphore:
         try:
-            # URL directe → Gemini (sauf TikTok), pas de download si concluant
-            if platform != "tiktok":
+            # URL directe Gemini UNIQUEMENT pour YouTube.
+            # Toutes les autres plateformes passent par download_video(...)
+            # donc : tikwm → yt-dlp selon universal_downloader.py.
+            if platform == "youtube":
                 session["status"] = "processing"
+
                 try:
                     from core.extraction import _extract_gemini_url_direct
+
                     extraction = await _extract_gemini_url_direct(url)
+
                     if _extraction_is_useful(extraction):
                         result = await process_analysis(
-                            frames=[], ocr_text="", transcript=extraction.get("_transcript_raw", ""),
-                            url=url, lang=lang, browser_lang=browser_lang,
-                            prefetched_extraction=extraction)
-                        session["status"] = "done"; session["result"] = result
-                        return
-                    print(f"⚠️ URL directe non concluante [{platform}] → download", flush=True)
-                except Exception as e:
-                    print(f"⚠️ URL directe exception: {e} → download", flush=True)
+                            frames=[],
+                            ocr_text="",
+                            transcript=extraction.get("_transcript_raw", ""),
+                            url=url,
+                            lang=lang,
+                            browser_lang=browser_lang,
+                            prefetched_extraction=extraction,
+                        )
 
-            # Download
+                        session["status"] = "done"
+                        session["result"] = result
+                        return
+
+                    print("⚠️ URL YouTube directe non concluante → download", flush=True)
+
+                except Exception as e:
+                    print(
+                        f"⚠️ URL YouTube directe exception: {str(e)[:120]} → download",
+                        flush=True,
+                    )
+
+            else:
+                print(
+                    f"ℹ️ [{platform}] → pas de Gemini URL directe, passage au téléchargement",
+                    flush=True,
+                )
+
+            # Download :
+            # YouTube fallback → worker/yt-dlp
+            # Autres plateformes → tikwm puis yt-dlp
             session["status"] = "downloading"
             print(f"📥 DOWNLOAD [{platform}] session={session_id}", flush=True)
+
             dl = await download_video(url, video_path, platform)
-            if not dl["ok"]:
+
+            if not dl.get("ok"):
                 session["status"] = "error"
-                session["result"] = {"status": "error", "code": dl["code"], "message": dl["message"]}
+                session["result"] = {
+                    "status": "error",
+                    "code": dl.get("code", "download_failed"),
+                    "message": dl.get(
+                        "message",
+                        "Impossible de télécharger cette vidéo.",
+                    ),
+                }
                 return
+
             if not os.path.exists(video_path) or os.path.getsize(video_path) < 1000:
                 session["status"] = "error"
-                session["result"] = {"status": "error", "code": "download_empty",
-                                     "message": "Le fichier vidéo est vide ou corrompu."}
+                session["result"] = {
+                    "status": "error",
+                    "code": "download_empty",
+                    "message": "Le fichier vidéo est vide ou corrompu.",
+                }
                 return
-            print(f"✅ Vidéo téléchargée ({os.path.getsize(video_path)/1024/1024:.1f} MB)", flush=True)
 
-            # Fichier local → Gemini fichier → frames/transcription
+            print(
+                f"✅ Vidéo téléchargée "
+                f"({os.path.getsize(video_path) / 1024 / 1024:.1f} MB)",
+                flush=True,
+            )
+
             need_client_fallback = await _process_local_file(
-                session, video_path, audio_path, frame_dir, url, lang, browser_lang)
+                session,
+                video_path,
+                audio_path,
+                frame_dir,
+                url,
+                lang,
+                browser_lang,
+            )
 
         except Exception:
-            print(f"❌ _run_download_and_analyse: {traceback.format_exc()}", flush=True)
+            print(
+                f"❌ _run_download_and_analyse: {traceback.format_exc()}",
+                flush=True,
+            )
+
             session["status"] = "error"
-            session["result"] = {"status": "error", "code": "unexpected",
-                                 "message": "Une erreur inattendue s'est produite. Réessayez."}
+            session["result"] = {
+                "status": "error",
+                "code": "unexpected",
+                "message": "Une erreur inattendue s'est produite. Réessayez.",
+            }
+
         finally:
             if not need_client_fallback:
                 cleanup_files(video_path, audio_path, frame_dir, True)
+
             session["timestamp"] = time.time()
 
-            # Libère le verrou anti-doublons quel que soit le résultat
-            # (succès, erreur, ou besoin de fallback client). Garantit que le
-            # verrou ne reste jamais bloqué indéfiniment même si une exception
-            # imprévue survient plus haut dans le bloc try.
             lock_key = session.get("_lock_key")
             lock_token = session.get("_lock_token")
+
             if lock_key and lock_token:
                 release_lock(lock_key, lock_token)
-
 
 
 @app.post("/analyser") 
