@@ -2770,6 +2770,46 @@ const AWIN_OFFERS_BY_COUNTRY = {
   GB: [
     { icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
     { icon: "🎧", title: "EarFun", desc: "Award-winning wireless earbuds & speakers", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
+  {
+  icon: "🧱",
+  title: "brickzonehub",
+  desc: "Custom LEGO® display frames, acrylic cases and stands for fan-favourite themes.",
+  cta: "Discover →",
+  url: "https://www.awin1.com/cread.php?s=4589784&v=121692&q=586383&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4589784&v=121692&q=586383&r=2932851"
+},
+{
+  icon: "🧱",
+  title: "brickzonehub",
+  desc: "Custom LEGO® display frames, acrylic cases and stands for fan-favourite themes.",
+  cta: "Discover →",
+  url: "https://www.awin1.com/cread.php?s=4731406&v=121692&q=586383&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4731406&v=121692&q=586383&r=2932851"
+},
+{
+  icon: "🧱",
+  title: "brickzonehub",
+  desc: "Custom LEGO® display frames, acrylic cases and stands for fan-favourite themes.",
+  cta: "Discover →",
+  url: "https://www.awin1.com/cread.php?s=4731454&v=121692&q=586383&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4731454&v=121692&q=586383&r=2932851"
+},
+{
+  icon: "🧱",
+  title: "brickzonehub",
+  desc: "Custom LEGO® display frames, acrylic cases and stands for fan-favourite themes.",
+  cta: "Discover →",
+  url: "https://www.awin1.com/cread.php?s=4731442&v=121692&q=586383&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4731442&v=121692&q=586383&r=2932851"
+},
+{
+  icon: "🧱",
+  title: "brickzonehub",
+  desc: "Custom LEGO® display frames, acrylic cases and stands for fan-favourite themes.",
+  cta: "Discover →",
+  url: "https://www.awin1.com/cread.php?s=4731456&v=121692&q=586383&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4731456&v=121692&q=586383&r=2932851"
+}
   ],
 
   US: [
