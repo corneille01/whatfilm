@@ -14,6 +14,7 @@ Fonctions principales :
 
 import re
 import asyncio
+import os 
 
 from data.tmdb import (
     search_person, get_person_credits, search_multi_lang,
@@ -665,94 +666,131 @@ async def build_candidates_from_actors(
     """
     Construit des candidats TMDB à partir des acteurs reconnus.
 
-    Filtre anti-hallucination :
-    - Utilise acteurs_certitude (auto-évaluation Gemini) pour rejeter
-      les acteurs dont la certitude est sous le seuil.
-    - Seuil 75 pour frames TikTok (source gemini_vision)
-    - Seuil 60 pour source fiable (gemini_url_direct, vidéo entière)
-    - credits[:30] → évite de rater les séries moins populaires
-    - filtre genre/année désactivé pour les genres génériques
-
-    Fix v2 : l'intersection multi-acteurs peut retourner uniquement des
-    talk-shows (genre 10767) où tous les acteurs ont été invités.
-    Dans ce cas, on ignore l'intersection et on passe à l'union filtrée.
+    Version renforcée anti-hallucination :
+    - seuil acteur par défaut : 90 ;
+    - les certitudes manquantes valent 0, donc rejetées ;
+    - les chaînes "95" ou "95%" sont bien converties ;
+    - on limite aux 3 meilleurs acteurs fiables ;
+    - on exclut talk-shows, news, reality et soaps.
     """
-    acteurs    = extraction.get("acteurs",           []) or []
+    acteurs = extraction.get("acteurs", []) or []
     certitudes = extraction.get("acteurs_certitude", []) or []
-    source     = extraction.get("source",            "")
+    source = str(extraction.get("source", "") or "").lower()
 
     if not acteurs:
         return []
 
-    SOURCE_FIABLE = {"gemini_youtube_direct", "gemini_url_direct"}
-    seuil = 60 if source in SOURCE_FIABLE else 75
+    min_cert = int(os.environ.get("ACTOR_MIN_CERT", "90"))
+    max_actors = int(os.environ.get("ACTOR_SEARCH_MAX_ACTORS", "3"))
 
-    default = 75 if source in SOURCE_FIABLE else 50
+    def _to_cert(value) -> int:
+        """
+        Convertit proprement :
+        95      → 95
+        "95"    → 95
+        "95%"   → 95
+        None    → 0
+        invalide → 0
+        """
+        try:
+            if value is None:
+                return 0
+
+            if isinstance(value, (int, float)):
+                return int(value)
+
+            s = str(value).strip().replace("%", "")
+            if not s:
+                return 0
+
+            return int(float(s))
+
+        except Exception:
+            return 0
+
+    # Aligne la longueur des certitudes sur celle des acteurs.
+    # Important : une certitude absente vaut 0, pas 75.
+    certitudes = list(certitudes)
     while len(certitudes) < len(acteurs):
-        certitudes.append(default)
+        certitudes.append(0)
+
     certitudes = certitudes[:len(acteurs)]
 
     acteurs_valides = []
-    for acteur, certitude in zip(acteurs, certitudes):
-        certitude = int(certitude) if isinstance(certitude, (int, float)) else default
-        if certitude >= seuil:
+
+    for acteur, certitude_raw in zip(acteurs, certitudes):
+        acteur = str(acteur or "").strip()
+        if not acteur:
+            continue
+
+        certitude = _to_cert(certitude_raw)
+
+        if certitude >= min_cert:
             acteurs_valides.append(acteur)
+
             print(
                 f"✅ Acteur accepté: '{acteur}' "
-                f"(certitude={certitude}>={seuil}, source={source!r})",
-                flush=True
+                f"(certitude={certitude}>={min_cert}, source={source!r})",
+                flush=True,
             )
+
         else:
             print(
-                f"⚠️ Acteur rejeté — hallucination probable: '{acteur}' "
-                f"(certitude={certitude}<{seuil}, source={source!r})",
-                flush=True
+                f"⚠️ Acteur rejeté — certitude trop faible: '{acteur}' "
+                f"(certitude={certitude}<{min_cert}, source={source!r})",
+                flush=True,
             )
 
     if not acteurs_valides:
         print(
             f"⚠️ Aucun acteur fiable → skip recherche par acteurs. "
             f"Acteurs originaux: {list(zip(acteurs, certitudes))}",
-            flush=True
+            flush=True,
         )
         return []
 
-    acteurs = acteurs_valides[:3]
+    acteurs = acteurs_valides[:max_actors]
     all_credits: list[list[dict]] = []
 
     for nom in acteurs:
         try:
             person = await search_person(nom, lang)
+
             if not person:
                 print(f"⚠️ Acteur non trouvé sur TMDB: {nom}", flush=True)
                 continue
+
             credits = await get_person_credits(person["id"], lang)
+
             if credits:
                 print(f"🎭 {nom} → {len(credits)} crédits TMDB", flush=True)
                 all_credits.append(credits)
+
         except Exception as e:
             print(f"⚠️ Erreur crédits acteur {nom}: {e}", flush=True)
 
     if not all_credits:
         return []
 
+    # ── Intersection multi-acteurs ───────────────────────────────
     if len(all_credits) >= 2:
-        ids_first  = {c["id"] for c in all_credits[0]}
+        ids_first = {c["id"] for c in all_credits[0]}
         common_ids = ids_first
+
         for credits in all_credits[1:]:
             common_ids &= {c["id"] for c in credits}
 
         if common_ids:
-            candidates = [c for c in all_credits[0] if c["id"] in common_ids]
+            candidates = [
+                c for c in all_credits[0]
+                if c["id"] in common_ids
+            ]
 
-            # ── Filtre anti talk-show ─────────────────────────────────────
-            # Quand plusieurs acteurs très différents se retrouvent dans une
-            # intersection, les seuls "films communs" sont souvent des
-            # talk-shows où ils ont chacun été invités (Tonight Show, Kimmel…).
-            # TMDB genre 10767 (Talk) trahit ces faux positifs.
             filtered_intersection = [
                 c for c in candidates
-                if not _EXCLUDE_GENRE_IDS.intersection(set(c.get("genre_ids", [])))
+                if not _EXCLUDE_GENRE_IDS.intersection(
+                    set(c.get("genre_ids", []))
+                )
             ]
 
             if filtered_intersection:
@@ -761,65 +799,81 @@ async def build_candidates_from_actors(
                     key=lambda x: x.get("popularity", 0),
                     reverse=True,
                 )
+
                 print(
                     f"✅ Intersection acteurs: {len(filtered_intersection)} films communs "
                     f"({len(candidates) - len(filtered_intersection)} talk-shows exclus)",
-                    flush=True
+                    flush=True,
                 )
+
                 return filtered_intersection[:20]
-            else:
-                # Toute l'intersection n'est que du talk/reality → sans valeur
-                print(
-                    f"⚠️ Intersection acteurs = {len(candidates)} résultats, "
-                    f"tous des talk-shows → ignorée, passage à l'union",
-                    flush=True
-                )
-                # fall-through vers l'union ci-dessous
+
+            print(
+                f"⚠️ Intersection acteurs = {len(candidates)} résultats, "
+                "tous des talk-shows/reality/news → ignorée, passage à l'union",
+                flush=True,
+            )
 
         else:
             print("⚠️ Aucune intersection acteurs → union top films", flush=True)
 
-    # ── Union (fallback ou intersection vide/invalide) ────────────────
-    seen_ids: set  = set()
-    merged:   list = []
+    # ── Union fallback ───────────────────────────────────────────
+    seen_ids: set = set()
+    merged: list = []
+
     for credits in all_credits:
         for c in credits[:30]:
-            if c["id"] not in seen_ids:
-                seen_ids.add(c["id"])
-                merged.append(c)
+            item_id = c.get("id")
 
-    # Exclure les talk-shows de l'union également
+            if not item_id or item_id in seen_ids:
+                continue
+
+            seen_ids.add(item_id)
+            merged.append(c)
+
+    # Exclure talk-shows, news, reality, soaps.
     merged = [
         c for c in merged
-        if not _EXCLUDE_GENRE_IDS.intersection(set(c.get("genre_ids", [])))
+        if not _EXCLUDE_GENRE_IDS.intersection(
+            set(c.get("genre_ids", []))
+        )
     ]
 
-    merged = sorted(merged, key=lambda x: x.get("popularity", 0), reverse=True)
+    merged = sorted(
+        merged,
+        key=lambda x: x.get("popularity", 0),
+        reverse=True,
+    )
 
     genre = (extraction.get("genre_apparent") or "").lower()
     annee = str(extraction.get("annee_estimee") or "")
 
     genre_is_generic = genre in _GENERIC_GENRES or not genre
+
     if (genre or annee) and not genre_is_generic:
         filtered = _filter_by_genre_year(merged, genre, annee)
+
         if len(filtered) >= 3:
             print(
-                f"🔍 Filtre genre/année appliqué : {len(merged)} → {len(filtered)} candidats",
-                flush=True
+                f"🔍 Filtre genre/année appliqué : "
+                f"{len(merged)} → {len(filtered)} candidats",
+                flush=True,
             )
             merged = filtered
+
     elif genre_is_generic and (genre or annee):
         print(
-            f"ℹ️  Genre '{genre}' trop générique → filtre désactivé "
-            f"(évite d'exclure les séries TV)",
-            flush=True
+            f"ℹ️ Genre '{genre}' trop générique → filtre désactivé "
+            "(évite d'exclure les séries TV)",
+            flush=True,
         )
 
     for c in merged:
         if "media_type" not in c:
-            c["media_type"] = "tv" if "first_air_date" in c else "movie"
+            c["media_type"] = "tv" if c.get("first_air_date") else "movie"
 
     print(f"✅ Candidats via acteurs: {len(merged[:20])}", flush=True)
+
     return merged[:20]
 
 # ════════════════════════════════════════════════════════════════
