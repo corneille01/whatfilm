@@ -87,9 +87,9 @@ async def films_tournes(
     per_page:   int = Query(24,  ge=1, le=500),
     country:    str = Query("",  max_length=100),
     city:       str = Query("",  max_length=100),
-    media_type: str = Query("",  regex="^(movie|tv|)$"),
+    media_type: str = Query("",  pattern="^(movie|tv|)$"),
     q:          str = Query("",  max_length=100),
-    sort:       str = Query("count_locations", regex="^(count_locations|rating|year|title)$"),
+    sort:       str = Query("count_locations", pattern="^(count_locations|rating|year|title)$"),
     lang:       str = Query("fr", max_length=10),
     year:       str = Query("",  max_length=4),
 ):

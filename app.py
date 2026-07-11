@@ -334,7 +334,14 @@ def cleanup_files(video_path, audio_path, frame_dir, audio_exists):
         print(f"⚠️ Cleanup: {e}", flush=True)
 
 
-
+@app.get("/manifest.webmanifest")
+async def manifest():
+    response = FileResponse(
+        "frontend/manifest.webmanifest",
+        media_type="application/manifest+json"
+    )
+    response.headers["Cache-Control"] = "no-cache"
+    return response
 @app.get("/sw.js")
 async def service_worker():
     response = FileResponse("frontend/sw.js", media_type="application/javascript")
@@ -1635,7 +1642,7 @@ async def process_analysis(
     # ── 2. Extraction multimodale ────────────────────────────────
     if prefetched_extraction is not None:
         extraction = prefetched_extraction
-        print("✅ Extraction prefetchée utilisée (YouTube direct)", flush=True)
+        print("✅ Extraction prefetchée utilisée", flush=True)
         detected_script = extraction.get("detected_script", "latin")
     else:
         combined_text   = (transcript or "") + " " + (ocr_text or "")
