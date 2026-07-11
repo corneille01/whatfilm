@@ -333,6 +333,14 @@ def cleanup_files(video_path, audio_path, frame_dir, audio_exists):
     except Exception as e:
         print(f"⚠️ Cleanup: {e}", flush=True)
 
+@app.get("/.well-known/assetlinks.json")
+async def assetlinks():
+    response = FileResponse(
+        "frontend/.well-known/assetlinks.json",
+        media_type="application/json"
+    )
+    response.headers["Cache-Control"] = "no-cache"
+    return response
 
 @app.get("/manifest.webmanifest")
 async def manifest():

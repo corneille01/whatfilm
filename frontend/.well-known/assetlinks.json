@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "app.pelify.twa",
+        "sha256_cert_fingerprints": ["80:F2:42:D5:D5:F0:B1:53:F0:B8:3E:04:69:DC:AB:23:75:7C:73:C4:31:B4:E6:46:81:0A:70:78:85:A8:F9:14"]
+      }
+    }]

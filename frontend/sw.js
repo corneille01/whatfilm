@@ -6,6 +6,7 @@ const APP_SHELL = [
   "/frontend/script.js?v=67",
   "/frontend/filming.js?v=51",
   "/frontend/manifest.webmanifest",
+  "/.well-known/assetlinks.json",
 
   "/frontend/images/logo.webp",
   "/frontend/images/logo.png",
