@@ -13,7 +13,6 @@ def extract_keyframes(video_path: str, output_dir: str, max_frames: int = 6) -> 
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    # Nettoyer les anciennes frames
     for f in os.listdir(output_dir):
         if f.endswith(('.jpg', '.png')):
             try:
@@ -22,7 +21,6 @@ def extract_keyframes(video_path: str, output_dir: str, max_frames: int = 6) -> 
                 pass
 
     def _frames_sur_disque() -> List[str]:
-        """Retourne les frames existantes et non-vides dans output_dir."""
         result = []
         for f in sorted(os.listdir(output_dir)):
             if f.endswith(('.jpg', '.png')):
@@ -48,16 +46,13 @@ def extract_keyframes(video_path: str, output_dir: str, max_frames: int = 6) -> 
 
     except subprocess.TimeoutExpired:
         print("⏱️ Timeout extraction frames → fallback 1 frame", flush=True)
-
     except subprocess.CalledProcessError as e:
         print(f"⚠️ ffmpeg erreur (code {e.returncode}) → fallback 1 frame", flush=True)
-
     except Exception as e:
         print(f"⚠️ extract_keyframes exception: {e} → fallback 1 frame", flush=True)
 
-    # ── Fallback : extraire au moins 1 frame au milieu de la vidéo ────────
+    # ── Fallback : 1 frame, seek D'ENTRÉE (rapide) au lieu de seek de sortie ──
     try:
-        # D'abord obtenir la durée pour viser le milieu
         probe = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", video_path],
@@ -68,18 +63,30 @@ def extract_keyframes(video_path: str, output_dir: str, max_frames: int = 6) -> 
 
         cmd_fallback = [
             "ffmpeg",
-            "-ss", str(seek),
+            "-ss", str(seek),      # ← seek D'ENTRÉE : placé avant -i, quasi instantané
             "-i", video_path,
             "-vframes", "1",
             "-q:v", "2",
             f"{output_dir}/frame_001.jpg",
             "-y"
         ]
-        subprocess.run(cmd_fallback, check=True, capture_output=True, timeout=10)
+        subprocess.run(cmd_fallback, check=True, capture_output=True, timeout=15)
         frames = _frames_sur_disque()
         print(f"Fallback frames: {len(frames)}", flush=True)
         return frames
 
     except Exception as e:
         print(f"❌ Fallback frame échoué: {e}", flush=True)
+
+    # ── Ultime secours : frame à t=2s (évite tout risque de seek trop loin) ──
+    try:
+        cmd_last = [
+            "ffmpeg", "-ss", "2", "-i", video_path,
+            "-vframes", "1", "-q:v", "2",
+            f"{output_dir}/frame_001.jpg", "-y"
+        ]
+        subprocess.run(cmd_last, check=True, capture_output=True, timeout=10)
+        return _frames_sur_disque()
+    except Exception as e:
+        print(f"❌ Ultime fallback échoué: {e}", flush=True)
         return []

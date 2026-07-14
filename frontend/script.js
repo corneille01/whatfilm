@@ -2258,12 +2258,75 @@ function showDetailLoading(){
   document.getElementById("partner-offer")?.classList.remove("visible");
 }
 
+
+
+
+async function chargerFormatsTelechargement(){
+  const url = document.getElementById("downloader-url").value.trim();
+  const box = document.getElementById("downloader-formats");
+  if(!url){ box.innerHTML = `<p class="dl-error">Collez un lien valide.</p>`; return; }
+  box.innerHTML = `<p class="dl-loading">Analyse du lien…</p>`;
+  try{
+    const res = await fetch("/download/formats", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({url})
+    });
+    const data = await res.json();
+    if(data.status !== "ok"){ box.innerHTML = `<p class="dl-error">${data.message||"Erreur"}</p>`; return; }
+    const options = data.formats.map(f =>
+      `<option value="${f.format_id}" data-audio="${f.is_audio_only}">${f.label}${f.filesize_approx ? " · " + Math.round(f.filesize_approx/1e6) + " Mo" : ""}</option>`
+    ).join("");
+    box.innerHTML = `
+      <div class="dl-preview">
+        ${data.thumbnail ? `<img src="${data.thumbnail}" alt="" />` : ""}
+        <span>${data.title || ""}</span>
+      </div>
+      <select id="downloader-format-select">${options}</select>
+      <button class="btn-stream" onclick="lancerTelechargement('${encodeURIComponent(url)}')">
+        <i class="fas fa-download"></i> Télécharger
+      </button>`;
+  }catch(e){
+    box.innerHTML = `<p class="dl-error">Impossible d'analyser ce lien.</p>`;
+  }
+}
+
+async function lancerTelechargement(encodedUrl){
+  const url = decodeURIComponent(encodedUrl);
+  const select = document.getElementById("downloader-format-select");
+  const formatId = select.value;
+  const audioOnly = select.selectedOptions[0].dataset.audio === "true";
+  const box = document.getElementById("downloader-formats");
+  box.insertAdjacentHTML("beforeend", `<p class="dl-loading" id="dl-status">Téléchargement en cours…</p>`);
+  try{
+    const res = await fetch("/download", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({url, format_id: formatId, audio_only: audioOnly})
+    });
+    if(!res.ok){
+      const err = await res.json().catch(()=>({}));
+      document.getElementById("dl-status").outerHTML = `<p class="dl-error">${err.message||"Échec du téléchargement."}</p>`;
+      return;
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition")||"";
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = match ? match[1] : "video";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    document.getElementById("dl-status").remove();
+  }catch(e){
+    document.getElementById("dl-status").outerHTML = `<p class="dl-error">Erreur réseau.</p>`;
+  }
+}
 function afficherDetailFilm(data) {
   document.getElementById("page-film-detail").style.display = "block";
   document.getElementById("genre-grid").style.display = "none";
   document.getElementById("filming-page").style.display = "none";
   document.getElementById("hero").style.display = "none";
   document.getElementById("back-label").innerText = lastGrid ? t("back_list") : t("back_home");
+   document.getElementById("report-wrong-wrap").style.display = _cameFromAnalysis ? "block" : "none";
 
   // Fake / low confidence
   document.getElementById("fake_alert").innerHTML =

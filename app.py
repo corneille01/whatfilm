@@ -1,4 +1,16 @@
 import os
+# ── Fix crash glibc getaddrinfo (rfc3484_sort) sur résolution DNS mixte IPv4/IPv6 ──
+# Cf. logs Render : "Fatal glibc error: getaddrinfo.c:1642 (rfc3484_sort)" → SIGABRT
+# du worker entier. On force la résolution DNS en IPv4 uniquement pour tous les
+# clients HTTP (httpx) du process.
+import socket
+_orig_getaddrinfo = socket.getaddrinfo
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    results = _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+    return results if results else _orig_getaddrinfo(host, port, family, type, proto, flags)
+socket.getaddrinfo = _ipv4_only_getaddrinfo
+
+
 
 import uuid
 import shutil
@@ -62,7 +74,127 @@ from storage.cache import (
 
 
 
+# ════════════════════════════════════════════════════════════════
+# TÉLÉCHARGEMENT PUBLIC (page d'accueil) — indépendant du pipeline d'identification
+# ════════════════════════════════════════════════════════════════
+import yt_dlp
+from starlette.background import BackgroundTask
 
+MAX_DOWNLOAD_MB = 300  # garde-fou bande passante/disque Render
+
+
+class DownloadFormatsRequest(BaseModel):
+    url: str
+
+
+@app.post("/download/formats")
+async def download_formats(req: DownloadFormatsRequest, request: Request):
+    ip = _get_client_ip(request)
+    rate_err = _check_rate_limit(ip)
+    if rate_err:
+        return rate_err
+
+    url = normalize_url(await _resolve_short_url(req.url.strip()))
+
+    def _extract():
+        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
+            return ydl.extract_info(url, download=False)
+
+    try:
+        info = await asyncio.to_thread(_extract)
+    except Exception:
+        return {"status": "error", "code": "extract_failed",
+                "message": "Impossible de lire ce lien. Vérifiez qu'il est public et valide."}
+
+    formats, seen = [], set()
+    for f in info.get("formats", []):
+        if f.get("vcodec") == "none" and f.get("acodec") == "none":
+            continue
+        fid = f.get("format_id")
+        if not fid or fid in seen:
+            continue
+        seen.add(fid)
+        is_audio_only = f.get("vcodec") == "none"
+        label = (
+            f"Audio {f.get('abr') or '?'}kbps ({f.get('ext')})" if is_audio_only
+            else f"{f.get('height', '?')}p {f.get('ext')}"
+        )
+        formats.append({
+            "format_id": fid,
+            "label": label,
+            "is_audio_only": is_audio_only,
+            "filesize_approx": f.get("filesize") or f.get("filesize_approx"),
+        })
+
+    return {
+        "status": "ok",
+        "title": info.get("title"),
+        "thumbnail": info.get("thumbnail"),
+        "duration": info.get("duration"),
+        "formats": formats,
+    }
+
+
+class DownloadRequest(BaseModel):
+    url: str
+    format_id: str
+    audio_only: bool = False
+
+
+@app.post("/download")
+async def download_file(req: DownloadRequest, request: Request):
+    ip = _get_client_ip(request)
+    rate_err = _check_rate_limit(ip)
+    if rate_err:
+        return rate_err
+
+    url = normalize_url(await _resolve_short_url(req.url.strip()))
+    uid = str(uuid.uuid4())[:8]
+    os.makedirs("temp", exist_ok=True)
+    out_template = f"temp/dl_{uid}.%(ext)s"
+
+    ydl_opts = {
+        "format": req.format_id if req.audio_only else f"{req.format_id}+bestaudio/best",
+        "outtmpl": out_template,
+        "quiet": True,
+        "no_warnings": True,
+    }
+    if not req.audio_only:
+        ydl_opts["merge_output_format"] = "mp4"
+    else:
+        ydl_opts["postprocessors"] = [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192",
+        }]
+
+    def _download():
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            path = ydl.prepare_filename(info)
+            return os.path.splitext(path)[0] + ".mp3" if req.audio_only else path
+
+    try:
+        final_path = await asyncio.to_thread(_download)
+    except Exception:
+        return {"status": "error", "code": "download_failed",
+                "message": "Le téléchargement a échoué. Le lien est peut-être privé ou expiré."}
+
+    if not os.path.exists(final_path):
+        return {"status": "error", "code": "file_missing",
+                "message": "Fichier introuvable après téléchargement."}
+
+    size_mb = os.path.getsize(final_path) / (1024 * 1024)
+    if size_mb > MAX_DOWNLOAD_MB:
+        os.remove(final_path)
+        return {"status": "error", "code": "too_large",
+                "message": f"Fichier trop volumineux ({size_mb:.0f} Mo, max {MAX_DOWNLOAD_MB} Mo)."}
+
+    return FileResponse(
+        final_path,
+        filename=os.path.basename(final_path),
+        background=BackgroundTask(lambda: os.path.exists(final_path) and os.remove(final_path)),
+    )
 
 # ════════════════════════════════════════════════════════════════
 # NORMALISATION D'URL
