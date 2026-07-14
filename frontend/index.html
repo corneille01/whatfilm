@@ -194,7 +194,7 @@
       />
     </noscript>
 
-    <link rel="stylesheet" href="/frontend/style.css?v=68" />
+    <link rel="stylesheet" href="/frontend/style.css?v=69" />
   </head>
   <body>
     <input
@@ -385,7 +385,20 @@
         </div>
       </div>
     </section>
-
+    <div id="downloader-box" class="downloader-box">
+      <h3><i class="fas fa-download"></i> Télécharger une vidéo</h3>
+      <div class="downloader-row">
+        <input
+          type="text"
+          id="downloader-url"
+          placeholder="Collez un lien TikTok, YouTube, Instagram…"
+        />
+        <button class="btn-stream" onclick="chargerFormatsTelechargement()">
+          Voir les formats
+        </button>
+      </div>
+      <div id="downloader-formats"></div>
+    </div>
     <!-- GENRE NAV -->
     <nav
       id="genre-nav"
@@ -490,20 +503,7 @@
         </button>
         <span id="filtre-count"></span>
       </div>
-      <div id="downloader-box" class="downloader-box">
-        <h3><i class="fas fa-download"></i> Télécharger une vidéo</h3>
-        <div class="downloader-row">
-          <input
-            type="text"
-            id="downloader-url"
-            placeholder="Collez un lien TikTok, YouTube, Instagram…"
-          />
-          <button class="btn-stream" onclick="chargerFormatsTelechargement()">
-            Voir les formats
-          </button>
-        </div>
-        <div id="downloader-formats"></div>
-      </div>
+
       <div id="movie-cards"></div>
     </div>
 
@@ -824,7 +824,7 @@
       >
     </footer>
     <!-- Notre script principal -->
-    <script src="/frontend/script.js?v=68" defer></script>
+    <script src="/frontend/script.js?v=69" defer></script>
     <script src="/frontend/filming.js?v=52" defer></script>
     <!-- MODALE PUBLICITÉ -->
     <div
