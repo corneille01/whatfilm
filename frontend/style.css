@@ -3089,7 +3089,9 @@ body.content-mode .seo-intent {
     max-width: 110px;
   }
 }
-.downloader-box{background:var(--card,#1c1c1e);border-radius:14px;padding:16px;margin:16px 0;}
+.downloader-box{background:var(--card,#1c1c1e);border-radius:14px;padding:16px;margin:16px 0;width: 50%;
+    margin-left: 25%;
+}
 .downloader-row{display:flex;gap:8px;margin-top:10px;}
 .downloader-row input{flex:1;padding:10px;border-radius:8px;border:1px solid #333;background:#111;color:#fff;}
 .dl-preview{display:flex;align-items:center;gap:10px;margin:10px 0;}
