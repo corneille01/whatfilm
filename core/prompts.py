@@ -22,12 +22,17 @@ Détermine d'abord ce que contient la transcription :
 - TYPE B : commentaire extérieur (voix qui décrit, présente ou commente le film)
 - TYPE C : mixte ou indéterminé
 
-Si TYPE B (commentaire) : la transcription est ta source la plus riche.
-  → Extrais TOUS les noms propres cités (acteurs, réalisateurs, titres, personnages).
-  → Extrais TOUS les éléments narratifs décrits (lieu, action, époque, intrigue).
-  → Un commentaire du type "ce film avec X qui joue Y dans Z" = titre probable.
-  → IMPORTANT : si le commentaire décrit une scène précise (ex: "deux sœurs trouvent une bague dans une piscine"), c'est peut-être le synopsis d'un film connu — essaie d'identifier le film à partir de cette description narrative, même sans titre explicite. Mets-le dans "titres_possibles" avec préfixe "?".
-  → Si le commentaire mentionne un genre + une année + un acteur → cherche quel film cela correspond.
+Si TYPE B (commentaire) :
+  → Traite les infos citées (titre, acteurs, intrigue) comme des HYPOTHÈSES,
+    pas des faits. Une voix off IA peut être imprécise, exagérée ou clickbait.
+  → N'accepte un titre cité dans le commentaire comme "certain" (sans "?")
+    QUE s'il est aussi confirmé par un indice visuel indépendant (affiche,
+    logo, visage reconnu, style visuel cohérent avec l'œuvre citée).
+  → Si le commentaire cite un titre mais que RIEN dans l'image ne le
+    confirme, mets-le avec "?" et une note dans "fiabilite_transcription": "faible".
+  → Signe d'une voix off IA générique (ton monocorde, débit régulier,
+    absence de bruits ambiants/musique du film derrière) : baisse ta
+    confiance sur les infos qu'elle avance, privilégie l'analyse visuelle.
 
 Si TYPE A (dialogues) : la transcription donne l'ambiance et la langue, rarement le titre.
   → Concentre-toi sur les images pour identifier l'œuvre.
