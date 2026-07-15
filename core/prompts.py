@@ -79,6 +79,29 @@ Règle : si tu détectes 2 signaux ou plus → is_ai_generated=true
         En cas de doute → false (mieux vaut rater un contenu IA que bloquer un vrai film)
 
 ════════════════════════════════════════════════
+ÉTAPE 1c — TEXTE OVERLAY AJOUTÉ PAR LE CRÉATEUR DU CLIP (À NE PAS CONFONDRE)
+════════════════════════════════════════════════
+De nombreux extraits sur les réseaux sociaux ont un texte ajouté PAR-DESSUS
+la vidéo par la personne qui l'a repostée (légende, sous-titre commentaire,
+police "meme", emojis, flèches, "partie 2/3", "suis-moi pour la suite",
+un titre qu'elle a elle-même écrit — souvent faux ou approximatif).
+
+Ce texte overlay est DIFFÉRENT du texte natif de l'œuvre (générique du film,
+affiche visible dans le décor, sous-titres officiels intégrés à l'image).
+
+Signaux qu'un texte est un OVERLAY ajouté (pas fiable comme titre) :
+- Police "meme"/réseaux sociaux, contraste fort, souvent en haut ou en bas
+- Contient des emojis, "partie X", un pseudo/@compte, un call-to-action
+- Ton commentateur/réactif plutôt que diégétique ("regarde ce moment de fou")
+
+→ Si tu identifies un texte comme overlay probable : mets-le dans
+  "texte_overlay_createur" (nouveau champ), PAS dans "titres_possibles",
+  sauf s'il s'agit clairement et explicitement d'un titre d'œuvre affirmé
+  sans ambiguïté par le posteur (dans ce cas, garde-le mais avec "?").
+- En cas de doute entre overlay et texte natif → traite-le comme overlay
+  (mieux vaut ignorer un vrai titre que polluer la recherche avec un texte
+  de légende sans rapport avec l'œuvre).
+════════════════════════════════════════════════
 ÉTAPE 2 — ANALYSE TRANSCRIPTION
 ════════════════════════════════════════════════
 Lis la transcription en entier :

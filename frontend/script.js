@@ -2258,68 +2258,68 @@ function showDetailLoading(){
   document.getElementById("partner-offer")?.classList.remove("visible");
 }
 
-
-
-
-async function chargerFormatsTelechargement(){
-  const url = document.getElementById("downloader-url").value.trim();
-  const box = document.getElementById("downloader-formats");
-  if(!url){ box.innerHTML = `<p class="dl-error">Collez un lien valide.</p>`; return; }
-  box.innerHTML = `<p class="dl-loading">Analyse du lien…</p>`;
-  try{
-    const res = await fetch("/download/formats", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({url})
-    });
-    const data = await res.json();
-    if(data.status !== "ok"){ box.innerHTML = `<p class="dl-error">${data.message||"Erreur"}</p>`; return; }
-    const options = data.formats.map(f =>
-      `<option value="${f.format_id}" data-audio="${f.is_audio_only}">${f.label}${f.filesize_approx ? " · " + Math.round(f.filesize_approx/1e6) + " Mo" : ""}</option>`
-    ).join("");
-    box.innerHTML = `
-      <div class="dl-preview">
-        ${data.thumbnail ? `<img src="${data.thumbnail}" alt="" />` : ""}
-        <span>${data.title || ""}</span>
-      </div>
-      <select id="downloader-format-select">${options}</select>
-      <button class="btn-stream" onclick="lancerTelechargement('${encodeURIComponent(url)}')">
-        <i class="fas fa-download"></i> Télécharger
-      </button>`;
-  }catch(e){
-    box.innerHTML = `<p class="dl-error">Impossible d'analyser ce lien.</p>`;
+async function telechargerVideo(url, btn) {
+  if (!url || !url.trim()) {
+    afficherErreur(t("err_generic") || "Collez un lien valide.");
+    return;
   }
-}
+  const originalHtml = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
 
-async function lancerTelechargement(encodedUrl){
-  const url = decodeURIComponent(encodedUrl);
-  const select = document.getElementById("downloader-format-select");
-  const formatId = select.value;
-  const audioOnly = select.selectedOptions[0].dataset.audio === "true";
-  const box = document.getElementById("downloader-formats");
-  box.insertAdjacentHTML("beforeend", `<p class="dl-loading" id="dl-status">Téléchargement en cours…</p>`);
-  try{
+  try {
     const res = await fetch("/download", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({url, format_id: formatId, audio_only: audioOnly})
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: url.trim(), format_id: "best", audio_only: false }),
     });
-    if(!res.ok){
-      const err = await res.json().catch(()=>({}));
-      document.getElementById("dl-status").outerHTML = `<p class="dl-error">${err.message||"Échec du téléchargement."}</p>`;
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      afficherErreur(err.message || "Échec du téléchargement.");
       return;
     }
+
     const blob = await res.blob();
-    const disposition = res.headers.get("Content-Disposition")||"";
+    const disposition = res.headers.get("Content-Disposition") || "";
     const match = disposition.match(/filename="?([^"]+)"?/);
+    const filename = match ? match[1] : "video.mp4";
+
+    // Déclenche le téléchargement natif du navigateur
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = match ? match[1] : "video";
+    a.download = filename;
+    document.body.appendChild(a);
     a.click();
+
+    // "Supprime du frontend" : on libère immédiatement la mémoire (blob)
+    // et l'élément temporaire — rien ne reste en mémoire ni dans le DOM
+    // une fois le téléchargement lancé côté navigateur.
     URL.revokeObjectURL(a.href);
-    document.getElementById("dl-status").remove();
-  }catch(e){
-    document.getElementById("dl-status").outerHTML = `<p class="dl-error">Erreur réseau.</p>`;
+    a.remove();
+  } catch (e) {
+    afficherErreur("Erreur réseau pendant le téléchargement.");
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
   }
 }
+
+function telechargerDepuisHero() {
+  telechargerVideo(
+    document.getElementById("hero-search-input").value,
+    event.currentTarget
+  );
+}
+
+function telechargerDepuisBarre() {
+  telechargerVideo(
+    document.getElementById("fixed-search-input").value,
+    event.currentTarget
+  );
+}
+
+
+
+
 function afficherDetailFilm(data) {
   document.getElementById("page-film-detail").style.display = "block";
   document.getElementById("genre-grid").style.display = "none";

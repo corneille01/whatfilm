@@ -371,8 +371,13 @@ async def download_file(req: DownloadRequest, request: Request):
     os.makedirs("temp", exist_ok=True)
     out_template = f"temp/dl_{uid}.%(ext)s"
 
+    fmt_selector = (
+        req.format_id if req.audio_only
+        else ("bestvideo+bestaudio/best" if req.format_id == "best"
+              else f"{req.format_id}+bestaudio/best")
+    )
     ydl_opts = {
-        "format": req.format_id if req.audio_only else f"{req.format_id}+bestaudio/best",
+        "format": fmt_selector,
         "outtmpl": out_template,
         "quiet": True,
         "no_warnings": True,
@@ -1575,6 +1580,7 @@ async def _finalize_with_known_result(
                             or details.get("name")
                             or "Inconnu"),
         "confidence":      max(0, confidence),
+        "_lowConfWarning":  confidence < SHOULD_SHOW_ALTERNATIVES_BELOW,
         "synopsis":        details.get("overview", ""),
         "image":           (f"https://image.tmdb.org/t/p/w500{details['poster_path']}"
                             if details.get("poster_path") else ""),
@@ -1936,8 +1942,16 @@ async def process_analysis(
     opinions   = []   # ← accumule les avis de chaque canal indépendant
     candidate_alternatives = []
 
-    # ── 5. Recherche via acteurs ─────────────────────────────────
+    # ── 5 + 5b. Recherche acteurs ET ancrage par réplique exacte ──
+    # Les deux canaux sont indépendants l'un de l'autre (aucun ne dépend
+    # du résultat de l'autre pour se déclencher) → on lance la recherche
+    # de réplique en tâche de fond dès le début, pendant que la recherche
+    # acteurs (TMDB + rerank LLM) se déroule normalement.
     actor_candidates = []
+
+    quote_corrob_task = asyncio.create_task(
+        find_quote_corroboration(transcript or "", browser_lang=browser_lang)
+    )
 
     if extraction.get("acteurs"):
         actor_candidates = await build_candidates_from_actors(
@@ -1947,9 +1961,14 @@ async def process_analysis(
     else:
         print("🧹 Recherche acteurs ignorée : aucun acteur fiable après filtrage", flush=True)
 
-    if actor_candidates:
+    actor_rerank_task = (
+        asyncio.create_task(rerank(extraction, actor_candidates))
+        if actor_candidates else None
+    )
+
+    if actor_rerank_task:
         print(f"🎭 Recherche via acteurs: {len(actor_candidates)} candidats", flush=True)
-        actor_result = await rerank(extraction, actor_candidates)
+        actor_result = await actor_rerank_task
         opinions.append(make_opinion(actor_result, "actors"))
         if actor_result and actor_result.get("score", 0) >= 50:
             matched = next(
@@ -1966,10 +1985,8 @@ async def process_analysis(
                 flush=True
             )
 
-    # ── 5b. Ancrage par réplique exacte (dialogue anchoring) ──────
-    quote_corrob = await find_quote_corroboration(
-        transcript or "", browser_lang=browser_lang
-    )
+    # ── 5b. Ancrage par réplique exacte — récupération du résultat déjà en cours ──
+    quote_corrob = await quote_corrob_task
     quote_candidate_ids = {c["id"] for c in quote_corrob["candidates"]}
 
     if quote_corrob["candidates"]:

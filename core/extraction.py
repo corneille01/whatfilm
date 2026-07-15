@@ -293,18 +293,33 @@ def _normalize_acteurs_certitude(data: dict, default_certitude: int = 50) -> dic
     return data
 
 def _normalize_all_fields(data: dict, default_certitude: int = 50) -> dict:
-    data.setdefault("titres_possibles",   [])
-    data.setdefault("acteurs",            [])
-    data.setdefault("acteurs_certitude",  [])
-    data.setdefault("personnages",        [])
-    data.setdefault("objets_importants",  [])
-    data.setdefault("description_courte", "")
-    data.setdefault("genre_apparent",     "")
-    data.setdefault("annee_estimee",      None)
-    data.setdefault("langue_originale",   "")
-    data.setdefault("indices_visuels",    [])
-    data.setdefault("is_ai_generated",    False)
+    data.setdefault("titres_possibles",      [])
+    data.setdefault("acteurs",               [])
+    data.setdefault("acteurs_certitude",     [])
+    data.setdefault("personnages",           [])
+    data.setdefault("objets_importants",     [])
+    data.setdefault("description_courte",    "")
+    data.setdefault("genre_apparent",        "")
+    data.setdefault("annee_estimee",         None)
+    data.setdefault("langue_originale",      "")
+    data.setdefault("indices_visuels",       [])
+    data.setdefault("is_ai_generated",       False)
+    data.setdefault("texte_overlay_createur", [])   # ← nouveau champ
     data["is_ai_generated"] = bool(data.get("is_ai_generated", False))
+
+    # Sécurité défensive : si le LLM a quand même dupliqué un texte overlay
+    # dans titres_possibles malgré la consigne du prompt, on le retire —
+    # on ne fait confiance qu'à ce que le modèle a lui-même classé "overlay".
+    overlay_norm = {
+        str(t).strip().lower().lstrip("?")
+        for t in data.get("texte_overlay_createur", [])
+    }
+    if overlay_norm:
+        data["titres_possibles"] = [
+            t for t in data["titres_possibles"]
+            if str(t).strip().lower().lstrip("?") not in overlay_norm
+        ]
+
     data = _normalize_acteurs_certitude(data, default_certitude)
     return data
 
