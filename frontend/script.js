@@ -1447,12 +1447,12 @@ function afficherErreurRiche(data){
   // ── Contenu généré par IA ────────────────────────────────────
   if (data.code === "ai_generated" || data.is_ai_generated) {
     document.getElementById("loading-overlay").classList.remove("active");
-    stopGame();
-    document.getElementById("genre-grid").style.display = "block";
-    document.getElementById("page-film-detail").style.display = "none";
-    document.getElementById("hero").style.display = "none";
-    document.getElementById("filtres-bar").style.display = "none";
-    document.getElementById("genre-title").innerText = "";
+  stopGame();
+  _hideAllPages();
+  document.getElementById("genre-grid").style.display="block";
+  document.getElementById("genre-nav").style.display="flex";
+  document.getElementById("filtres-bar").style.display="none";
+  document.getElementById("genre-title").innerText="";
     document.getElementById("movie-cards").innerHTML = `
       <div style="grid-column:1/-1;display:flex;flex-direction:column;
                   align-items:center;justify-content:center;text-align:center;
@@ -1490,9 +1490,9 @@ function afficherErreurRiche(data){
   const searchQ=encodeURIComponent(document.getElementById("input_global").value.trim()||"");
   document.getElementById("loading-overlay").classList.remove("active");
   stopGame();
+  _hideAllPages();
   document.getElementById("genre-grid").style.display="block";
-  document.getElementById("page-film-detail").style.display="none";
-  document.getElementById("hero").style.display="none";
+  document.getElementById("genre-nav").style.display="flex";
   document.getElementById("filtres-bar").style.display="none";
   document.getElementById("genre-title").innerText="";
   const icon={video_private:"🔒",video_geo:"🌍",video_deleted:"🗑️",download_failed:"📵",server_busy:"⏳",no_frames:"🖼️",timeout:"⏱️",session_expired:"🔄",low_confidence:"🔍"}[code]||"⚠️";
@@ -1536,6 +1536,7 @@ function _hideAllPages(){
   ["page-film-detail","genre-grid","privacy-page","filming-page","hero","genre-nav"].forEach(id=>{
     const el=document.getElementById(id);if(el)el.style.display="none";
   });
+  document.getElementById("platform-nav")?.classList.remove("visible")
 }
 function retourAccueil(pushHistory = true){
   setHomeMode();
@@ -1902,7 +1903,7 @@ function base64ToBlob(base64,mimeType){const byteChars=atob(base64);const byteAr
 async function chargerGenre(genreName, page = 1, mediaType = "movie", pushHistory = true) {
   setContentMode();
   if (pushHistory) _pushNav(`/genre/${genreName}`, {type:"genre", name:genreName, page, mediaType});
-  hideHero(); cacherErreur();
+  ; cacherErreur();
   currentGenreName = genreName; currentPage = page;
   afficherNavCategoriesFilms(genreName);
   document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
@@ -1910,9 +1911,9 @@ async function chargerGenre(genreName, page = 1, mediaType = "movie", pushHistor
 
   const cacheKey = `genre_${genreName}_${page}_${getTMDBLang()}`;
   const cached = getCached(cacheKey);
-  document.getElementById("page-film-detail").style.display = "none";
-  document.getElementById("filming-page").style.display = "none";
+  _hideAllPages();
   document.getElementById("genre-grid").style.display = "block";
+  document.getElementById("genre-nav").style.display = "flex";
 
  
   document.getElementById("genre-title").innerText = genreName.toUpperCase();
@@ -1956,9 +1957,9 @@ async function chargerSeries(page = 1, pushHistory = true) {
   document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
   document.querySelector(".btn-genre.series")?.classList.add("active");
 
-  document.getElementById("page-film-detail").style.display = "none";
-  document.getElementById("filming-page").style.display = "none";
+ _hideAllPages();
   document.getElementById("genre-grid").style.display = "block";
+  document.getElementById("genre-nav").style.display = "flex";
   document.getElementById("platform-nav").classList.remove("visible");
 
   document.getElementById("genre-title").innerText = tg("series").toUpperCase();
@@ -1999,9 +2000,9 @@ async function chargerTrending(pushHistory = true) {
   document.querySelector(".btn-genre.trending")?.classList.add("active");
   const cacheKey = `trending_${getTMDBLang()}`;
   const cached = getCached(cacheKey);
-  document.getElementById("page-film-detail").style.display = "none";
-  document.getElementById("filming-page").style.display = "none";
+  _hideAllPages();
   document.getElementById("genre-grid").style.display = "block";
+  document.getElementById("genre-nav").style.display = "flex";
   afficherNavCategoriesFilms("trending");
   document.getElementById("genre-title").innerText = tg("trending").toUpperCase();
   if (cached) { renderCards(cached, "trending", 1, 1); return; }
@@ -2029,9 +2030,9 @@ async function chargerFilms(page = 1, pushHistory = true) {
   document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
   document.querySelector(".btn-genre.films")?.classList.add("active");
 
-  document.getElementById("page-film-detail").style.display = "none";
-  document.getElementById("filming-page").style.display = "none";
+ _hideAllPages();
   document.getElementById("genre-grid").style.display = "block";
+  document.getElementById("genre-nav").style.display = "flex";
 
   // Quand on clique sur Film, on affiche le reste
 afficherNavCategoriesFilms("trending");
@@ -2071,9 +2072,9 @@ async function chargerParPlateforme(platformKey, page = 1, pushHistory = true) {
   hideHero(); cacherErreur();
   const nameMap = { netflix: "NETFLIX", amazon: "PRIME VIDEO", disney: "DISNEY+", apple: "APPLE TV+", paramount: "PARAMOUNT+", hulu: "HULU" };
   currentGenreName = platformKey; currentPage = page;
-  document.getElementById("page-film-detail").style.display = "none";
-  document.getElementById("filming-page").style.display = "none";
+  _hideAllPages();
   document.getElementById("genre-grid").style.display = "block";
+  document.getElementById("genre-nav").style.display = "flex";
  afficherNavPlateformes(platformKey);
   document.getElementById("genre-title").innerText = "📺 " + (nameMap[platformKey] || platformKey.toUpperCase());
   document.getElementById("movie-cards").innerHTML =
@@ -2182,8 +2183,9 @@ function renderCardsFiltered(results){
   if(oldPag)container.insertBefore(fragment,oldPag);else container.appendChild(fragment);
 }
 function afficherResultatsRecherche(data,query){
+  _hideAllPages();
   document.getElementById("genre-grid").style.display="block";
-  document.getElementById("filming-page").style.display="none";
+  document.getElementById("genre-nav").style.display="flex";
   document.getElementById("genre-title").innerText=`🔍 "${query}"`;
   lastGrid="search";navStack=[];
   renderCards(data.results||[],"search",1,1);
@@ -2194,10 +2196,8 @@ function afficherResultatsRecherche(data,query){
 
 // ════ NOT FOUND ════
 function afficherNotFound(data){
+  _hideAllPages();
   document.getElementById("page-film-detail").style.display="block";
-  document.getElementById("genre-grid").style.display="none";
-  document.getElementById("filming-page").style.display="none";
-  document.getElementById("hero").style.display="none";
   document.getElementById("back-label").innerText=t("back_home");
   ["fake_alert","detail_tags","detail_rating","cast_section","trailer_section","similar_section","seasons_section"].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML="";});
   document.getElementById("confidence_wrap").style.display="none";
@@ -2321,10 +2321,9 @@ function telechargerDepuisBarre() {
 
 
 function afficherDetailFilm(data) {
+  _hideAllPages();
   document.getElementById("page-film-detail").style.display = "block";
-  document.getElementById("genre-grid").style.display = "none";
-  document.getElementById("filming-page").style.display = "none";
-  document.getElementById("hero").style.display = "none";
+  document.getElementById("report-wrong-wrap").style.display = _cameFromAnalysis ? "block" : "none"; // ← toujours nécessaire, cf. bug précédent
   document.getElementById("back-label").innerText = lastGrid ? t("back_list") : t("back_home");
    document.getElementById("report-wrong-wrap").style.display = _cameFromAnalysis ? "block" : "none";
 
