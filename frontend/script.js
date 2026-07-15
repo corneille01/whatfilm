@@ -2666,7 +2666,20 @@ function _detectCountry(){
 // du bon pays, ou crée une nouvelle clé pays si besoin.
 // ════ OFFRES PARTENAIRES GÉOCIBLÉES — AVEC EARFUN + HTVRONT ════
 // Remplace intégralement ta constante AWIN_OFFERS_BY_COUNTRY par ce bloc.
-
+// Offres approuvées pour TOUS les pays (fusionnées avec l'offre du pays
+// détecté dans getPartnerOffers()). Utile pour les programmes multi-pays
+// ou, comme ici, quand on choisit sciemment de diffuser au-delà de la
+// zone de vente officielle du programme.
+const AWIN_OFFERS_GLOBAL = [
+  {
+    icon: "🎓",
+    title: "Alison",
+    desc: "Cours en ligne gratuits et certifiants — plus de 6000 formations",
+    cta: "Découvrir →",
+    url: "https://www.awin1.com/cread.php?s=4549507&v=120101&q=584470&r=2932851",
+    image: "https://www.awin1.com/cshow.php?s=4549507&v=120101&q=584470&r=2932851"
+  },
+];
 const AWIN_OFFERS_BY_COUNTRY = {
   DE: [
     { icon: "💪", title: "PROGRAMM 21", desc: "21 Tage. 21 Minuten. 21 Lebensmittel.", cta: "Entdecken →", url: "https://www.awin1.com/awclick.php?gid=606436&mid=127263&awinaffid=2932851&linkid=4793651&clickref=pelify" },
@@ -2686,21 +2699,24 @@ const AWIN_OFFERS_BY_COUNTRY = {
   
   ],
 
-  FR: [
+ FR: [
     { icon: "🏡", title: "Festivilla", desc: "Villas de groupe pour anniversaires, EVG/EVJF, séminaires...", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4712338&v=117343&q=599044&r=2932851", image: "https://www.awin1.com/cshow.php?s=4712338&v=117343&q=599044&r=2932851" },
-    { icon: "🐾", title: "Suitical", desc: "Vêtements de protection et de récupération pour animaux", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4811291&v=127433&q=607801&r=2932851", image: "https://www.awin1.com/cshow.php?s=4811291&v=127433&q=607801&r=2932851" },
+    { icon: "💡", title: "Éclairage Déco", desc: "Lustres, suspensions et luminaires design haut de gamme", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4826404&v=128237&q=608878&r=2932851", image: "https://www.awin1.com/cshow.php?s=4826404&v=128237&q=608878&r=2932851" },
+    { icon: "💡", title: "Éclairage Déco", desc: "Lustres, suspensions et luminaires design haut de gamme", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4826404&v=128237&q=608878&r=2932851", image: "https://www.awin1.com/cshow.php?s=4826404&v=128237&q=608878&r=2932851" },
+    { icon: "💡", title: "Éclairage Déco", desc: "Lustres, suspensions et luminaires design haut de gamme", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4826404&v=128237&q=608878&r=2932851", image: "https://www.awin1.com/cshow.php?s=4826404&v=128237&q=608878&r=2932851" },
+    { icon: "🛒", title: "AliExpress FR", desc: "Des millions de produits à prix direct usine", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=3775159&v=26009&q=501388&r=2932851", image: "https://www.awin1.com/cshow.php?s=3775159&v=26009&q=501388&r=2932851" },
     { icon: "🛋️", title: "Moskera", desc: "Mobilier et décoration d'intérieur", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4814317&v=128253&q=608010&r=2932851", image: "https://www.awin1.com/cshow.php?s=4814317&v=128253&q=608010&r=2932851" },
     { icon: "🔒", title: "FastestVPN", desc: "Navigation privée et sécurisée — chiffrement 256 bits", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
     { icon: "🎧", title: "EarFun", desc: "Écouteurs et enceintes sans fil primés", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
     { icon: "🎨", title: "HTVRont", desc: "Machines, vinyles HTV, vinyles adhésifs et outils créatifs pour personnaliser vos projets", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
     {
-  icon: "💍",
-  title: "Ultrahuman",
-  desc: "Bague connectée pour suivre sommeil, récupération, VFC, température et stress, sans abonnement",
-  cta: "Découvrir →",
-  url: "https://www.awin1.com/cread.php?s=4052116&v=69428&q=531112&r=2932851",
-  image: "https://www.awin1.com/cshow.php?s=4052116&v=69428&q=531112&r=2932851"
-}
+      icon: "💍",
+      title: "Ultrahuman",
+      desc: "Bague connectée pour suivre sommeil, récupération, VFC, température et stress, sans abonnement",
+      cta: "Découvrir →",
+      url: "https://www.awin1.com/cread.php?s=4052116&v=69428&q=531112&r=2932851",
+      image: "https://www.awin1.com/cshow.php?s=4052116&v=69428&q=531112&r=2932851"
+    }
   ],
 
   AU: [
@@ -2832,7 +2848,8 @@ const AWIN_OFFERS_BY_COUNTRY = {
   GB: [
     { icon: "🔒", title: "FastestVPN", desc: "Secure, private browsing — 256-bit encryption", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4590561&v=90211&q=566685&r=2932851", image: "https://www.awin1.com/cshow.php?s=4590561&v=90211&q=566685&r=2932851" },
     { icon: "🎧", title: "EarFun", desc: "Award-winning wireless earbuds & speakers", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
-  {
+   { icon: "🅿️", title: "Park BCP", desc: "UK airport parking — book ahead and save", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=2261238&v=3495&q=348156&r=2932851", image: "https://www.awin1.com/cshow.php?s=2261238&v=3495&q=348156&r=2932851" },
+    {
   icon: "🧱",
   title: "brickzonehub",
   desc: "Custom LEGO® display frames, acrylic cases and stands for fan-favourite themes.",
@@ -2879,6 +2896,15 @@ const AWIN_OFFERS_BY_COUNTRY = {
     { icon: "🎧", title: "EarFun", desc: "Award-winning wireless earbuds & speakers", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=3996847&v=61233&q=525399&r=2932851", image: "https://www.awin1.com/cshow.php?s=3996847&v=61233&q=525399&r=2932851" },
     { icon: "🎨", title: "HTVRont", desc: "HTV vinyl, adhesive vinyl, machines and crafting tools for creative DIY projects", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4819183&v=68106&q=523805&r=2932851", image: "https://www.awin1.com/cshow.php?s=4819183&v=68106&q=523805&r=2932851" },
  {
+  icon: "🌷",
+  title: "AirTulip",
+  desc: "Système haut de gamme intégré à la tête de lit, créant une zone d’air purifié ciblée autour de l’oreiller grâce à un flux d’air laminaire. Idéal pour améliorer la qualité de l’air pendant le sommeil, notamment pour les personnes sensibles aux particules et aux allergènes. Disponible aux États-Unis.",
+  cta: "Découvrir →",
+  url: "https://www.awin1.com/cread.php?s=4825485&v=128289&q=608799&r=2932851",
+  image: "https://www.awin1.com/cshow.php?s=4825485&v=128289&q=608799&r=2932851"
+},
+    { icon: "🎧", title: "ISOtunes", desc: "Protection auditive connectée pour le travail", cta: "Discover →", url: "https://www.awin1.com/cread.php?s=4705778&v=124690&q=598598&r=2932851", image: "https://www.awin1.com/cshow.php?s=4705778&v=124690&q=598598&r=2932851" },
+    {
   icon: "💍",
   title: "Ultrahuman",
   desc: "Smart ring for sleep, recovery, HRV, skin temperature and stress tracking, with no subscription",
@@ -3143,7 +3169,10 @@ function expandEarFunCreatives(offers) {
 }
 function getPartnerOffers() {
   const cc = _detectCountry();
-  const awinOffers = AWIN_OFFERS_BY_COUNTRY[cc] || [];
+  const awinOffers = [
+    ...(AWIN_OFFERS_BY_COUNTRY[cc] || []),
+    ...AWIN_OFFERS_GLOBAL,   // ← offres diffusées quel que soit le pays détecté
+  ];
 
   // EarFun : transforme 1 offre en 3 variantes visuelles
   const withEarFunVariants = expandEarFunCreatives(awinOffers);
