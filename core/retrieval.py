@@ -331,23 +331,25 @@ async def _resolve_episode_to_series(
 # BUILD CASCADE QUERIES
 # ════════════════════════════════════════════════════════════════
 
-async def build_cascade_queries(extraction: dict) -> list[str]:
+async def build_cascade_queries(extraction: dict) -> list[tuple[int, str]]:
     """
     Génère une liste de requêtes par ordre de précision décroissante.
+    Chaque requête est taguée avec son niveau (tier) de fiabilité :
+    plus le chiffre est bas, plus l'évidence qui l'a produite est forte.
+    Ce tier suit le candidat TMDB correspondant jusqu'au reranker, pour
+    qu'un match trouvé uniquement via un indice générique (tier 8) ne
+    soit jamais traité comme équivalent à un match sur titre certain
+    (tier 1) — même si TMDB le retourne comme plus "populaire".
 
-      - Niveau 1    : titres certains
-      - Niveau 1b   : titres incertains précis (ex: "?Love, Death & Robots")
-      - Niveau 1b+  : résolution dynamique épisode → série parente (TMDB)
-      - Niveau 1c   : titres incertains précis + "series/episode"
-      - Niveau 2    : acteurs connus
-      - Niveau 3    : personnages
-      - Niveau 4    : combinaisons indices_visuels + objets (FR + EN)
-      - Niveau 5    : mots-clés description_courte (FR)
-      - Niveau 5b   : termes EN extraits de description_courte
-      - Niveau 5c   : termes JP si contenu japonais détecté
-      - Niveau 6    : titres incertains vagues
-      - Niveau 7    : spécifiques au type de média (anime, documentaire)
-      - Niveau 8    : indices seuls (dernier recours)
+      - Tier 1  : titres certains, titres incertains précis, résolution
+                  épisode → série, variantes "series/episode"
+      - Tier 2  : acteurs connus
+      - Tier 3  : personnages
+      - Tier 4  : combinaisons indices_visuels + objets (FR + EN)
+      - Tier 5  : mots-clés description_courte (FR + EN + JP)
+      - Tier 6  : titres incertains vagues
+      - Tier 7  : spécifiques au type de média (anime, documentaire)
+      - Tier 8  : indices seuls (dernier recours)
     """
     titres_certains          = []
     titres_incertains_precis = []
@@ -387,23 +389,23 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
 
     genre_en = genre.replace("film-", "").replace("série", "series").strip()
 
-    queries: list[str] = []
+    queries: list[tuple[int, str]] = []
 
     # ── Niveau 1 : titres certains ───────────────────────────────
     for titre in titres_certains:
-        queries.append(titre)
+        queries.append((1, titre))
         if acteurs:
-            queries.append(f"{titre} {acteurs[0]}")
+            queries.append((1, f"{titre} {acteurs[0]}"))
         if annee:
-            queries.append(f"{titre} {annee}")
+            queries.append((1, f"{titre} {annee}"))
 
     # ── Niveau 1b : titres incertains précis ─────────────────────
     for titre in titres_incertains_precis:
-        queries.append(titre)
+        queries.append((1, titre))
         if annee:
-            queries.append(f"{titre} {annee}")
+            queries.append((1, f"{titre} {annee}"))
         if acteurs:
-            queries.append(f"{titre} {acteurs[0]}")
+            queries.append((1, f"{titre} {acteurs[0]}"))
 
     # ── Niveau 1b+ : résolution dynamique épisode → série parente ─
     # Déclenché uniquement si des titres incertains précis de 2+ mots existent.
@@ -413,26 +415,27 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
     titres_multi_mots = [t for t in titres_incertains_precis if len(t.split()) >= 2]
     if titres_multi_mots:
         series_parentes = await _resolve_episode_to_series(titres_multi_mots, lang="en")
+        existing = {q for _, q in queries}
         for serie in series_parentes:
-            if serie not in queries:
-                queries.insert(0, serie)  # priorité maximale → première requête
+            if serie not in existing:
+                queries.insert(0, (1, serie))  # priorité maximale → première requête
 
     # ── Niveau 1c : titres incertains précis + "series/episode" ──
     for titre in titres_incertains_precis:
         if len(titre.split()) >= 3:
-            queries.append(f"{titre} series")
-            queries.append(f"{titre} episode")
+            queries.append((1, f"{titre} series"))
+            queries.append((1, f"{titre} episode"))
 
     # ── Niveau 2 : acteurs ───────────────────────────────────────
     if acteurs:
-        queries.append(f"{acteurs[0]} {genre} {annee}".strip())
-        queries.append(acteurs[0])
+        queries.append((2, f"{acteurs[0]} {genre} {annee}".strip()))
+        queries.append((2, acteurs[0]))
     if len(acteurs) >= 2:
-        queries.append(f"{acteurs[0]} {acteurs[1]}")
+        queries.append((2, f"{acteurs[0]} {acteurs[1]}"))
 
     # ── Niveau 3 : personnages ───────────────────────────────────
     for perso in personnages[:2]:
-        queries.append(f"{perso} {genre}".strip())
+        queries.append((3, f"{perso} {genre}".strip()))
 
     # ── Niveau 4 : combinaisons indices + objets (FR + EN) ───────
     all_clues = [o for o in objets if o] + [i for i in indices if i]
@@ -448,52 +451,52 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
     if len(all_clues) >= 2:
         for i in range(min(3, len(all_clues) - 1)):
             pair = f"{all_clues[i]} {all_clues[i+1]}"
-            queries.append(pair)
+            queries.append((4, pair))
             if genre:
-                queries.append(f"{pair} {genre}")
+                queries.append((4, f"{pair} {genre}"))
             if annee:
-                queries.append(f"{pair} {annee}")
+                queries.append((4, f"{pair} {annee}"))
 
     if len(all_clues) >= 3:
         triple = f"{all_clues[0]} {all_clues[1]} {all_clues[2]}"
-        queries.append(triple)
+        queries.append((4, triple))
         if genre:
-            queries.append(f"{triple} {genre}")
+            queries.append((4, f"{triple} {genre}"))
 
     if len(all_clues_en) >= 2:
         for i in range(min(2, len(all_clues_en) - 1)):
             pair_en = f"{all_clues_en[i]} {all_clues_en[i+1]}"
-            queries.append(pair_en)
+            queries.append((4, pair_en))
             if genre_en:
-                queries.append(f"{pair_en} {genre_en}")
+                queries.append((4, f"{pair_en} {genre_en}"))
 
     for clue_en in all_clues_en[:3]:
-        queries.append(clue_en)
+        queries.append((4, clue_en))
 
     # ── Niveau 5 : mots-clés description_courte (FR) ─────────────
     if description:
         keywords = _extract_keywords(description)
         if len(keywords) >= 3:
-            queries.append(" ".join(keywords[:4]))
+            queries.append((5, " ".join(keywords[:4])))
             if genre:
-                queries.append(f"{' '.join(keywords[:3])} {genre}")
+                queries.append((5, f"{' '.join(keywords[:3])} {genre}"))
             if annee:
-                queries.append(f"{' '.join(keywords[:3])} {annee}")
+                queries.append((5, f"{' '.join(keywords[:3])} {annee}"))
         proper_nouns = _extract_proper_nouns(description)
         for noun in proper_nouns[:2]:
-            queries.append(noun)
+            queries.append((5, noun))
             if genre:
-                queries.append(f"{noun} {genre}")
+                queries.append((5, f"{noun} {genre}"))
 
     # ── Niveau 5b : termes EN depuis description FR ───────────────
     if description:
         desc_en_terms = _translate_text(description)
         if desc_en_terms:
-            queries.append(" ".join(desc_en_terms[:3]))
+            queries.append((5, " ".join(desc_en_terms[:3])))
             if genre_en:
-                queries.append(f"{' '.join(desc_en_terms[:2])} {genre_en}")
+                queries.append((5, f"{' '.join(desc_en_terms[:2])} {genre_en}"))
             if annee:
-                queries.append(f"{' '.join(desc_en_terms[:2])} {annee}")
+                queries.append((5, f"{' '.join(desc_en_terms[:2])} {annee}"))
 
     # ── Niveau 5c : requêtes japonaises si contenu JP détecté ─────
     if _is_japanese_content(all_clues, description, indices):
@@ -501,58 +504,61 @@ async def build_cascade_queries(extraction: dict) -> list[str]:
         if jp_terms:
             print(f"🇯🇵 Contenu japonais détecté → requêtes JP: {jp_terms[:3]}", flush=True)
             if len(jp_terms) >= 2:
-                queries.append(f"{jp_terms[0]} {jp_terms[1]}")
-            queries.append(jp_terms[0])
+                queries.append((5, f"{jp_terms[0]} {jp_terms[1]}"))
+            queries.append((5, jp_terms[0]))
             if annee:
-                queries.append(f"{jp_terms[0]} {annee}")
+                queries.append((5, f"{jp_terms[0]} {annee}"))
             if all_clues_en:
-                queries.append(f"{all_clues_en[0]} japanese")
+                queries.append((5, f"{all_clues_en[0]} japanese"))
                 if genre_en:
-                    queries.append(f"japanese {genre_en} {annee}".strip())
+                    queries.append((5, f"japanese {genre_en} {annee}".strip()))
 
     # ── Niveau 6 : titres incertains vagues ──────────────────────
     for titre in titres_incertains:
-        queries.append(titre)
+        queries.append((6, titre))
         if acteurs:
-            queries.append(f"{titre} {acteurs[0]}")
+            queries.append((6, f"{titre} {acteurs[0]}"))
 
     # ── Niveau 7 : spécifiques au type de média ──────────────────
     if genre in ("anime", "serie-animation", "serie-animée"):
         for titre in (titres_certains + titres_incertains_precis + titres_incertains)[:2]:
-            queries.append(f"{titre} anime")
+            queries.append((7, f"{titre} anime"))
         for perso in personnages[:1]:
-            queries.append(f"{perso} anime")
+            queries.append((7, f"{perso} anime"))
         for clue_en in all_clues_en[:2]:
-            queries.append(f"{clue_en} anime")
+            queries.append((7, f"{clue_en} anime"))
 
     if "document" in genre:
         for titre in titres_certains[:2]:
-            queries.append(f"{titre} documentary")
+            queries.append((7, f"{titre} documentary"))
         mots_doc = [
             m for m in re.findall(r"\b\w{5,}\b", description)
             if m.lower() not in _STOPWORDS
         ]
         if mots_doc:
-            queries.append(f"{' '.join(mots_doc[:3])} documentary")
+            queries.append((7, f"{' '.join(mots_doc[:3])} documentary"))
 
     # ── Niveau 8 : indices seuls (dernier recours) ───────────────
     for clue in all_clues[:3]:
         if len(clue) > 8:
-            queries.append(clue)
+            queries.append((8, clue))
 
-    # ── Dédoublonnage ────────────────────────────────────────────
-    seen:   set  = set()
-    result: list = []
-    for q in queries:
+    # ── Dédoublonnage (garde le tier le plus fort en cas de doublon) ──
+    best_tier: dict[str, int] = {}
+    order: list[str] = []
+    for tier, q in queries:
         q = q.strip()
-        if q and q not in seen and len(q) > 2:
-            seen.add(q)
-            result.append(q)
+        if not q or len(q) <= 2:
+            continue
+        if q not in best_tier:
+            best_tier[q] = tier
+            order.append(q)
+        elif tier < best_tier[q]:
+            best_tier[q] = tier
 
-    print(f"🔍 Requêtes cascade ({len(result)}): {result[:6]}", flush=True)
+    result = [(best_tier[q], q) for q in order]
+    print(f"🔍 Requêtes cascade ({len(result)}): {[q for _, q in result[:6]]}", flush=True)
     return result
-
-
 # ════════════════════════════════════════════════════════════════
 # RUN CASCADE SEARCH
 # ════════════════════════════════════════════════════════════════
@@ -590,7 +596,7 @@ async def run_cascade_search(
     seen_ids:   set  = set()
     candidates: list = []
 
-    for query in queries:
+    for tier, query in queries:
         if len(candidates) >= max_candidates:
             break
 
@@ -619,12 +625,23 @@ async def run_cascade_search(
             item_id = item.get("id")
             if item_id and item_id not in seen_ids:
                 seen_ids.add(item_id)
+                # Tier le plus fort (chiffre le plus bas) qui a produit ce
+                # candidat — utilisé pour le tri et transmis au reranker
+                # pour qu'il ne traite pas un match générique (tier 8)
+                # comme équivalent à un match sur titre certain (tier 1),
+                # même si le candidat est très populaire sur TMDB.
+                item["_match_tier"] = tier
                 candidates.append(item)
                 added += 1
+            elif item_id:
+                for c in candidates:
+                    if c.get("id") == item_id and tier < c.get("_match_tier", 99):
+                        c["_match_tier"] = tier
+                        break
 
         if added > 0:
             print(
-                f"  ↳ '{query}' → +{added} candidats "
+                f"  ↳ '{query}' (tier {tier}) → +{added} candidats "
                 f"(total={len(candidates)})",
                 flush=True
             )
@@ -637,7 +654,13 @@ async def run_cascade_search(
             print(f"⚡ Early stop : titre précis '{query}' trouvé", flush=True)
             break
 
-    candidates.sort(key=lambda x: x.get("popularity", 0), reverse=True)
+    # Tri par fiabilité d'abord (tier ascendant = évidence plus forte),
+    # popularité seulement en départage à l'intérieur d'un même tier.
+    # Avant ce fix, le tri était fait uniquement par popularité, ce qui
+    # faisait remonter des films populaires mais non pertinents (trouvés
+    # via une requête générique de niveau 4-8) devant des candidats plus
+    # obscurs mais bien plus probants.
+    candidates.sort(key=lambda x: (x.get("_match_tier", 99), -x.get("popularity", 0)))
     print(
         f"📋 Cascade terminée → {len(candidates)} candidats uniques",
         flush=True

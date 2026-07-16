@@ -268,9 +268,26 @@ RÈGLES ABSOLUES
    score maximum 60.
 10. Si aucun candidat ne correspond vraiment, choisis le moins mauvais mais score < 35.
 
-════════════════════════════════════════
+════════════════════════════════
+RÈGLE SPÉCIALE ORIGINE DU MATCH
+════════════════════════════════
+Chaque candidat porte un champ "match_origin" qui indique COMMENT il a
+été retrouvé dans le catalogue, PAS s'il est correct :
+- "titre_certain" / "acteur_connu" / "personnage" : trouvé via une
+  évidence spécifique à l'œuvre. Un score élevé est possible si le
+  reste des indices confirme.
+- "indices_visuels_combines" / "mots_cles_description" / "type_media" :
+  trouvé via une combinaison d'indices génériques. Traite comme une
+  hypothèse faible, pas une preuve.
+- "titre_incertain_vague" / "indice_seul" : évidence la plus faible
+  possible. Un candidat qui n'a QUE cette origine ne doit jamais
+  dépasser un score de 40, même s'il est très populaire ou que son
+  genre correspond vaguement — la popularité TMDB n'est pas une preuve
+  d'identification.
+
+════════════════════════════════
 BARÈME DE SCORE
-════════════════════════════════════════
+════════════════════════════════
 95-100 :
 - Titre exact vu/cité SANS "?"
 - Et synopsis/année/visuel compatibles

@@ -29,7 +29,44 @@ def extract_keyframes(video_path: str, output_dir: str, max_frames: int = 6) -> 
                     result.append(path)
         return result[:max_frames]
 
-    # ── Tentative principale : N frames à intervalles réguliers ──────────
+    # ── Tentative principale : vraie détection de changement de plan ─────
+    # Un montage réseaux sociaux enchaîne les coupes ; un échantillonnage à
+    # intervalle fixe peut manquer la frame exacte qui contient l'affiche,
+    # le générique ou un visage net. Le filtre "scene" d'ffmpeg détecte les
+    # changements de plan réels et on prend une frame par coupe détectée.
+    try:
+        scene_threshold = 0.28
+        cmd_scene = [
+            "ffmpeg", "-i", video_path,
+            "-vf", f"select='gt(scene,{scene_threshold})',showinfo",
+            "-vsync", "vfr",
+            "-frames:v", str(max_frames),
+            "-q:v", "2",
+            f"{output_dir}/frame_%03d.jpg",
+            "-y"
+        ]
+        subprocess.run(cmd_scene, check=True, capture_output=True, timeout=30)
+        frames = _frames_sur_disque()
+
+        # Vidéo trop statique (peu/pas de coupes détectées, ex: plan fixe
+        # ou seuil trop strict pour ce contenu) → repli sur l'intervalle
+        # fixe pour garantir une couverture minimale de la vidéo.
+        if len(frames) >= max(2, max_frames // 2):
+            print(f"🎬 Frames par détection de scène: {len(frames)}", flush=True)
+            return frames
+        print(
+            f"ℹ️ Détection de scène insuffisante ({len(frames)} frame(s)) "
+            "→ repli intervalle fixe",
+            flush=True,
+        )
+    except subprocess.TimeoutExpired:
+        print("⏱️ Timeout détection de scène → repli intervalle fixe", flush=True)
+    except subprocess.CalledProcessError as e:
+        print(f"⚠️ ffmpeg détection de scène erreur (code {e.returncode}) → repli intervalle fixe", flush=True)
+    except Exception as e:
+        print(f"⚠️ Détection de scène exception: {e} → repli intervalle fixe", flush=True)
+
+    # ── Repli : N frames à intervalles réguliers ─────────────────────────
     try:
         cmd = [
             "ffmpeg", "-i", video_path,
@@ -41,7 +78,7 @@ def extract_keyframes(video_path: str, output_dir: str, max_frames: int = 6) -> 
         ]
         subprocess.run(cmd, check=True, capture_output=True, timeout=30)
         frames = _frames_sur_disque()
-        print(f"Frames extraites: {len(frames)}", flush=True)
+        print(f"Frames extraites (intervalle fixe): {len(frames)}", flush=True)
         return frames
 
     except subprocess.TimeoutExpired:

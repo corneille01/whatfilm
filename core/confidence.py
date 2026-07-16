@@ -109,6 +109,11 @@ def rank_opinions(opinions: list, max_results: int = 5) -> list[dict]:
         "web": 84,
         "wikidata": 84,
         "quote": 88,
+        # Devinette de dernier recours (candidat le plus populaire, aucun
+        # signal réel ne l'a confirmé) : plafonnée très bas, et même un
+        # accord avec une autre source faible ne doit jamais suffire à
+        # la faire remonter près du seuil de rejet.
+        "popularity_guess": 20,
     }
 
     grouped: dict[int, dict] = {}
@@ -186,6 +191,12 @@ def rank_opinions(opinions: list, max_results: int = 5) -> list[dict]:
         if sources == {"cascade"}:
             score = min(score, 78)
 
+        # Garde-fou absolu : une devinette de popularité reste une
+        # devinette même si une autre source faible pointe par coïncidence
+        # vers le même id — aucun bonus d'accord ne doit l'en sortir.
+        if "popularity_guess" in sources:
+            score = min(score, single_source_caps["popularity_guess"])
+
         score = _clamp(score, 0, MAX_COMPOSITE_SCORE)
 
         ranked.append({
@@ -230,4 +241,3 @@ def rank_opinions(opinions: list, max_results: int = 5) -> list[dict]:
             )
 
     return ranked[:max_results]
-    

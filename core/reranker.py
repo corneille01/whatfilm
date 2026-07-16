@@ -189,6 +189,11 @@ def _try_extract_id_score_regex(text: str) -> Optional[Dict[str, Any]]:
     return result
 
 def _candidates_for_prompt(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    _TIER_LABELS = {
+        1: "titre_certain", 2: "acteur_connu", 3: "personnage",
+        4: "indices_visuels_combines", 5: "mots_cles_description",
+        6: "titre_incertain_vague", 7: "type_media", 8: "indice_seul",
+    }
     return [
         {
             "id":           c.get("id"),
@@ -197,10 +202,10 @@ def _candidates_for_prompt(candidates: List[Dict[str, Any]]) -> List[Dict[str, A
             "overview":     (c.get("overview") or "")[:200],
             "vote_average": c.get("vote_average"),
             "media_type":   c.get("media_type", "movie"),
+            "match_origin": _TIER_LABELS.get(c.get("_match_tier"), "inconnu"),
         }
         for c in candidates[:15]
     ]
-
 def _parse_rerank_response(text: str, candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
     cleaned = _clean_json_fences(text)
     try:
@@ -264,16 +269,26 @@ def _build_groq_messages(prompt: str, candidates: List[Dict[str, Any]]) -> List[
     ]
 
 def _best_by_popularity(candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Dernier recours absolu : aucun LLM n'a atteint le seuil, aucun match
+    direct. On ne "devine" plus un titre populaire avec un score qui
+    ressemble à un vrai résultat — le score est volontairement très bas
+    (18, loin sous tout seuil de rejet) pour ne JAMAIS pouvoir être
+    confondu avec une identification réelle. Le nom de la source
+    ("popularity_guess" et non "cascade") permet aussi à confidence.py
+    de la traiter différemment d'un vrai signal cascade.
+    """
     def pop_score(c):
         return (c.get("vote_average") or 0) * (c.get("vote_count") or 0)
     best = max(candidates, key=pop_score, default=candidates[0])
-    print(f"⚠️ Rerank heuristique popularité → {best.get('title') or best.get('name')}", flush=True)
+    print(f"⚠️ Rerank heuristique popularité (devinette, PAS une identification) → {best.get('title') or best.get('name')}", flush=True)
     return {
         "id":             best["id"],
         "meilleur_titre": best.get("title") or best.get("name", "Inconnu"),
-        "score":          35,
-        "raison":         "fallback_popularite",
+        "score":          18,
+        "raison":         "fallback_popularite_devinette",
         "media_type":     best.get("media_type", "movie"),
+        "is_guess":       True,
     }
 
 # ═══════════════════════════ CORROBORATION CANDIDAT UNIQUE ═══════════════════

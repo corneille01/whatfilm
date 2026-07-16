@@ -1519,7 +1519,7 @@ async def _finalize_with_known_result(
             set_cache(url, film_hit, transcript=transcript or "", ocr_text=ocr_text or "")
             return {"status": "cached", **film_hit}
 
-    if confidence < 35:
+    if confidence <= 40:
         titre    = result.get("meilleur_titre", "")
         low_conf = {
             "status":         "not_found",
@@ -2019,7 +2019,7 @@ async def process_analysis(
                 result,
                 max_items=4,
                 )
-            opinions.append(make_opinion(result, "cascade"))
+            opinions.append(make_opinion(result, "popularity_guess" if result.get("is_guess") else "cascade"))
             if not result or not result.get("id"):
                 result = {
                     "meilleur_titre": candidates[0].get("title") or candidates[0].get("name", "Inconnu"),

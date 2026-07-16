@@ -328,7 +328,7 @@ def _normalize_all_fields(data: dict, default_certitude: int = 50) -> dict:
 async def _ocr_frames(frames: list) -> str:
     if not GEMINI_API_KEY or not frames:
         return ""
-    frames_to_ocr = frames[:3]
+    frames_to_ocr = frames[:6]
     parts = [{"text": (
         "Regarde ces images et extrais TOUT le texte visible à l'écran : "
         "titres, sous-titres, génériques, bannières, panneaux, logos, "
