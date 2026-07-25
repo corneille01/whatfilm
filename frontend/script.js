@@ -1822,27 +1822,173 @@ async function _consumeAnalysis(data, signal) {
       throw new Error("json_parse");
     }
 
-    _afficherResultatFinal(finalData);
-    return;
+   _afficherResultatFinal(finalData);
+_analysisInFlight = false;
+return;
   }
  _analysisInFlight = false;  
   _afficherResultatFinal(data);
 }
-async function pollAnalysisStatus(sessionId,signal,maxRetries=80){
-  const progressBar=document.getElementById("prog-fill"),percentLabel=document.getElementById("prog-percent");let lastProgress=88;
-  for(let i=0;i<maxRetries;i++){
-    if(signal.aborted)throw new DOMException("Aborted","AbortError");
-    try{
-      const res=await fetchWithRetry(`/analyser_status/${sessionId}`,{},signal,1,2000);if(!res.ok)throw new Error("Polling failed");
-      const data=await res.json();
-      let stepProgress=88;if(data.step==="downloading")stepProgress=90;else if(data.step==="processing")stepProgress=95;
-      if(progressBar&&percentLabel){const tp=Math.min(stepProgress,98);if(tp>lastProgress)lastProgress=tp;progressBar.style.width=lastProgress+"%";percentLabel.textContent=Math.round(lastProgress)+"%";}
-      if(data.status!=="processing"){if(progressBar)progressBar.style.width="100%";if(percentLabel)percentLabel.textContent="100%"; _analysisInFlight = false; return data;}
-      await new Promise(r=>setTimeout(r,2500));
-    }catch(e){if(e.name==="AbortError")throw e;console.warn("Polling error",e);await new Promise(r=>setTimeout(r,3000));}
+function sleepWithAbort(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+
+    function onAbort() {
+      clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    }
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+
+async function pollAnalysisStatus(
+  sessionId,
+  signal,
+  maxDurationMs = 9 * 60 * 1000
+) {
+  const progressBar = document.getElementById("prog-fill");
+  const percentLabel = document.getElementById("prog-percent");
+
+  const startedAt = Date.now();
+
+  let lastProgress = 88;
+  let delayMs = 4000;
+  let consecutiveErrors = 0;
+
+  while (Date.now() - startedAt < maxDurationMs) {
+    if (signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+
+    // Quand l’utilisateur quitte temporairement l’onglet,
+    // on espace davantage les requêtes.
+    if (document.hidden) {
+      await sleepWithAbort(15000, signal);
+      continue;
+    }
+
+    try {
+      /*
+       * Ne pas utiliser fetchWithRetry ici.
+       * La boucle de polling effectue déjà les nouvelles tentatives.
+       */
+      const res = await fetch(
+        `/analyser_status/${encodeURIComponent(sessionId)}`,
+        {
+          method: "GET",
+          headers: {
+            "Accept": "application/json",
+            "Cache-Control": "no-cache"
+          },
+          cache: "no-store",
+          signal
+        }
+      );
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data) {
+        throw new Error(`polling_http_${res.status}`);
+      }
+
+      consecutiveErrors = 0;
+
+      let stepProgress = 88;
+
+      if (data.step === "downloading") {
+        stepProgress = 91;
+      } else if (data.step === "processing") {
+        stepProgress = 96;
+      }
+
+      if (progressBar && percentLabel) {
+        const targetProgress = Math.min(stepProgress, 98);
+
+        lastProgress = Math.max(lastProgress, targetProgress);
+
+        progressBar.style.width = `${lastProgress}%`;
+        percentLabel.textContent = `${Math.round(lastProgress)}%`;
+      }
+
+      // Dès qu’on n’est plus en traitement, on arrête immédiatement la boucle.
+      if (data.status !== "processing") {
+        if (data.status !== "error") {
+          if (progressBar) {
+            progressBar.style.width = "100%";
+          }
+
+          if (percentLabel) {
+            percentLabel.textContent = "100%";
+          }
+        }
+
+        return data;
+      }
+
+      /*
+       * Le backend décide du délai :
+       * queued      → 4 secondes
+       * downloading → 5 secondes
+       * processing  → 8 secondes
+       */
+      const serverDelay = Number(data.retry_after_ms);
+
+      if (Number.isFinite(serverDelay)) {
+        delayMs = Math.max(
+          4000,
+          Math.min(serverDelay, 15000)
+        );
+      } else {
+        delayMs = Math.min(
+          Math.round(delayMs * 1.5),
+          12000
+        );
+      }
+
+      await sleepWithAbort(delayMs, signal);
+
+    } catch (e) {
+      if (e.name === "AbortError") {
+        throw e;
+      }
+
+      consecutiveErrors += 1;
+
+      console.warn(
+        `Erreur polling ${consecutiveErrors}/5 :`,
+        e
+      );
+
+      if (consecutiveErrors >= 5) {
+        return {
+          status: "error",
+          code: "server_busy",
+          message: tErr("server_busy")
+        };
+      }
+
+      await sleepWithAbort(
+        Math.min(3000 * consecutiveErrors, 15000),
+        signal
+      );
+    }
   }
-  _analysisInFlight = false;
-  return{status:"error",code:"timeout",message:tErr("timeout")};
+
+  return {
+    status: "error",
+    code: "timeout",
+    message: tErr("timeout")
+  };
 }
 async function runLocalOCR(framesBase64) {
   try {

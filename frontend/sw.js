@@ -1,10 +1,10 @@
-const CACHE_NAME = "pelify-app-v2";
+const CACHE_NAME = "pelify-app-v3";
 
 const APP_SHELL = [
   "/",
-  "/frontend/style.css?v=77",
-  "/frontend/script.js?v=77",
-  "/frontend/filming.js?v=57",
+  "/frontend/style.css?v=78",
+  "/frontend/script.js?v=78",
+  "/frontend/filming.js?v=58",
   "/frontend/manifest.webmanifest",
   "/.well-known/assetlinks.json",
 

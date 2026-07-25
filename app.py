@@ -39,7 +39,14 @@ from storage.cache_engine.lock_manager import acquire_lock, release_lock
 from storage.cache_engine.hash_utils import key_content  
 
 from fastapi import FastAPI, Request, UploadFile, File, Form
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    PlainTextResponse,
+    Response,
+    JSONResponse,
+)
+from fastapi.encoders import jsonable_encoder
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -1390,25 +1397,66 @@ async def analyser_upload(
         "status": "queued", "result": None, "timestamp": time.time()}
     asyncio.create_task(_run_uploaded_analyse(session_id, lang, browser_lang))
     return {"status": "processing", "session_id": session_id}
+
 # ════════════════════════════════════════════════════════════════
 # POLLING
 # ════════════════════════════════════════════════════════════════
+
+POLLING_NO_STORE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+    "X-Robots-Tag": "noindex, nofollow",
+}
+
+
+def _polling_json(payload: dict) -> JSONResponse:
+    return JSONResponse(
+        content=jsonable_encoder(payload),
+        headers=POLLING_NO_STORE_HEADERS,
+    )
+
+
 @app.get("/analyser_status/{session_id}")
+# Compatibilité temporaire avec l’ancienne URL encore présente dans certains caches
+@app.get("/analyseur_status/{session_id}", include_in_schema=False)
 async def analyser_status(session_id: str):
     session = _dl_sessions.get(session_id)
+
     if not session:
-        return {"status": "error", "code": "session_expired",
-                "message": "Session expirée ou introuvable. Relancez l'analyse."}
+        return _polling_json({
+            "status": "error",
+            "code": "session_expired",
+            "message": "Session expirée ou introuvable. Relancez l'analyse.",
+        })
+
+    # Maintient la session pendant que l’utilisateur attend réellement
+    session["timestamp"] = time.time()
 
     current_status = session.get("status", "queued")
+
     if current_status in ("queued", "downloading", "processing"):
-        return {"status": "processing", "step": current_status}
+        retry_after_ms = {
+            "queued": 4000,
+            "downloading": 5000,
+            "processing": 8000,
+        }.get(current_status, 8000)
+
+        return _polling_json({
+            "status": "processing",
+            "step": current_status,
+            "retry_after_ms": retry_after_ms,
+        })
 
     result = session.get("result") or {
-        "status": "error", "code": "unexpected", "message": "Résultat manquant."
+        "status": "error",
+        "code": "unexpected",
+        "message": "Résultat manquant.",
     }
+
     _dl_sessions.pop(session_id, None)
-    return result
+
+    return _polling_json(result)
 
 # ════════════════════════════════════════════════════════════════
 # FALLBACK TRANSCRIPTION CÔTÉ CLIENT
