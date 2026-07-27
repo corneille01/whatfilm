@@ -688,7 +688,8 @@ async def _process_local_file(
     # ── 1. Conversion codec si nécessaire ───────────────────────
     if video_path.endswith(".mp4"):
         try:
-            probe = subprocess.run(
+            probe = await asyncio.to_thread(
+                subprocess.run,
                 [
                     "ffprobe",
                     "-v", "error",
@@ -707,7 +708,8 @@ async def _process_local_file(
             if codec and codec not in ("h264", "hevc", "h265", "avc"):
                 converted = video_path.replace(".mp4", "_conv.mp4")
 
-                subprocess.run(
+                await asyncio.to_thread(
+                    subprocess.run,
                     [
                         "ffmpeg",
                         "-i", video_path,
@@ -732,7 +734,8 @@ async def _process_local_file(
     duration = 0.0
 
     try:
-        dur = subprocess.run(
+        dur = await asyncio.to_thread(
+            subprocess.run,
             [
                 "ffprobe",
                 "-v", "error",
@@ -770,7 +773,8 @@ async def _process_local_file(
             base, _ext = os.path.splitext(video_path)
             trimmed = f"{base}_g{GEMINI_MAX_SECONDS}.mp4"
 
-            subprocess.run(
+            await asyncio.to_thread(
+                subprocess.run,
                 [
                     "ffmpeg",
                     "-i", video_path,
@@ -827,7 +831,8 @@ async def _process_local_file(
             base, _ext = os.path.splitext(video_path)
             qwen_trimmed = f"{base}_q{QWEN_MAX_SECONDS}.mp4"
 
-            subprocess.run(
+            await asyncio.to_thread(
+                subprocess.run,
                 [
                     "ffmpeg",
                     "-i", video_path,
@@ -889,7 +894,8 @@ async def _process_local_file(
             base, _ext = os.path.splitext(video_path)
             openrouter_generated_path = f"{base}_or{OPENROUTER_MAX_SECONDS}.mp4"
 
-            subprocess.run(
+            await asyncio.to_thread(
+                subprocess.run,
                 [
                     "ffmpeg",
                     "-i", video_path,
@@ -974,7 +980,8 @@ async def _process_local_file(
 
     # ── 5. Audio ────────────────────────────────────────────────
     try:
-        subprocess.run(
+        await asyncio.to_thread(
+            subprocess.run,
             [
                 "ffmpeg",
                 "-i", video_path,
@@ -998,7 +1005,8 @@ async def _process_local_file(
 
     except Exception:
         try:
-            subprocess.run(
+            await asyncio.to_thread(
+                subprocess.run,
                 [
                     "ffmpeg",
                     "-i", video_path,
@@ -1023,8 +1031,15 @@ async def _process_local_file(
             print(f"⚠️ Audio KO: {str(e2)[:80]}", flush=True)
 
     # ── 6. Frames ───────────────────────────────────────────────
+    # extract_keyframes() enchaîne plusieurs appels ffmpeg/ffprobe
+    # bloquants (subprocess.run avec timeouts en cascade, jusqu'à ~90s
+    # cumulés dans le pire cas). Appelé directement, ça gèle toute la
+    # boucle asyncio — avec WEB_CONCURRENCY=1, ça bloque littéralement
+    # tout le serveur pour tout le monde, et au-delà du timeout gunicorn
+    # ça se termine en WORKER TIMEOUT/SIGABRT (perte de la requête en
+    # cours ET de toutes les requêtes en attente sur ce worker).
     try:
-        frames = extract_keyframes(video_path, frame_dir, max_frames=6) or []
+        frames = await asyncio.to_thread(extract_keyframes, video_path, frame_dir, max_frames=6) or []
     except Exception as e:
         print(f"⚠️ Keyframes: {e}", flush=True)
         frames = []
@@ -1050,7 +1065,7 @@ async def _process_local_file(
 
     if audio_exists:
         try:
-            transcript = transcribe(audio_path, enabled=True) or ""
+            transcript = await asyncio.to_thread(transcribe, audio_path, enabled=True) or ""
         except Exception as e:
             print(f"⚠️ Transcription KO: {e}", flush=True)
 
