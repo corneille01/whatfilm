@@ -37,12 +37,15 @@ import os
 from functools import lru_cache
 from typing import Optional, List, Dict, Any
 
+from storage.cache_engine.neon_embeddings import (
+    generate_text_embedding as _neon_generate_text_embedding,
+    neon_search_text_embeddings,
+    neon_insert_text_embedding,
+    neon_log_match,
+)
 from storage.university_client import (
-    university_search_text_embeddings,
     university_search_visual_embeddings,
-    university_insert_text_embedding,
     university_insert_visual_embedding,
-    university_log_match,
 )
 
 # ═══════════════════════════ CONFIGURATION ═══════════════════════════
@@ -73,12 +76,12 @@ MIN_TEXT_LENGTH_FOR_EMBEDDING = 30  # caractères ; sous ce seuil, signal trop f
 
 @lru_cache(maxsize=1)
 def _get_text_model():
-    try:
-        from sentence_transformers import SentenceTransformer
-        return SentenceTransformer(TEXT_MODEL_NAME)
-    except Exception as e:
-        print(f"⚠️ Embeddings texte: modèle non chargé ({str(e)[:120]})", flush=True)
-        return None
+    # Obsolète : la génération d'embeddings texte passe désormais par
+    # l'API Gemini (storage/cache_engine/neon_embeddings.py), pas par un
+    # modèle sentence-transformers chargé en local — celui-ci ne tournait
+    # de toute façon jamais en production (dépendance volontairement
+    # absente de requirements.txt, cf. contrainte mémoire Render Free).
+    return None
 
 
 @lru_cache(maxsize=1)
@@ -96,30 +99,17 @@ def _get_visual_model():
 
 # ═══════════════════════════ GÉNÉRATION D'EMBEDDINGS ═══════════════════════════
 
-def generate_text_embedding(text: str) -> Optional[List[float]]:
+async def generate_text_embedding(text: str) -> Optional[List[float]]:
     """
-    Génère un embedding 384-dim pour un texte (transcript + OCR combinés).
-    Retourne None si le texte est trop court ou si le modèle est
-    indisponible — jamais d'exception.
+    Génère un embedding pour un texte (transcript + OCR combinés) via
+    l'API Gemini (gemini-embedding-001). Retourne None si le texte est
+    trop court ou en cas d'erreur — jamais d'exception.
     """
     text = (text or "").strip()
     if len(text) < MIN_TEXT_LENGTH_FOR_EMBEDDING:
         return None
 
-    model = _get_text_model()
-    if model is None:
-        return None
-
-    try:
-        # Tronque à une longueur raisonnable : un transcript très long
-        # n'apporte pas de signal supplémentaire utile au-delà d'un
-        # certain point, et ralentit l'encodage pour rien.
-        truncated = text[:2000]
-        vector = model.encode(truncated, normalize_embeddings=True)
-        return vector.tolist()
-    except Exception as e:
-        print(f"⚠️ Embedding texte KO: {str(e)[:120]}", flush=True)
-        return None
+    return await _neon_generate_text_embedding(text)
 
 
 def generate_visual_embeddings(frame_paths: List[str]) -> List[Optional[List[float]]]:
@@ -190,16 +180,16 @@ async def check_known_film_by_text(transcript: str, ocr_text: str) -> Optional[D
         return None
 
     combined = f"{transcript or ''} {ocr_text or ''}".strip()
-    embedding = generate_text_embedding(combined)
+    embedding = await generate_text_embedding(combined)
     if embedding is None:
         return None
 
-    matches = await university_search_text_embeddings(
+    matches = await neon_search_text_embeddings(
         embedding, top_k=1, threshold=TEXT_SIMILARITY_THRESHOLD
     )
 
     if not matches:
-        await university_log_match(
+        await neon_log_match(
             query_type="text",
             similarity_score=0.0,
             threshold_used=TEXT_SIMILARITY_THRESHOLD,
@@ -209,7 +199,7 @@ async def check_known_film_by_text(transcript: str, ocr_text: str) -> Optional[D
         return None
 
     best = matches[0]
-    await university_log_match(
+    await neon_log_match(
         query_type="text",
         similarity_score=best["score"],
         threshold_used=TEXT_SIMILARITY_THRESHOLD,
@@ -257,7 +247,7 @@ async def check_known_film_by_frames(frame_paths: List[str]) -> Optional[Dict[st
             best_overall = matches[0]
 
     if best_overall is None:
-        await university_log_match(
+        await neon_log_match(
             query_type="visual",
             similarity_score=0.0,
             threshold_used=VISUAL_SIMILARITY_THRESHOLD,
@@ -266,7 +256,7 @@ async def check_known_film_by_frames(frame_paths: List[str]) -> Optional[Dict[st
         )
         return None
 
-    await university_log_match(
+    await neon_log_match(
         query_type="visual",
         similarity_score=best_overall["score"],
         threshold_used=VISUAL_SIMILARITY_THRESHOLD,
@@ -342,9 +332,9 @@ async def store_film_signature(
         media_type = "movie"
 
     combined = f"{transcript or ''} {ocr_text or ''}".strip()
-    text_embedding = generate_text_embedding(combined)
+    text_embedding = await generate_text_embedding(combined)
     if text_embedding is not None:
-        await university_insert_text_embedding(
+        await neon_insert_text_embedding(
             tmdb_id=tmdb_id,
             embedding=text_embedding,
             media_type=media_type,
