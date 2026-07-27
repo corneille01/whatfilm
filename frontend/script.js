@@ -1712,6 +1712,66 @@ async function fetchWithRetry(url, options, signal, maxRetries = 2, delayMs = 30
 
   throw lastError || new Error("network");
 }
+// Appelle /analyser_continue avec un filet de sécurité : si la requête
+// échoue au niveau réseau (coupure, worker redémarré par Render en plein
+// traitement) ou si la session a expiré côté serveur alors que l'analyse
+// avait pourtant abouti, on retente via /analyser sur l'URL d'origine —
+// qui vérifie systématiquement le cache en premier — plutôt que
+// d'afficher une erreur générique à l'utilisateur.
+async function _postAnalyserContinue(sessionId, ocrText, transcript, browserLang, signal, originalUrl) {
+  const tryCacheFallback = async () => {
+    if (!originalUrl) return null;
+    try {
+      const retry = await fetch("/analyser", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: originalUrl, lang: getTMDBLang(), browser_lang: browserLang }),
+        signal
+      });
+      const retryData = await retry.json().catch(() => null);
+      if (retryData && retryData.status === "cached") return retryData;
+    } catch (_) {
+      // Pas de résultat en cache non plus : on laisse l'erreur d'origine remonter.
+    }
+    return null;
+  };
+
+  try {
+    const cr = await fetch("/analyser_continue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: sessionId,
+        ocr_text: ocrText,
+        transcript: transcript,
+        browser_lang: browserLang
+      }),
+      signal
+    });
+
+    let finalData;
+    try {
+      finalData = await cr.json();
+    } catch (e) {
+      throw new Error("json_parse");
+    }
+
+    if (finalData?.status === "error" && finalData?.code === "session_expired") {
+      const cached = await tryCacheFallback();
+      if (cached) return cached;
+    }
+
+    return finalData;
+
+  } catch (e) {
+    if (e.name === "AbortError") throw e;
+
+    const cached = await tryCacheFallback();
+    if (cached) return cached;
+
+    throw e;
+  }
+}
 // ════ ANALYSE VIDÉO ════
 async function analyserVideo(lien){
    if (_analysisInFlight) return;   // ← garde anti-doublon
@@ -1734,12 +1794,11 @@ async function analyserVideo(lien){
       clearInterval(progInterval);
       const skipWhisper=data.skip_whisper===true;
       const[ocrText,transcript]=await Promise.allSettled([data.frames_base64?.length?runLocalOCR(data.frames_base64):Promise.resolve(""),(!skipWhisper&&data.audio_base64)?runLocalWhisper(data.audio_base64):Promise.resolve("")]);
-      const continueRes=await fetch("/analyser_continue",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({session_id:data.session_id,ocr_text:ocrText.status==="fulfilled"?ocrText.value:"",transcript:transcript.status==="fulfilled"?transcript.value:"",browser_lang:getBrowserLangShort()}),signal});
-      let finalData;try{finalData=await continueRes.json();}catch(e){throw new Error("json_parse");} 
+      const finalData=await _postAnalyserContinue(data.session_id,ocrText.status==="fulfilled"?ocrText.value:"",transcript.status==="fulfilled"?transcript.value:"",getBrowserLangShort(),signal,lien);
        _analysisInFlight = false; 
       _afficherResultatFinal(finalData);return;
     }
-    if(data.status==="processing"&&data.session_id){clearInterval(progInterval);const finalResult=await pollAnalysisStatus(data.session_id,signal);await _consumeAnalysis(finalResult,signal);return;}
+    if(data.status==="processing"&&data.session_id){clearInterval(progInterval);const finalResult=await pollAnalysisStatus(data.session_id,signal);await _consumeAnalysis(finalResult,signal,lien);return;}
     clearInterval(progInterval);
      _analysisInFlight = false;  
     _afficherResultatFinal(data);
@@ -1787,7 +1846,7 @@ if(!file){ _analysisInFlight = false; return; }
   }
 }
 
-async function _consumeAnalysis(data, signal) {
+async function _consumeAnalysis(data, signal, originalUrl) {
   if (data && data.status === "transcription_needed") {
     const skipWhisper = data.skip_whisper === true;
 
@@ -1801,26 +1860,14 @@ async function _consumeAnalysis(data, signal) {
         : Promise.resolve("")
     ]);
 
-    const cr = await fetch("/analyser_continue", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        session_id: data.session_id,
-        ocr_text: ocrText.status === "fulfilled" ? ocrText.value : "",
-        transcript: transcript.status === "fulfilled" ? transcript.value : "",
-        browser_lang: getBrowserLangShort()
-      }),
-      signal
-    });
-
-    let finalData;
-    try {
-      finalData = await cr.json();
-    } catch (e) {
-      throw new Error("json_parse");
-    }
+    const finalData = await _postAnalyserContinue(
+      data.session_id,
+      ocrText.status === "fulfilled" ? ocrText.value : "",
+      transcript.status === "fulfilled" ? transcript.value : "",
+      getBrowserLangShort(),
+      signal,
+      originalUrl
+    );
 
    _afficherResultatFinal(finalData);
 _analysisInFlight = false;
@@ -2846,7 +2893,7 @@ const AWIN_OFFERS_BY_COUNTRY = {
   ],
 
  FR: [
-    
+  
     { icon: "💡", title: "Éclairage Déco", desc: "Lustres, suspensions et luminaires design haut de gamme", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4826404&v=128237&q=608878&r=2932851", image: "https://www.awin1.com/cshow.php?s=4826404&v=128237&q=608878&r=2932851" },
     { icon: "💡", title: "Éclairage Déco", desc: "Lustres, suspensions et luminaires design haut de gamme", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4826404&v=128237&q=608878&r=2932851", image: "https://www.awin1.com/cshow.php?s=4826404&v=128237&q=608878&r=2932851" },
     { icon: "💡", title: "Éclairage Déco", desc: "Lustres, suspensions et luminaires design haut de gamme", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4826404&v=128237&q=608878&r=2932851", image: "https://www.awin1.com/cshow.php?s=4826404&v=128237&q=608878&r=2932851" },
@@ -3249,7 +3296,6 @@ const AWIN_OFFERS_BY_COUNTRY = {
   ],
 };
 
-iconElement.innerHTML = offer.icon;
 
 // ════ EARFUN — 3 VISUELS AWIN POUR ROTATION A/B ════
 const EARFUN_CREATIVES = [

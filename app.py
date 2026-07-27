@@ -1264,7 +1264,7 @@ async def analyser(req: VideoRequest, request: Request):
     if lock_token is None:
         # Une analyse de cette URL est déjà en cours.
         # Surtout NE PAS relancer download + ffmpeg + LLM en parallèle.
-        max_wait_seconds = 20
+        max_wait_seconds = 60
         poll_interval = 2
         attempts = int(max_wait_seconds / poll_interval)
 
@@ -1430,12 +1430,15 @@ async def analyser_status(session_id: str):
             "message": "Session expirée ou introuvable. Relancez l'analyse.",
         })
 
-    # Maintient la session pendant que l’utilisateur attend réellement
-    session["timestamp"] = time.time()
-
     current_status = session.get("status", "queued")
 
     if current_status in ("queued", "downloading", "processing"):
+        # Ne rafraîchit le timestamp que pendant le traitement actif :
+        # une fois "done"/"error", on fige le timestamp à l'instant de la
+        # complétion pour laisser cleanup_sessions() l'expirer proprement
+        # après DL_SESSION_TIMEOUT, sans dépendre du polling client.
+        session["timestamp"] = time.time()
+
         retry_after_ms = {
             "queued": 4000,
             "downloading": 5000,
@@ -1454,8 +1457,12 @@ async def analyser_status(session_id: str):
         "message": "Résultat manquant.",
     }
 
-    _dl_sessions.pop(session_id, None)
-
+    # Important : on NE supprime PLUS la session ici. Si la réponse HTTP
+    # est perdue en route (coupure réseau, worker redémarré par Render en
+    # plein envoi — cf. logs SIGTERM), le prochain poll du même
+    # session_id doit pouvoir récupérer le même résultat au lieu de
+    # tomber sur "session_expired" alors que l'analyse a bien abouti.
+    # cleanup_sessions() se charge de la purge après DL_SESSION_TIMEOUT.
     return _polling_json(result)
 
 # ════════════════════════════════════════════════════════════════
