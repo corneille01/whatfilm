@@ -19,6 +19,7 @@ aiofiles
 jinja2
 ffmpeg-python
 upstash-redis
+psycopg2-binary
 deepgram-sdk
 assemblyai
 pytubefix
@@ -30,5 +31,3 @@ asyncpg
 # transformers
 # dans requirements.txt
 duckduckgo-search>=6.0
-
-

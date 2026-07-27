@@ -3091,3 +3091,11 @@ body.content-mode .seo-intent {
 }
 .dl-error{color:#ff6b6b;}
 .dl-loading{color:var(--muted,#888);}
+.awin-svg-icon {
+  width: 2rem;
+  height: 2rem;
+  display: inline-block;
+  vertical-align: middle;
+  color: currentColor;
+  flex-shrink: 0;
+}

@@ -2846,7 +2846,7 @@ const AWIN_OFFERS_BY_COUNTRY = {
   ],
 
  FR: [
-    { icon: "🏡", title: "Festivilla", desc: "Villas de groupe pour anniversaires, EVG/EVJF, séminaires...", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4712338&v=117343&q=599044&r=2932851", image: "https://www.awin1.com/cshow.php?s=4712338&v=117343&q=599044&r=2932851" },
+    
     { icon: "💡", title: "Éclairage Déco", desc: "Lustres, suspensions et luminaires design haut de gamme", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4826404&v=128237&q=608878&r=2932851", image: "https://www.awin1.com/cshow.php?s=4826404&v=128237&q=608878&r=2932851" },
     { icon: "💡", title: "Éclairage Déco", desc: "Lustres, suspensions et luminaires design haut de gamme", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4826404&v=128237&q=608878&r=2932851", image: "https://www.awin1.com/cshow.php?s=4826404&v=128237&q=608878&r=2932851" },
     { icon: "💡", title: "Éclairage Déco", desc: "Lustres, suspensions et luminaires design haut de gamme", cta: "Découvrir →", url: "https://www.awin1.com/cread.php?s=4826404&v=128237&q=608878&r=2932851", image: "https://www.awin1.com/cshow.php?s=4826404&v=128237&q=608878&r=2932851" },
@@ -3249,6 +3249,7 @@ const AWIN_OFFERS_BY_COUNTRY = {
   ],
 };
 
+iconElement.innerHTML = offer.icon;
 
 // ════ EARFUN — 3 VISUELS AWIN POUR ROTATION A/B ════
 const EARFUN_CREATIVES = [
