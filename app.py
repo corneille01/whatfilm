@@ -2507,7 +2507,7 @@ async def sitemap():
     urls += [f"{base}/{l}" for l in langs]
     urls += [f"{base}/genre/{g}" for g in genres]
     urls += [f"{base}/plateforme/{p}" for p in providers]
-    urls += [f"{base}/series", f"{base}/lieux-de-tournage"]
+    urls += [f"{base}/series", f"https://tournage.pelify.app/"]
 
     try:
         cat = getattr(filming_catalogue, "_CATALOGUE", None) \
