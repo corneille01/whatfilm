@@ -1325,8 +1325,8 @@ function genererNav() {
       <span>${g.series || "Séries"}</span>
     </a>
 
-    <a class="btn-genre home-action filming" href="/lieux-de-tournage"
-       onclick="chargerLieuxDeTournage(); return false;">
+    <a class="btn-genre home-action filming" href="https://tournage.pelify.app/"
+      >
       <i class="fas fa-map-marker-alt"></i>
       <span>${ld.filming_btn || "Lieux de tournage"}</span>
     </a>
@@ -3605,7 +3605,7 @@ function routerInit(){
   if ((m = p.match(/^\/plateforme\/([^\/]+)/))) { chargerParPlateforme(m[1]); return true; }
   if ((m = p.match(/^\/film\/(\d+)/)))          { afficherDetails(parseInt(m[1]),"movie"); return true; }
   if (p === "/series")                          { chargerSeries(); return true; }
-  if (p === "/lieux-de-tournage")               { chargerLieuxDeTournage(); return true; }
+  if (p === "/lieux-de-tournage")               { window.location.href = "https://tournage.pelify.app/"; return true; }
 
   return false;
 }
