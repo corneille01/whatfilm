@@ -3463,7 +3463,28 @@ function demarrerPub(){
 function fermerPub(){const closeBtn=document.getElementById('ad-close-btn');if(closeBtn&&closeBtn.disabled)return;clearInterval(_adCountdownInterval);_publicitéTerminée();}
 function _publicitéTerminée(){_adFinished=true;const modal=document.getElementById('ad-modal');if(modal)modal.style.display='none';if(_analysisResult!==null){_afficherResultatFinal(_analysisResult);_analysisResult=null;}}
 function _afficherResultatFinal(data){
-  if(!_adFinished){_analysisResult=data;return;}
+  if(!_adFinished){
+    _analysisResult=data;
+    // Filet de sécurité : si pour une raison quelconque le mécanisme
+    // normal de fin de pub (_publicitéTerminée, appelé au clic ou
+    // automatiquement à 15s) ne se déclenche jamais — élément DOM
+    // manquant, changement de page entre-temps, etc. — on force
+    // quand même l'affichage après un délai raisonnable, plutôt que
+    // de laisser l'utilisateur bloqué indéfiniment sans autre
+    // solution que d'annuler et relancer la même analyse.
+    setTimeout(() => {
+      if (_analysisResult !== null && !_adFinished) {
+        _adFinished = true;
+        const modal = document.getElementById('ad-modal');
+        if (modal) modal.style.display = 'none';
+        clearInterval(_adCountdownInterval);
+        const donnees = _analysisResult;
+        _analysisResult = null;
+        _afficherResultatFinal(donnees);
+      }
+    }, 16000);
+    return;
+  }
    _cameFromAnalysis = true;
   _correctionTranscript = data._transcript || "";
   _correctionOcr = data._ocr_text || "";
