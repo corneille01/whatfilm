@@ -192,7 +192,7 @@
       />
     </noscript>
 
-    <link rel="stylesheet" href="/frontend/style.css?v=90" />
+    <link rel="stylesheet" href="/frontend/style.css?v=91" />
   </head>
   <body>
     <input
@@ -290,549 +290,532 @@
     </header>
 
     <main>
-      <!-- ERROR -->
-      <div id="error-message" role="alert" aria-live="polite">
-        <i class="fas fa-exclamation-circle" style="flex-shrink: 0"></i>
-        <span id="error-text"></span>
-        <span class="err-close" onclick="cacherErreur()" aria-label="Fermer"
-          >✕</span
-        >
-      </div>
+    <!-- ERROR -->
+    <div id="error-message" role="alert" aria-live="polite">
+      <i class="fas fa-exclamation-circle" style="flex-shrink: 0"></i>
+      <span id="error-text"></span>
+      <span class="err-close" onclick="cacherErreur()" aria-label="Fermer"
+        >✕</span
+      >
+    </div>
 
-      <!-- HERO -->
-      <section id="hero">
-        <div class="hero-inner">
-          <div class="camera-badge">
-            <i class="fas fa-camera"></i>
-            <span data-i18n="badge">Shazam pour les films</span>
-          </div>
-          <p class="hero-subtitle" data-i18n="subtitle">
-            Vous venez de voir un extrait de film sur TikTok ou en story sans
-            savoir lequel ? Collez le lien, on vous dit tout — titre, streaming,
-            casting.
-          </p>
-
-          <ol class="hero-steps" aria-label="Fonctionnement de Pelify">
-            <li class="hero-step">
-              <span class="hero-step-num">
-                <i class="fas fa-link"></i>
-              </span>
-              <span data-i18n="step1">
-                Collez un lien TikTok, Instagram, Facebook, YouTube, X,
-                LinkedIn... ou importez la vidéo
-              </span>
-            </li>
-
-            <li class="hero-step">
-              <span class="hero-step-num">
-                <i class="fas fa-brain"></i>
-              </span>
-              <span data-i18n="step2">
-                Nous analysons l'extrait en quelques secondes
-              </span>
-            </li>
-
-            <li class="hero-step">
-              <span class="hero-step-num">
-                <i class="fas fa-clapperboard"></i>
-              </span>
-              <span data-i18n="step3">
-                Le film, la série ou l'animé s'affiche, avec où le regarder
-              </span>
-            </li>
-
-            <li class="hero-step">
-              <span class="hero-step-num">
-                <i class="fas fa-map-location-dot"></i>
-              </span>
-              <span data-i18n="step4">
-                Bonus : explorez les vrais lieux de tournage sur une carte avec
-                les commodités autour de chaque lieu de tournage
-              </span>
-            </li>
-          </ol>
-
-          <div class="hero-search-wrap">
-            <i class="fas fa-search hero-search-icon"></i>
-
-            <input
-              type="text"
-              id="hero-search-input"
-              data-i18n-placeholder="placeholder"
-              placeholder="Collez un lien TikTok/Reel/YouTube, importez une vidéo, ou tapez un titre..."
-              autocomplete="off"
-              spellcheck="false"
-              aria-label="Rechercher"
-              onkeydown="
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  rechercheHero();
-                }
-              "
-            />
-            <button
-              class="btn-search-clear"
-              id="btn-clear"
-              onclick="effacerRecherche()"
-              title="Effacer"
-              aria-label="Effacer"
-            >
-              <i class="fas fa-times"></i>
-            </button>
-
-            <button
-              class="hero-search-btn"
-              onclick="document.getElementById('video-upload-input').click()"
-              title="Uploader une vidéo"
-              aria-label="Uploader une vidéo"
-              style="flex: 0 0 auto"
-            >
-              <i class="fas fa-paperclip"></i>
-            </button>
-            <button
-              class="hero-search-btn"
-              onclick="telechargerDepuisHero()"
-              title="Télécharger la vidéo"
-              aria-label="Télécharger la vidéo"
-              style="flex: 0 0 auto"
-            >
-              <i class="fas fa-download"></i>
-            </button>
-
-            <button
-              class="hero-search-btn"
-              onclick="rechercheHero()"
-              aria-label="Identifier le film"
-            >
-              <i class="fas fa-search"></i>
-              <span data-i18n="cta">Identifier</span>
-            </button>
-          </div>
+    <!-- HERO -->
+    <section id="hero">
+      <div class="hero-inner">
+        <div class="camera-badge">
+          <i class="fas fa-camera"></i>
+          <span data-i18n="badge">Shazam pour les films</span>
         </div>
-      </section>
+        <p class="hero-subtitle" data-i18n="subtitle">
+          Vous venez de voir un extrait de film sur TikTok ou en story sans
+          savoir lequel ? Collez le lien, on vous dit tout — titre, streaming,
+          casting.
+        </p>
 
-      <!-- GENRE NAV -->
-      <nav
-        id="genre-nav"
-        class="genre-nav"
-        style="padding-top: 16px"
-        aria-label="Navigation par genres"
-      ></nav>
+        <ol class="hero-steps" aria-label="Fonctionnement de Pelify">
+          <li class="hero-step">
+            <span class="hero-step-num">
+              <i class="fas fa-link"></i>
+            </span>
+            <span data-i18n="step1">
+              Collez un lien TikTok, Instagram, Facebook, YouTube, X,
+              LinkedIn... ou importez la vidéo
+            </span>
+          </li>
 
-      <!-- PLATFORM NAV -->
+          <li class="hero-step">
+            <span class="hero-step-num">
+              <i class="fas fa-brain"></i>
+            </span>
+            <span data-i18n="step2">
+              Nous analysons l'extrait en quelques secondes
+            </span>
+          </li>
 
-      <nav id="platform-nav" aria-label="Navigation secondaire"></nav>
+          <li class="hero-step">
+            <span class="hero-step-num">
+              <i class="fas fa-clapperboard"></i>
+            </span>
+            <span data-i18n="step3">
+              Le film, la série ou l'animé s'affiche, avec où le regarder
+            </span>
+          </li>
 
-      <!-- LOADING OVERLAY -->
-      <div id="loading-overlay" role="status" aria-label="Analyse en cours">
-        <div
-          id="game-msg-banner"
-          style="
-            display: none;
-            text-align: center;
-            padding: 12px 20px;
-            margin-bottom: 12px;
-            background: rgba(0, 255, 204, 0.07);
-            border: 1px solid rgba(0, 255, 204, 0.18);
-            border-radius: 12px;
-            color: var(--text);
-            font-size: 0.93rem;
-            line-height: 1.65;
-            letter-spacing: 0.01em;
-          "
-        ></div>
-        <div
-          id="game-canvas"
-          onclick="gameJump()"
-          onkeydown="if (event.key === ' ') gameJump();"
-          tabindex="0"
-          aria-label="Mini-jeu"
-        >
-          <!-- Rempli dynamiquement par scr
-         ipt.js -->
-        </div>
-        <div
-          id="analysis-progress"
-          style="width: min(480px, 90vw); padding: 0 20px 20px"
-        >
-          <div class="progress-bar-overall">
-            <div
-              class="progress-bar-fill"
-              id="prog-fill"
-              style="width: 0%"
-            ></div>
-          </div>
-          <div
-            style="
-              text-align: center;
-              color: var(--muted);
-              font-size: 0.8rem;
-              margin-top: 8px;
+          <li class="hero-step">
+            <span class="hero-step-num">
+              <i class="fas fa-map-location-dot"></i>
+            </span>
+            <span data-i18n="step4">
+              Bonus : explorez les vrais lieux de tournage sur une carte avec
+              les commodités autour de chaque lieu de tournage
+            </span>
+          </li>
+        </ol>
+
+        <div class="hero-search-wrap">
+          <i class="fas fa-search hero-search-icon"></i>
+
+          <input
+            type="text"
+            id="hero-search-input"
+            data-i18n-placeholder="placeholder"
+            placeholder="Collez un lien TikTok/Reel/YouTube, importez une vidéo, ou tapez un titre..."
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="Rechercher"
+            onkeydown="
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                rechercheHero();
+              }
             "
-            id="prog-percent"
+          />
+          <button
+            class="btn-search-clear"
+            id="btn-clear"
+            onclick="effacerRecherche()"
+            title="Effacer"
+            aria-label="Effacer"
           >
-            0%
-          </div>
-        </div>
-        <button class="cancel-analysis-btn" onclick="annulerAnalyse()">
-          <i class="fas fa-times"></i> <span data-i18n="cancel">Annuler</span>
-        </button>
-      </div>
-
-      <!-- GENRE GRID -->
-      <div id="genre-grid">
-        <h2 id="genre-title"></h2>
-        <div id="filtres-bar">
-          <select
-            id="filtre-annee"
-            onchange="appliquerFiltres()"
-            aria-label="Filtrer par année"
-          >
-            <option value="">📅 <span data-i18n="year">Année</span></option>
-          </select>
-          <select
-            id="filtre-note"
-            onchange="appliquerFiltres()"
-            aria-label="Note minimum"
-          >
-            <option value="">
-              ⭐ <span data-i18n="min_score">Note min</span>
-            </option>
-            <option value="9">9+</option>
-            <option value="8">8+</option>
-            <option value="7">7+</option>
-            <option value="6">6+</option>
-          </select>
-          <select
-            id="filtre-tri"
-            onchange="appliquerFiltres()"
-            aria-label="Trier par"
-          >
-            <option value="pop" data-i18n="sort_pop">🔥 Popularité</option>
-            <option value="note_desc" data-i18n="sort_top">
-              ⭐ Mieux notés
-            </option>
-            <option value="note_asc" data-i18n="sort_asc">
-              Note croissante
-            </option>
-            <option value="recent" data-i18n="sort_new">🆕 Plus récents</option>
-            <option value="ancien" data-i18n="sort_old">📼 Plus anciens</option>
-          </select>
-          <button class="btn-reset" id="btn-reset" onclick="reinitFiltres()">
-            <i class="fas fa-times"></i> <span data-i18n="reset">Reset</span>
+            <i class="fas fa-times"></i>
           </button>
-          <span id="filtre-count"></span>
-        </div>
 
-        <div id="movie-cards"></div>
+          <button
+            class="hero-search-btn"
+            onclick="document.getElementById('video-upload-input').click()"
+            title="Uploader une vidéo"
+            aria-label="Uploader une vidéo"
+            style="flex: 0 0 auto"
+          >
+            <i class="fas fa-paperclip"></i>
+          </button>
+          <button
+            class="hero-search-btn"
+            onclick="telechargerDepuisHero()"
+            title="Télécharger la vidéo"
+            aria-label="Télécharger la vidéo"
+            style="flex: 0 0 auto"
+          >
+            <i class="fas fa-download"></i>
+          </button>
+
+          <button class="hero-search-btn" onclick="rechercheHero()" aria-label="Identifier le film">
+            <i class="fas fa-search"></i>
+            <span data-i18n="cta">Identifier</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- GENRE NAV -->
+    <nav
+      id="genre-nav"
+      class="genre-nav"
+      style="padding-top: 16px"
+      aria-label="Navigation par genres"
+    ></nav>
+
+    <!-- PLATFORM NAV -->
+
+    <nav id="platform-nav" aria-label="Navigation secondaire"></nav>
+
+    <!-- LOADING OVERLAY -->
+    <div id="loading-overlay" role="status" aria-label="Analyse en cours">
+      <div
+        id="game-msg-banner"
+        style="
+          display: none;
+          text-align: center;
+          padding: 12px 20px;
+          margin-bottom: 12px;
+          background: rgba(0, 255, 204, 0.07);
+          border: 1px solid rgba(0, 255, 204, 0.18);
+          border-radius: 12px;
+          color: var(--text);
+          font-size: 0.93rem;
+          line-height: 1.65;
+          letter-spacing: 0.01em;
+        "
+      ></div>
+      <div
+        id="game-canvas"
+        onclick="gameJump()"
+        onkeydown="if (event.key === ' ') gameJump();"
+        tabindex="0"
+        aria-label="Mini-jeu"
+      >
+        <!-- Rempli dynamiquement par scr
+         ipt.js -->
+      </div>
+      <div
+        id="analysis-progress"
+        style="width: min(480px, 90vw); padding: 0 20px 20px"
+      >
+        <div class="progress-bar-overall">
+          <div class="progress-bar-fill" id="prog-fill" style="width: 0%"></div>
+        </div>
+        <div
+          style="
+            text-align: center;
+            color: var(--muted);
+            font-size: 0.8rem;
+            margin-top: 8px;
+          "
+          id="prog-percent"
+        >
+          0%
+        </div>
+      </div>
+      <button class="cancel-analysis-btn" onclick="annulerAnalyse()">
+        <i class="fas fa-times"></i> <span data-i18n="cancel">Annuler</span>
+      </button>
+    </div>
+
+    <!-- GENRE GRID -->
+    <div id="genre-grid">
+      <h2 id="genre-title"></h2>
+      <div id="filtres-bar">
+        <select
+          id="filtre-annee"
+          onchange="appliquerFiltres()"
+          aria-label="Filtrer par année"
+        >
+          <option value="">📅 <span data-i18n="year">Année</span></option>
+        </select>
+        <select
+          id="filtre-note"
+          onchange="appliquerFiltres()"
+          aria-label="Note minimum"
+        >
+          <option value="">
+            ⭐ <span data-i18n="min_score">Note min</span>
+          </option>
+          <option value="9">9+</option>
+          <option value="8">8+</option>
+          <option value="7">7+</option>
+          <option value="6">6+</option>
+        </select>
+        <select
+          id="filtre-tri"
+          onchange="appliquerFiltres()"
+          aria-label="Trier par"
+        >
+          <option value="pop" data-i18n="sort_pop">🔥 Popularité</option>
+          <option value="note_desc" data-i18n="sort_top">⭐ Mieux notés</option>
+          <option value="note_asc" data-i18n="sort_asc">Note croissante</option>
+          <option value="recent" data-i18n="sort_new">🆕 Plus récents</option>
+          <option value="ancien" data-i18n="sort_old">📼 Plus anciens</option>
+        </select>
+        <button class="btn-reset" id="btn-reset" onclick="reinitFiltres()">
+          <i class="fas fa-times"></i> <span data-i18n="reset">Reset</span>
+        </button>
+        <span id="filtre-count"></span>
       </div>
 
-      <!-- FILM DETAIL -->
-      <div id="page-film-detail">
-        <button class="btn-back" onclick="goBack()">
-          <i class="fas fa-arrow-left"></i> <span id="back-label">Retour</span>
-        </button>
-        <div class="detail-hero">
-          <div>
-            <img id="affiche_film" src="" alt="Affiche" loading="lazy" />
-          </div>
-          <div class="detail-info">
-            <div id="fake_alert"></div>
-            <h2 id="titre_film"></h2>
-            <div class="detail-tags" id="detail_tags"></div>
-            <div id="confidence_wrap">
-              <div class="conf-row">
-                <span class="conf-label" data-i18n="ai_conf">Confiance</span>
-                <div class="conf-bar-outer">
-                  <div
-                    class="conf-bar-inner"
-                    id="conf-bar-inner"
-                    style="width: 0%"
-                  ></div>
-                </div>
-                <span class="conf-pct" id="conf-pct-label">0%</span>
-              </div>
-            </div>
+      <div id="movie-cards"></div>
+    </div>
 
-            <!-- ── Alternatives (multi-candidats) ────────────────── -->
-            <div id="alternatives_section" style="margin-top: 14px"></div>
-            <div id="report-wrong-wrap" style="margin-top: 10px">
-              <button
-                class="btn-stream"
-                style="font-size: 0.78rem; padding: 6px 12px"
-                onclick="ouvrirCorrection()"
-              >
-                <i class="fas fa-flag"></i>
-                <span data-i18n="report_wrong_btn"
-                  >Ce n'est pas le bon film ?</span
-                >
-              </button>
+    <!-- FILM DETAIL -->
+    <div id="page-film-detail">
+      <button class="btn-back" onclick="goBack()">
+        <i class="fas fa-arrow-left"></i> <span id="back-label">Retour</span>
+      </button>
+      <div class="detail-hero">
+        <div><img id="affiche_film" src="" alt="Affiche" loading="lazy" /></div>
+        <div class="detail-info">
+          <div id="fake_alert"></div>
+          <h2 id="titre_film"></h2>
+          <div class="detail-tags" id="detail_tags"></div>
+          <div id="confidence_wrap">
+            <div class="conf-row">
+              <span class="conf-label" data-i18n="ai_conf">Confiance</span>
+              <div class="conf-bar-outer">
+                <div
+                  class="conf-bar-inner"
+                  id="conf-bar-inner"
+                  style="width: 0%"
+                ></div>
+              </div>
+              <span class="conf-pct" id="conf-pct-label">0%</span>
             </div>
+          </div>
+
+          <!-- ── Alternatives (multi-candidats) ────────────────── -->
+          <div id="alternatives_section" style="margin-top: 14px"></div>
+          <div id="report-wrong-wrap" style="margin-top: 10px">
             <button
               class="btn-stream"
-              style="margin-top: 8px"
-              onclick="partagerFilm()"
-              aria-label="Partager"
-              data-i18n-aria="share_label"
+              style="font-size: 0.78rem; padding: 6px 12px"
+              onclick="ouvrirCorrection()"
             >
-              <i class="fas fa-share-alt"></i>
+              <i class="fas fa-flag"></i>
+              <span data-i18n="report_wrong_btn"
+                >Ce n'est pas le bon film ?</span
+              >
             </button>
+          </div>
+          <button
+            class="btn-stream"
+            style="margin-top: 8px"
+            onclick="partagerFilm()"
+            aria-label="Partager"
+            data-i18n-aria="share_label"
+          >
+            <i class="fas fa-share-alt"></i>
+          </button>
 
+          <div
+            id="correction-modal"
+            style="
+              display: none;
+              position: fixed;
+              inset: 0;
+              background: rgba(0, 0, 0, 0.85);
+              z-index: 99999;
+              align-items: center;
+              justify-content: center;
+            "
+          >
             <div
-              id="correction-modal"
               style="
-                display: none;
-                position: fixed;
-                inset: 0;
-                background: rgba(0, 0, 0, 0.85);
-                z-index: 99999;
-                align-items: center;
-                justify-content: center;
+                background: var(--card2);
+                border: 1px solid var(--border);
+                border-radius: 16px;
+                max-width: 420px;
+                width: 90%;
+                padding: 20px;
+                max-height: 80vh;
+                overflow-y: auto;
               "
             >
-              <div
+              <h3 style="margin: 0 0 12px">Quel est le bon film ?</h3>
+              <input
+                id="correction-search"
+                type="text"
+                placeholder="Titre du film ou série..."
                 style="
-                  background: var(--card2);
+                  width: 100%;
+                  padding: 10px;
+                  border-radius: 8px;
                   border: 1px solid var(--border);
-                  border-radius: 16px;
-                  max-width: 420px;
-                  width: 90%;
-                  padding: 20px;
-                  max-height: 80vh;
-                  overflow-y: auto;
+                  background: var(--card);
+                  color: var(--text);
+                  margin-bottom: 10px;
                 "
+                oninput="rechercherCorrection(this.value)"
+              />
+              <div id="correction-results"></div>
+              <button
+                class="btn-stream"
+                style="margin-top: 10px"
+                onclick="fermerCorrection()"
               >
-                <h3 style="margin: 0 0 12px">Quel est le bon film ?</h3>
-                <input
-                  id="correction-search"
-                  type="text"
-                  placeholder="Titre du film ou série..."
-                  style="
-                    width: 100%;
-                    padding: 10px;
-                    border-radius: 8px;
-                    border: 1px solid var(--border);
-                    background: var(--card);
-                    color: var(--text);
-                    margin-bottom: 10px;
-                  "
-                  oninput="rechercherCorrection(this.value)"
-                />
-                <div id="correction-results"></div>
-                <button
-                  class="btn-stream"
-                  style="margin-top: 10px"
-                  onclick="fermerCorrection()"
-                >
-                  Annuler
-                </button>
-              </div>
+                Annuler
+              </button>
             </div>
-
-            <div class="detail-rating" id="detail_rating"></div>
-
-            <p id="synopsis_film"></p>
           </div>
+
+          <div class="detail-rating" id="detail_rating"></div>
+
+          <p id="synopsis_film"></p>
         </div>
-
-        <div class="food-partner" id="partner-offer">
-          <div style="font-size: 2rem" id="partner-offer-icon">🎬</div>
-          <div class="food-partner-text">
-            <strong data-i18n="partner_title">Envie d'aller plus loin ?</strong>
-            <span id="partner-offer-desc"></span>
-          </div>
-          <button class="btn-food" id="partner-offer-btn">
-            <i class="fas fa-arrow-right"></i>
-            <span id="partner-offer-btn-label">Découvrir</span>
-          </button>
-        </div>
-
-        <div id="streaming_section" style="margin-top: 20px"></div>
-
-        <div id="seasons_section"></div>
-        <!-- Visible seulement si l'EIDR est disponible (display géré par JS) -->
-        <div
-          id="eidr_badge"
-          style="display: none; margin: 0 0 8px; align-items: center; gap: 8px"
-        ></div>
-
-        <!-- ── Équipe créative Wikidata ──────────────────────────────── -->
-        <div id="crew_section" style="margin-top: 24px"></div>
-
-        <!-- ── Finance (budget / box-office) ─────────────────────────── -->
-        <div id="finance_section" style="margin-top: 24px"></div>
-
-        <div id="cast_section"></div>
-        <div id="trailer_section"></div>
-        <!-- ── Lieux de tournage ─────────────────────────────────────── -->
-        <div id="locations_section" style="margin-top: 24px"></div>
-        <div id="similar_section"></div>
       </div>
 
-      <div id="filming-page" style="display: none"></div>
-
-      <!-- POLITIQUE DE CONFIDENTIALITÉ -->
-      <div id="privacy-page">
-        <button class="btn-back" onclick="cacherPrivacy()">
-          <i class="fas fa-arrow-left"></i> Retour
+      <div class="food-partner" id="partner-offer">
+        <div style="font-size: 2rem" id="partner-offer-icon">🎬</div>
+        <div class="food-partner-text">
+          <strong data-i18n="partner_title">Envie d'aller plus loin ?</strong>
+          <span id="partner-offer-desc"></span>
+        </div>
+        <button class="btn-food" id="partner-offer-btn">
+          <i class="fas fa-arrow-right"></i>
+          <span id="partner-offer-btn-label">Découvrir</span>
         </button>
-        <h2>POLITIQUE DE CONFIDENTIALITÉ</h2>
-        <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 20px">
-          Dernière mise à jour : 30 mai 2026
-        </p>
-        <div>
-          <h3>1. Responsable du traitement</h3>
-          <p>
-            Le site <strong>Pelify</strong> est édité par
-            <strong>Pelify</strong>. Contact :
-            <a href="mailto:privacy@pelify.app" style="color: var(--primary)"
-              >privacy@pelify.app</a
-            >.
-          </p>
-          <h3>2. Données collectées</h3>
-          <p>
-            Liens vidéo (non conservés), adresse IP (anonymisée sous 24h),
-            cookies de fonctionnement.
-          </p>
-          <h3>3. Finalités</h3>
-          <p>
-            Identification des films, amélioration du service, respect des
-            obligations légales.
-          </p>
-          <h3>4. Destinataires</h3>
-          <p>Hébergeur, API TMDB, autorités judiciaires si requis.</p>
-          <h3>4bis. Sources de données et attribution</h3>
-          <p>
-            This product uses the TMDB API but is not endorsed or certified by
-            TMDB.
-          </p>
-          <p>
-            Les données film/série (titres, synopsis, casting, affiches)
-            proviennent de
-            <a
-              href="https://www.themoviedb.org/"
-              target="_blank"
-              rel="noopener"
-              style="color: var(--primary)"
-              >The Movie Database (TMDB)</a
-            >. Les informations complémentaires (équipe créative étendue, lieux
-            de tournage, données financières) proviennent de
-            <a
-              href="https://www.wikidata.org/"
-              target="_blank"
-              rel="noopener"
-              style="color: var(--primary)"
-              >Wikidata</a
-            >, sous licence
-            <a
-              href="https://creativecommons.org/publicdomain/zero/1.0/"
-              target="_blank"
-              rel="noopener"
-              style="color: var(--primary)"
-              >CC0</a
-            >.
-          </p>
-          <h3>5. Durée de conservation</h3>
-          <p>Liens vidéo : immédiatement supprimés. Logs : 30 jours max.</p>
-          <h3>6. Vos droits RGPD</h3>
-          <p>
-            Accès, rectification, opposition, effacement, portabilité.
-            Contactez-nous ou la CNIL.
-          </p>
-          <h3>7. Cookies</h3>
-          <table>
-            <tr>
-              <th>Cookie</th>
-              <th>Finalité</th>
-              <th>Durée</th>
-            </tr>
-            <tr>
-              <td>lang_pref</td>
-              <td>Langue</td>
-              <td>1 an</td>
-            </tr>
-            <tr>
-              <td>cookies_accepted</td>
-              <td>Consentement</td>
-              <td>6 mois</td>
-            </tr>
-          </table>
-          <h3>8. Sécurité</h3>
-          <p>Chiffrement TLS, pare-feu.</p>
-          <h3>9. Modifications</h3>
-          <p>Mise à jour possible, date indiquée en haut.</p>
-          <h3>10. Contact</h3>
-          <p>
-            <a href="mailto:privacy@pelify.app" style="color: var(--primary)"
-              >privacy@pelify.app</a
-            >
-          </p>
-        </div>
       </div>
 
-      <!-- TOAST -->
-      <div id="toast" role="status" aria-live="polite"></div>
+      <div id="streaming_section" style="margin-top: 20px"></div>
 
-      <!-- BACK TO TOP -->
-      <button
-        id="back-top"
-        onclick="window.scrollTo({ top: 0, behavior: 'smooth' })"
-        aria-label="Retour en haut"
-      >
-        <i class="fas fa-chevron-up"></i>
-      </button>
-
-      <!-- Cookie Consent -->
+      <div id="seasons_section"></div>
+      <!-- Visible seulement si l'EIDR est disponible (display géré par JS) -->
       <div
-        id="cookie-consent"
+        id="eidr_badge"
+        style="display: none; margin: 0 0 8px; align-items: center; gap: 8px"
+      ></div>
+
+      <!-- ── Équipe créative Wikidata ──────────────────────────────── -->
+      <div id="crew_section" style="margin-top: 24px"></div>
+
+      <!-- ── Finance (budget / box-office) ─────────────────────────── -->
+      <div id="finance_section" style="margin-top: 24px"></div>
+
+      <div id="cast_section"></div>
+      <div id="trailer_section"></div>
+      <!-- ── Lieux de tournage ─────────────────────────────────────── -->
+      <div id="locations_section" style="margin-top: 24px"></div>
+      <div id="similar_section"></div>
+    </div>
+
+    <div id="filming-page" style="display: none"></div>
+
+    <!-- POLITIQUE DE CONFIDENTIALITÉ -->
+    <div id="privacy-page">
+      <button class="btn-back" onclick="cacherPrivacy()">
+        <i class="fas fa-arrow-left"></i> Retour
+      </button>
+      <h2>POLITIQUE DE CONFIDENTIALITÉ</h2>
+      <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 20px">
+        Dernière mise à jour : 30 mai 2026
+      </p>
+      <div>
+        <h3>1. Responsable du traitement</h3>
+        <p>
+          Le site <strong>Pelify</strong> est édité par <strong>Pelify</strong>.
+          Contact :
+          <a href="mailto:privacy@pelify.app" style="color: var(--primary)"
+            >privacy@pelify.app</a
+          >.
+        </p>
+        <h3>2. Données collectées</h3>
+        <p>
+          Liens vidéo (non conservés), adresse IP (anonymisée sous 24h), cookies
+          de fonctionnement.
+        </p>
+        <h3>3. Finalités</h3>
+        <p>
+          Identification des films, amélioration du service, respect des
+          obligations légales.
+        </p>
+        <h3>4. Destinataires</h3>
+        <p>Hébergeur, API TMDB, autorités judiciaires si requis.</p>
+        <h3>4bis. Sources de données et attribution</h3>
+        <p>
+          This product uses the TMDB API but is not endorsed or certified by
+          TMDB.
+        </p>
+        <p>
+          Les données film/série (titres, synopsis, casting, affiches)
+          proviennent de
+          <a
+            href="https://www.themoviedb.org/"
+            target="_blank"
+            rel="noopener"
+            style="color: var(--primary)"
+            >The Movie Database (TMDB)</a
+          >. Les informations complémentaires (équipe créative étendue, lieux de
+          tournage, données financières) proviennent de
+          <a
+            href="https://www.wikidata.org/"
+            target="_blank"
+            rel="noopener"
+            style="color: var(--primary)"
+            >Wikidata</a
+          >, sous licence
+          <a
+            href="https://creativecommons.org/publicdomain/zero/1.0/"
+            target="_blank"
+            rel="noopener"
+            style="color: var(--primary)"
+            >CC0</a
+          >.
+        </p>
+        <h3>5. Durée de conservation</h3>
+        <p>Liens vidéo : immédiatement supprimés. Logs : 30 jours max.</p>
+        <h3>6. Vos droits RGPD</h3>
+        <p>
+          Accès, rectification, opposition, effacement, portabilité.
+          Contactez-nous ou la CNIL.
+        </p>
+        <h3>7. Cookies</h3>
+        <table>
+          <tr>
+            <th>Cookie</th>
+            <th>Finalité</th>
+            <th>Durée</th>
+          </tr>
+          <tr>
+            <td>lang_pref</td>
+            <td>Langue</td>
+            <td>1 an</td>
+          </tr>
+          <tr>
+            <td>cookies_accepted</td>
+            <td>Consentement</td>
+            <td>6 mois</td>
+          </tr>
+        </table>
+        <h3>8. Sécurité</h3>
+        <p>Chiffrement TLS, pare-feu.</p>
+        <h3>9. Modifications</h3>
+        <p>Mise à jour possible, date indiquée en haut.</p>
+        <h3>10. Contact</h3>
+        <p>
+          <a href="mailto:privacy@pelify.app" style="color: var(--primary)"
+            >privacy@pelify.app</a
+          >
+        </p>
+      </div>
+    </div>
+
+    <!-- TOAST -->
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <!-- BACK TO TOP -->
+    <button
+      id="back-top"
+      onclick="window.scrollTo({ top: 0, behavior: 'smooth' })"
+      aria-label="Retour en haut"
+    >
+      <i class="fas fa-chevron-up"></i>
+    </button>
+
+    <!-- Cookie Consent -->
+    <div
+      id="cookie-consent"
+      style="
+        position: fixed;
+        bottom: 20px;
+        left: 20px;
+        right: 20px;
+        background: var(--card2);
+        border: 1px solid var(--border);
+        padding: 16px;
+        border-radius: 12px;
+        z-index: 9999;
+        display: none;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+      "
+    >
+      <span style="font-size: 0.85rem; color: var(--text); flex: 1"
+        >Nous utilisons des cookies pour améliorer votre expérience et afficher
+        des liens d'affiliation.
+        <a
+          href="#politique-de-confidentialite"
+          onclick="afficherPrivacy(); return false;"
+          style="color: var(--primary); cursor: pointer"
+          >Politique de confidentialité</a
+        ></span
+      >
+      <button
+        onclick="
+          document.getElementById('cookie-consent').style.display = 'none';
+          localStorage.setItem('cookies_accepted', 'true');
+        "
         style="
-          position: fixed;
-          bottom: 20px;
-          left: 20px;
-          right: 20px;
-          background: var(--card2);
-          border: 1px solid var(--border);
-          padding: 16px;
-          border-radius: 12px;
-          z-index: 9999;
-          display: none;
-          align-items: center;
-          justify-content: space-between;
-          flex-wrap: wrap;
-          gap: 12px;
+          background: var(--primary);
+          color: #000;
+          border: none;
+          padding: 8px 18px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-weight: 600;
         "
       >
-        <span style="font-size: 0.85rem; color: var(--text); flex: 1"
-          >Nous utilisons des cookies pour améliorer votre expérience et
-          afficher des liens d'affiliation.
-          <a
-            href="#politique-de-confidentialite"
-            onclick="
-              afficherPrivacy();
-              return false;
-            "
-            style="color: var(--primary); cursor: pointer"
-            >Politique de confidentialité</a
-          ></span
-        >
-        <button
-          onclick="
-            document.getElementById('cookie-consent').style.display = 'none';
-            localStorage.setItem('cookies_accepted', 'true');
-          "
-          style="
-            background: var(--primary);
-            color: #000;
-            border: none;
-            padding: 8px 18px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-          "
-        >
-          Accepter
-        </button>
-      </div>
+        Accepter
+      </button>
+    </div>
     </main>
     <footer
       style="
@@ -846,16 +829,13 @@
       Data also sourced from Wikidata (CC0) ·
       <a
         href="#politique-de-confidentialite"
-        onclick="
-          afficherPrivacy();
-          return false;
-        "
+        onclick="afficherPrivacy(); return false;"
         style="color: var(--muted); cursor: pointer"
         >Politique de confidentialité</a
       >
     </footer>
     <!-- Notre script principal -->
-    <script src="/frontend/script.js?v=90" defer></script>
+    <script src="/frontend/script.js?v=91" defer></script>
     <script src="/frontend/filming.js?v=67" defer></script>
     <!-- MODALE PUBLICITÉ -->
     <div
