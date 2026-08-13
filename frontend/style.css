@@ -2336,22 +2336,7 @@ body.content-mode .seo-intent {
   z-index: 2;
 }
 
-.hero-step-num {
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
 
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 28px;
-
-  background: var(--primary);
-  color: #000;
-  font-weight: 800;
-  font-size: 0.82rem;
-  box-shadow: 0 0 0 4px rgba(0, 255, 204, 0.12);
-}
 
 .hero-step span:last-child {
   display: block;
