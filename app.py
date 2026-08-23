@@ -50,6 +50,10 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from core import auth as pelify_auth
+from core import billing as pelify_billing
+from storage.cache_engine import users_db
+
 from core.web_search import should_trigger_web_fallback, web_search_fallback
 from core.wikidata import wikidata_search_candidates, should_trigger_wikidata, get_wikidata_enrichment, get_filming_locations
 from core import filming_catalogue
@@ -274,6 +278,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Purge cache démarrage: {e}", flush=True)
 
+    try:
+        from storage.cache_engine import users_db
+        users_db.ensure_schema()
+    except Exception as e:
+        print(f"⚠️ users_db.ensure_schema KO au démarrage: {e}", flush=True)
+
     asyncio.create_task(cleanup_sessions())
     asyncio.create_task(purge_cache_loop())
     asyncio.create_task(filming_catalogue.ensure_catalogue_loaded())
@@ -298,6 +308,142 @@ app = FastAPI(title="Pelify", lifespan=lifespan)
 app.include_router(filming_router)
 from poi_proxy import router as poi_router
 app.include_router(poi_router)
+
+# ════════════════════════════════════════════════════════════════
+# AUTH — magic link (pas de mot de passe)
+# ════════════════════════════════════════════════════════════════
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class MagicLinkRequest(BaseModel):
+    email: str
+
+
+@app.post("/auth/request-link")
+async def auth_request_link(request: Request, body: MagicLinkRequest):
+    email = body.email.strip().lower()
+    if not _EMAIL_RE.match(email):
+        return JSONResponse({"status": "error", "message": "Email invalide."}, status_code=400)
+
+    ip = _get_client_ip(request)
+    rate_err = _check_rate_limit(ip)
+    if rate_err:
+        return JSONResponse(rate_err, status_code=429)
+
+    user_id = users_db.get_or_create_user(email, ip)
+    if user_id is None:
+        return JSONResponse({"status": "error", "message": "Service temporairement indisponible."}, status_code=503)
+
+    token = users_db.create_magic_link(user_id)
+    if not token:
+        return JSONResponse({"status": "error", "message": "Service temporairement indisponible."}, status_code=503)
+
+    sent = await pelify_auth.send_magic_link_email(email, token)
+    if not sent:
+        return JSONResponse({"status": "error", "message": "Échec de l'envoi de l'email. Réessaie dans un instant."}, status_code=502)
+
+    return {"status": "ok", "message": "Lien de connexion envoyé par email."}
+
+
+@app.get("/auth/verify")
+async def auth_verify(token: str, request: Request):
+    ip = _get_client_ip(request)
+    user_id = users_db.consume_magic_link(token)
+    if not user_id:
+        return HTMLResponse("<h2>Lien invalide ou expiré.</h2><a href='/'>Retour à Pelify</a>", status_code=400)
+
+    session_token = users_db.create_session(user_id, ip)
+    if not session_token:
+        return HTMLResponse("<h2>Service temporairement indisponible.</h2>", status_code=503)
+
+    redirect = Response(status_code=302, headers={"Location": f"{pelify_auth.APP_BASE_URL}/"})
+    pelify_auth.set_session_cookie(redirect, session_token)
+    return redirect
+
+
+@app.post("/auth/logout")
+async def auth_logout(request: Request):
+    token = request.cookies.get(pelify_auth.SESSION_COOKIE_NAME)
+    resp = JSONResponse({"status": "ok"})
+    if token:
+        users_db.delete_session(token)
+    pelify_auth.clear_session_cookie(resp)
+    return resp
+
+
+@app.get("/auth/me")
+async def auth_me(request: Request):
+    user = pelify_auth.get_current_user(request)
+    if not user:
+        return {"logged_in": False}
+    subscribed = users_db.is_subscription_active(user["id"])
+    return {"logged_in": True, "email": user["email"], "subscribed": subscribed}
+
+
+# ════════════════════════════════════════════════════════════════
+# BILLING — Stripe (abonnement hebdo 2,25€ HT)
+# ════════════════════════════════════════════════════════════════
+
+@app.post("/billing/checkout")
+async def billing_checkout(request: Request):
+    user = pelify_auth.get_current_user(request)
+    if not user:
+        return JSONResponse({"status": "error", "message": "Connecte-toi d'abord."}, status_code=401)
+
+    url = pelify_billing.create_checkout_session(user["id"], user["email"])
+    if not url:
+        return JSONResponse({"status": "error", "message": "Paiement temporairement indisponible."}, status_code=503)
+    return {"status": "ok", "checkout_url": url}
+
+
+@app.get("/billing/portal")
+async def billing_portal(request: Request):
+    user = pelify_auth.get_current_user(request)
+    if not user or not user.get("stripe_customer_id"):
+        return JSONResponse({"status": "error", "message": "Aucun abonnement actif."}, status_code=404)
+
+    url = pelify_billing.create_portal_session(user["stripe_customer_id"])
+    if not url:
+        return JSONResponse({"status": "error", "message": "Service temporairement indisponible."}, status_code=503)
+    return {"status": "ok", "portal_url": url}
+
+
+@app.post("/billing/webhook")
+async def billing_webhook(request: Request):
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature", "")
+    try:
+        result = pelify_billing.handle_webhook_event(payload, sig_header)
+        return {"status": "ok", **result}
+    except Exception as e:
+        print(f"⚠️ billing_webhook: signature/traitement KO ({e})", flush=True)
+        return JSONResponse({"status": "error"}, status_code=400)
+
+
+def _check_quota_or_paywall(request: Request) -> Optional[dict]:
+    """À appeler au début de chaque endpoint d'analyse. Retourne un dict
+    d'erreur (paywall) si l'utilisateur doit payer, sinon None (accès accordé)."""
+    ip = _get_client_ip(request)
+    user = pelify_auth.get_current_user(request)
+
+    if not user:
+        return {
+            "status": "error", "code": "auth_required",
+            "message": "Connecte-toi (email) pour lancer une analyse — c'est gratuit, sans mot de passe.",
+        }
+
+    if users_db.is_subscription_active(user["id"]):
+        return None  # abonné : illimité
+
+    if users_db.check_and_consume_free_quota(ip):
+        users_db.record_user_usage(user["id"])
+        return None  # essai gratuit du jour consommé avec succès
+
+    return {
+        "status": "error", "code": "quota_exceeded",
+        "message": "Essai gratuit du jour déjà utilisé. Passe à Pelify Pro pour un accès illimité (2,25€ HT/semaine).",
+        "checkout_endpoint": "/billing/checkout",
+    }
 
 # ════════════════════════════════════════════════════════════════
 # TÉLÉCHARGEMENT PUBLIC (page d'accueil) — indépendant du pipeline d'identification
@@ -1267,6 +1413,12 @@ async def analyser(req: VideoRequest, request: Request):
     if cached:
         return {"status": "cached", **cached}
 
+    # Le cache est gratuit (aucun coût de calcul) ; seule une analyse
+    # réelle consomme le quota gratuit / nécessite un abonnement.
+    paywall_err = _check_quota_or_paywall(request)
+    if paywall_err:
+        return JSONResponse(paywall_err, status_code=402)
+
     # ── Verrou anti-doublons : empêche plusieurs requêtes concurrentes ──
     # sur la même URL non-cachée de relancer chacune le pipeline complet
     # (download + Gemini + cascade). La première requête pose le verrou
@@ -1369,6 +1521,9 @@ async def analyser_upload(
     rate_err = _check_rate_limit(ip)
     if rate_err:
         return rate_err
+    paywall_err = _check_quota_or_paywall(request)
+    if paywall_err:
+        return JSONResponse(paywall_err, status_code=402)
     if _analysis_semaphore.locked():
         return {"status": "error", "code": "server_busy",
                 "message": "Le serveur analyse déjà plusieurs vidéos. Réessayez dans 30 secondes."}

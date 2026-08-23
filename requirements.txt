@@ -31,3 +31,5 @@ asyncpg
 # transformers
 # dans requirements.txt
 duckduckgo-search>=6.0
+stripe>=10.0.0
+# Resend est appelé directement via httpx (déjà une dépendance) → pas besoin du SDK resend

@@ -504,6 +504,26 @@ report_wrong_btn: "Not the right movie?",
     err_timeout: "Analysis timed out. Try a shorter video.",
     err_session: "Session expired. Please retry.",
     err_generic: "An error occurred. Please try again.",
+    auth_title: "Log in to Pelify",
+    auth_desc: "Just an email, no password. We'll send you a login link.",
+    auth_send_btn: "Send link",
+    auth_cancel: "Cancel",
+    auth_sent_title: "Link sent!",
+    auth_sent_desc: "Check your inbox (and spam folder) then click the link you received.",
+    auth_close: "Close",
+    auth_invalid_email: "Invalid email address.",
+    paywall_title: "Free trial used",
+    paywall_desc: "You've used your free identification for today. Upgrade to Pelify Pro for unlimited access.",
+    paywall_per_week: "excl. tax / week",
+    paywall_unlimited: "Unlimited identifications, cancel anytime",
+    paywall_cta: "Upgrade to Pelify Pro",
+    paywall_cancel: "Later",
+    account_manage: "Manage subscription",
+    account_logout: "Log out",
+    account_pro_active: "Pelify Pro active",
+    account_free_plan: "Free account — 1/day",
+    account_logged_out: "Logged out.",
+    billing_success: "Subscription activated! 🎉",
     err_low_confidence: "Movie not identified with enough confidence. Try searching manually.",
     search_manually: "Search manually",
     err_rate_limited: "Too many requests. Wait a minute before retrying.",
@@ -626,6 +646,26 @@ report_wrong_btn: "Not the right movie?",
     err_timeout: "Analysis timed out. Try a shorter video.",
     err_session: "Session expired. Please retry.",
     err_generic: "An error occurred. Please try again.",
+    auth_title: "Log in to Pelify",
+    auth_desc: "Just an email, no password. We'll send you a login link.",
+    auth_send_btn: "Send link",
+    auth_cancel: "Cancel",
+    auth_sent_title: "Link sent!",
+    auth_sent_desc: "Check your inbox (and spam folder) then click the link you received.",
+    auth_close: "Close",
+    auth_invalid_email: "Invalid email address.",
+    paywall_title: "Free trial used",
+    paywall_desc: "You've used your free identification for today. Upgrade to Pelify Pro for unlimited access.",
+    paywall_per_week: "excl. tax / week",
+    paywall_unlimited: "Unlimited identifications, cancel anytime",
+    paywall_cta: "Upgrade to Pelify Pro",
+    paywall_cancel: "Later",
+    account_manage: "Manage subscription",
+    account_logout: "Log out",
+    account_pro_active: "Pelify Pro active",
+    account_free_plan: "Free account — 1/day",
+    account_logged_out: "Logged out.",
+    billing_success: "Subscription activated! 🎉",
     err_low_confidence: "Movie not identified with enough confidence. Try searching manually.",
     search_manually: "Search manually",
     err_rate_limited: "Too many requests. Wait a minute before retrying.",
@@ -748,6 +788,26 @@ report_wrong_btn: "Ce n'est pas le bon film ?",
     err_timeout: "L'analyse a pris trop de temps. Essayez avec une vidéo plus courte.",
     err_session: "Session expirée. Relancez l'analyse.",
     err_generic: "Une erreur s'est produite. Réessayez dans quelques instants.",
+    auth_title: "Connexion à Pelify",
+    auth_desc: "Un email, pas de mot de passe. On t'envoie un lien de connexion.",
+    auth_send_btn: "Envoyer le lien",
+    auth_cancel: "Annuler",
+    auth_sent_title: "Lien envoyé !",
+    auth_sent_desc: "Vérifie ta boîte mail (et les spams) puis clique sur le lien reçu.",
+    auth_close: "Fermer",
+    auth_invalid_email: "Email invalide.",
+    paywall_title: "Essai gratuit utilisé",
+    paywall_desc: "Tu as utilisé ton identification gratuite du jour. Passe à Pelify Pro pour un accès illimité.",
+    paywall_per_week: "HT / semaine",
+    paywall_unlimited: "Identifications illimitées, sans engagement",
+    paywall_cta: "Passer à Pelify Pro",
+    paywall_cancel: "Plus tard",
+    account_manage: "Gérer l'abonnement",
+    account_logout: "Déconnexion",
+    account_pro_active: "Pelify Pro actif",
+    account_free_plan: "Compte gratuit — 1 essai/jour",
+    account_logged_out: "Déconnecté.",
+    billing_success: "Abonnement activé ! 🎉",
     err_low_confidence: "Film non identifié avec certitude. Essayez de le rechercher manuellement.",
     search_manually: "Rechercher manuellement",
     err_rate_limited: "Trop de requêtes. Attendez une minute avant de réessayer.",
@@ -870,6 +930,26 @@ report_wrong_btn: "¿No es la película correcta?",
     err_timeout: "El análisis tardó demasiado. Prueba con un vídeo más corto.",
     err_session: "Sesión expirada. Reinicia el análisis.",
     err_generic: "Ocurrió un error. Inténtalo de nuevo.",
+    auth_title: "Iniciar sesión en Pelify",
+    auth_desc: "Solo un email, sin contraseña. Te enviamos un enlace de acceso.",
+    auth_send_btn: "Enviar enlace",
+    auth_cancel: "Cancelar",
+    auth_sent_title: "¡Enlace enviado!",
+    auth_sent_desc: "Revisa tu correo (y spam) y haz clic en el enlace recibido.",
+    auth_close: "Cerrar",
+    auth_invalid_email: "Email no válido.",
+    paywall_title: "Prueba gratuita utilizada",
+    paywall_desc: "Ya usaste tu identificación gratuita de hoy. Pásate a Pelify Pro para acceso ilimitado.",
+    paywall_per_week: "sin IVA / semana",
+    paywall_unlimited: "Identificaciones ilimitadas, cancela cuando quieras",
+    paywall_cta: "Pasar a Pelify Pro",
+    paywall_cancel: "Más tarde",
+    account_manage: "Gestionar suscripción",
+    account_logout: "Cerrar sesión",
+    account_pro_active: "Pelify Pro activo",
+    account_free_plan: "Cuenta gratuita — 1/día",
+    account_logged_out: "Sesión cerrada.",
+    billing_success: "¡Suscripción activada! 🎉",
     err_low_confidence: "Película no identificada con certeza. Busca manualmente.",
     search_manually: "Buscar manualmente",
     err_rate_limited: "Demasiadas solicitudes. Espera un minuto antes de reintentar.",
@@ -992,6 +1072,26 @@ report_wrong_btn: "Nicht der richtige Film?",
     err_timeout: "Analyse hat zu lange gedauert. Versuche ein kürzeres Video.",
     err_session: "Sitzung abgelaufen. Starte die Analyse neu.",
     err_generic: "Ein Fehler ist aufgetreten. Versuche es erneut.",
+    auth_title: "Bei Pelify anmelden",
+    auth_desc: "Nur eine E-Mail, kein Passwort. Wir senden dir einen Anmeldelink.",
+    auth_send_btn: "Link senden",
+    auth_cancel: "Abbrechen",
+    auth_sent_title: "Link gesendet!",
+    auth_sent_desc: "Schau in dein Postfach (auch Spam) und klicke auf den Link.",
+    auth_close: "Schließen",
+    auth_invalid_email: "Ungültige E-Mail-Adresse.",
+    paywall_title: "Kostenloser Versuch verbraucht",
+    paywall_desc: "Du hast deine kostenlose Identifikation für heute genutzt. Hol dir Pelify Pro für unbegrenzten Zugriff.",
+    paywall_per_week: "netto / Woche",
+    paywall_unlimited: "Unbegrenzte Identifikationen, jederzeit kündbar",
+    paywall_cta: "Zu Pelify Pro wechseln",
+    paywall_cancel: "Später",
+    account_manage: "Abo verwalten",
+    account_logout: "Abmelden",
+    account_pro_active: "Pelify Pro aktiv",
+    account_free_plan: "Kostenloses Konto — 1×/Tag",
+    account_logged_out: "Abgemeldet.",
+    billing_success: "Abo aktiviert! 🎉",
     err_low_confidence: "Film nicht sicher identifiziert. Suche manuell.",
     search_manually: "Manuell suchen",
     err_rate_limited: "Zu viele Anfragen. Warte eine Minute, bevor du es erneut versuchst.",
@@ -1114,6 +1214,26 @@ report_wrong_btn: "不是这部电影？",
     err_timeout: "分析超时，请尝试较短的视频。",
     err_session: "会话已过期，请重新分析。",
     err_generic: "发生错误，请重试。",
+    auth_title: "登录 Pelify",
+    auth_desc: "只需邮箱，无需密码。我们会给你发送登录链接。",
+    auth_send_btn: "发送登录链接",
+    auth_cancel: "取消",
+    auth_sent_title: "链接已发送！",
+    auth_sent_desc: "请查收邮箱（包括垃圾邮件），点击收到的链接。",
+    auth_close: "关闭",
+    auth_invalid_email: "邮箱地址无效。",
+    paywall_title: "今日免费次数已用完",
+    paywall_desc: "你已使用今日的免费识别。升级到 Pelify Pro 即可无限使用。",
+    paywall_per_week: "税前 / 每周",
+    paywall_unlimited: "无限识别，随时可取消",
+    paywall_cta: "升级 Pelify Pro",
+    paywall_cancel: "以后再说",
+    account_manage: "管理订阅",
+    account_logout: "退出登录",
+    account_pro_active: "Pelify Pro 已激活",
+    account_free_plan: "免费账户 — 每天1次",
+    account_logged_out: "已退出登录。",
+    billing_success: "订阅已激活！🎉",
     err_low_confidence: "无法确定识别电影，请手动搜索。",
     search_manually: "手动搜索",
     err_rate_limited: "请求过多。请等待一分钟后再试。",
@@ -1681,6 +1801,156 @@ function gameOver(){
 // pile pendant une requête d'analyse. La requête initiale échoue avec
 // une erreur réseau ou un 502/503, mais retenter quelques secondes plus
 // tard (le temps que le nouveau worker boote) réussit généralement.
+// ════ AUTH & BILLING (monétisation) ════
+let _currentUser = null; // {logged_in, email?, subscribed?}
+
+async function refreshAuthState(){
+  try{
+    const res = await fetch("/auth/me");
+    _currentUser = await res.json();
+  }catch(e){
+    _currentUser = {logged_in:false};
+  }
+  majAccountBtn();
+}
+
+function majAccountBtn(){
+  const icon = document.getElementById("account-btn-icon");
+  if(!icon) return;
+  if(_currentUser?.logged_in){
+    icon.className = _currentUser.subscribed ? "fas fa-crown" : "fas fa-user-check";
+  }else{
+    icon.className = "fas fa-user";
+  }
+}
+
+function ouvrirAuthModal(){
+  document.getElementById("account-modal").style.display = "none";
+  document.getElementById("auth-modal-form").style.display = "block";
+  document.getElementById("auth-modal-sent").style.display = "none";
+  document.getElementById("auth-error").style.display = "none";
+  document.getElementById("auth-email-input").value = "";
+  document.getElementById("auth-modal").style.display = "flex";
+  setTimeout(() => document.getElementById("auth-email-input")?.focus(), 100);
+}
+function fermerAuthModal(){
+  document.getElementById("auth-modal").style.display = "none";
+}
+
+async function envoyerMagicLink(){
+  const input = document.getElementById("auth-email-input");
+  const email = input.value.trim();
+  const errEl = document.getElementById("auth-error");
+  errEl.style.display = "none";
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){
+    errEl.textContent = t("auth_invalid_email");
+    errEl.style.display = "block";
+    return;
+  }
+  const btn = document.getElementById("auth-send-btn");
+  btn.disabled = true;
+  try{
+    const res = await fetch("/auth/request-link", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({email}),
+    });
+    const data = await res.json();
+    if(data.status !== "ok"){
+      errEl.textContent = data.message || t("err_generic");
+      errEl.style.display = "block";
+      return;
+    }
+    document.getElementById("auth-modal-form").style.display = "none";
+    document.getElementById("auth-modal-sent").style.display = "block";
+  }catch(e){
+    errEl.textContent = t("err_generic");
+    errEl.style.display = "block";
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+function ouvrirPaywallModal(){
+  document.getElementById("paywall-error").style.display = "none";
+  document.getElementById("paywall-modal").style.display = "flex";
+}
+function fermerPaywallModal(){
+  document.getElementById("paywall-modal").style.display = "none";
+}
+
+async function passerPro(){
+  const errEl = document.getElementById("paywall-error");
+  if(!_currentUser?.logged_in){
+    fermerPaywallModal();
+    fermerCompteModal();
+    ouvrirAuthModal();
+    return;
+  }
+  try{
+    const res = await fetch("/billing/checkout", {method: "POST"});
+    const data = await res.json();
+    if(data.status === "ok" && data.checkout_url){
+      window.location.href = data.checkout_url;
+    }else{
+      const msg = data.message || t("err_generic");
+      if(errEl){ errEl.textContent = msg; errEl.style.display = "block"; }
+      else toast(msg);
+    }
+  }catch(e){
+    const msg = t("err_generic");
+    if(errEl){ errEl.textContent = msg; errEl.style.display = "block"; }
+    else toast(msg);
+  }
+}
+
+async function ouvrirCompteModal(){
+  await refreshAuthState();
+  if(!_currentUser?.logged_in){
+    ouvrirAuthModal();
+    return;
+  }
+  document.getElementById("account-email").textContent = _currentUser.email;
+  const statusEl = document.getElementById("account-status");
+  const manageBtn = document.getElementById("account-manage-btn");
+  const subBtn = document.getElementById("account-subscribe-btn");
+  if(_currentUser.subscribed){
+    statusEl.innerHTML = `<span style="color:var(--primary)"><i class="fas fa-crown"></i> ${t("account_pro_active")}</span>`;
+    manageBtn.style.display = "flex";
+    subBtn.style.display = "none";
+  }else{
+    statusEl.innerHTML = `<span style="color:var(--muted)">${t("account_free_plan")}</span>`;
+    manageBtn.style.display = "none";
+    subBtn.style.display = "flex";
+  }
+  document.getElementById("account-modal").style.display = "flex";
+}
+function fermerCompteModal(){
+  document.getElementById("account-modal").style.display = "none";
+}
+
+async function gererAbonnement(){
+  try{
+    const res = await fetch("/billing/portal");
+    const data = await res.json();
+    if(data.status === "ok" && data.portal_url){
+      window.location.href = data.portal_url;
+    }else{
+      toast(data.message || t("err_generic"));
+    }
+  }catch(e){
+    toast(t("err_generic"));
+  }
+}
+
+async function deconnexion(){
+  try{ await fetch("/auth/logout", {method: "POST"}); }catch(e){}
+  _currentUser = {logged_in: false};
+  majAccountBtn();
+  fermerCompteModal();
+  toast(t("account_logged_out"));
+}
+
 async function fetchWithRetry(url, options, signal, maxRetries = 2, delayMs = 3000) {
   let lastError = null;
 
@@ -1787,6 +2057,12 @@ async function analyserVideo(lien){
   analysisAbortController=new AbortController();const signal=analysisAbortController.signal;
   try{
    const res=await fetchWithRetry("/analyser",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:lien,lang:getTMDBLang(),browser_lang:getBrowserLangShort()})},signal);
+    if(res.status===401||res.status===402){
+      clearInterval(progInterval);_adFinished=true;document.getElementById('ad-modal').style.display='none';clearInterval(_adCountdownInterval);overlay.classList.remove("active");stopGame();
+      _analysisInFlight=false;
+      if(res.status===401)ouvrirAuthModal();else ouvrirPaywallModal();
+      return;
+    }
     if(!res.ok)throw new Error(`http_${res.status}`);
     let data;try{data=await res.json();}catch(e){throw new Error("json_parse");}
     if(data.status==="error"){clearInterval(progInterval);_adFinished=true;document.getElementById('ad-modal').style.display='none';clearInterval(_adCountdownInterval);overlay.classList.remove("active");stopGame();afficherErreurRiche(data);return;}
@@ -1835,6 +2111,7 @@ if(!file){ _analysisInFlight = false; return; }
       signal.addEventListener("abort",()=>xhr.abort());
       xhr.send(fd);
     });
+    if(data.status==="error"&&(data.code==="auth_required"||data.code==="quota_exceeded")){_adFinished=true;document.getElementById('ad-modal').style.display='none';clearInterval(_adCountdownInterval);overlay.classList.remove("active");stopGame();_analysisInFlight=false;if(data.code==="auth_required")ouvrirAuthModal();else ouvrirPaywallModal();return;}
     if(data.status==="error"){_adFinished=true;document.getElementById('ad-modal').style.display='none';clearInterval(_adCountdownInterval);overlay.classList.remove("active");stopGame();afficherErreurRiche(data); _analysisInFlight = false; return;}
     if(data.status==="processing"&&data.session_id){const r=await pollAnalysisStatus(data.session_id,signal);await _consumeAnalysis(r,signal);return;}
     await _consumeAnalysis(data,signal);
@@ -2098,7 +2375,6 @@ async function chargerGenre(genreName, page = 1, mediaType = "movie", pushHistor
   if (pushHistory) _pushNav(`/genre/${genreName}`, {type:"genre", name:genreName, page, mediaType});
   ; cacherErreur();
   currentGenreName = genreName; currentPage = page;
-  afficherNavCategoriesFilms(genreName);
   document.querySelectorAll(".btn-genre").forEach(b => b.classList.remove("active"));
   document.querySelector(`.btn-genre[href="/genre/${genreName}"]`)?.classList.add("active");
 
@@ -2107,8 +2383,11 @@ async function chargerGenre(genreName, page = 1, mediaType = "movie", pushHistor
   _hideAllPages();
   document.getElementById("genre-grid").style.display = "block";
   document.getElementById("genre-nav").style.display = "flex";
+  // ⚠️ afficherNavCategoriesFilms() doit être appelé APRÈS _hideAllPages(),
+  // sinon _hideAllPages() masque platform-nav juste après l'avoir rempli
+  // (bug : la barre de catégories disparaissait au clic sur un genre).
+  afficherNavCategoriesFilms(genreName);
 
- 
   document.getElementById("genre-title").innerText = genreName.toUpperCase();
   lastGrid = genreName; navStack = [];
 
@@ -3637,6 +3916,13 @@ function routerInit(){
 window.onload=()=>{
   initLang();
   initBannerBottom();
+  refreshAuthState();
+  (()=>{
+    const params=new URLSearchParams(location.search);
+    const billing=params.get("billing");
+    if(billing==="success"){toast(t("billing_success"));history.replaceState({},"",location.pathname);}
+    else if(billing==="cancel"){history.replaceState({},"",location.pathname);}
+  })();
  if (!routerInit()) {
   setHomeMode();
   document.getElementById("hero").style.display = "block";

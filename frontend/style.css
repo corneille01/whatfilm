@@ -3084,3 +3084,90 @@ body.content-mode .seo-intent {
   color: currentColor;
   flex-shrink: 0;
 }
+/* ════════════════════════════════════════════════════════════════
+   AÉRAGE PAGE D'ACCUEIL — placé en fin de fichier pour gagner la
+   cascade sur les règles #hero / .hero-steps / .genre-nav dupliquées
+   plus haut dans ce fichier (plusieurs blocs media-query accumulés).
+   ════════════════════════════════════════════════════════════════ */
+
+#hero {
+  padding-top: clamp(28px, 5vw, 48px);
+  padding-bottom: clamp(20px, 3vw, 32px);
+}
+
+.hero-inner {
+  gap: clamp(14px, 2vw, 20px) !important;
+}
+
+.camera-badge {
+  margin-bottom: 2px;
+}
+
+.hero-subtitle {
+  max-width: 520px;
+  margin: 0 auto clamp(8px, 1.5vw, 14px);
+}
+
+/* Étapes : plus légères, plus respirantes, moins "mur de texte" */
+.hero-steps {
+  gap: clamp(8px, 1.5vw, 14px) !important;
+  margin: clamp(6px, 1vw, 10px) 0 clamp(10px, 2vw, 18px) !important;
+}
+
+.hero-step {
+  line-height: 1.45;
+  opacity: 0.92;
+}
+
+.hero-step span:last-child {
+  font-size: 0.86rem;
+}
+
+/* Barre de recherche hero : un peu plus d'air, boutons secondaires
+   (upload/download) resserrés pour ne pas rivaliser visuellement
+   avec le CTA "Identifier" */
+.hero-search-wrap {
+  margin-top: clamp(4px, 1vw, 10px);
+}
+
+/* Genre-nav : espacement plus net entre hero et raccourcis */
+.genre-nav {
+  margin-top: clamp(18px, 3vw, 28px) !important;
+  gap: clamp(8px, 1.5vw, 14px) !important;
+}
+
+/* Grille de résultats : respiration au-dessus, cartes moins serrées */
+#genre-grid {
+  margin-top: clamp(16px, 2.5vw, 24px);
+}
+#movie-cards {
+  gap: clamp(14px, 2vw, 20px) !important;
+}
+
+@media (max-width: 640px) {
+  /* Sur mobile, les 4 étapes détaillées pèsent lourd visuellement ;
+     on les compacte encore et on réduit le sous-titre. */
+  .hero-subtitle {
+    font-size: 0.88rem;
+    margin-bottom: 6px;
+  }
+  .hero-steps {
+    gap: 6px !important;
+    margin: 6px 0 12px !important;
+  }
+  .hero-step {
+    font-size: 0.76rem;
+    padding: 4px 10px;
+  }
+  #hero {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+}
+
+/* Perf perçue : évite de peindre toute la grille d'un coup sur les
+   longues listes (pagination, plateformes) */
+.movie-card {
+  content-visibility: auto;
+  contain-intrinsic-size: 260px 420px;
+}

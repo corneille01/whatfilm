@@ -192,7 +192,7 @@
       />
     </noscript>
 
-    <link rel="stylesheet" href="/frontend/style.css?v=92" />
+    <link rel="stylesheet" href="/frontend/style.css?v=94" />
   </head>
   <body>
     <input
@@ -287,7 +287,325 @@
         <option value="de">🇩🇪 DE</option>
         <option value="zh">🇨🇳 ZH</option>
       </select>
+      <button
+        class="btn-search"
+        id="account-btn"
+        onclick="ouvrirCompteModal()"
+        title="Compte"
+        aria-label="Compte"
+        style="margin-left: 8px"
+      >
+        <i class="fas fa-user" id="account-btn-icon"></i>
+      </button>
     </header>
+
+    <!-- ── AUTH (magic link) ─────────────────────────────────────── -->
+    <div
+      id="auth-modal"
+      style="
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.85);
+        z-index: 99999;
+        align-items: center;
+        justify-content: center;
+      "
+    >
+      <div
+        style="
+          background: var(--card2);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          max-width: 380px;
+          width: 90%;
+          padding: 24px;
+          text-align: center;
+        "
+      >
+        <div id="auth-modal-form">
+          <div style="font-size: 2.5rem; margin-bottom: 8px">🔐</div>
+          <h3
+            style="margin: 0 0 8px; color: var(--text)"
+            data-i18n="auth_title"
+          >
+            Connexion à Pelify
+          </h3>
+          <p
+            style="
+              color: var(--muted);
+              font-size: 0.85rem;
+              margin: 0 0 16px;
+              line-height: 1.6;
+            "
+            data-i18n="auth_desc"
+          >
+            Un email, pas de mot de passe. On t'envoie un lien de connexion.
+          </p>
+          <input
+            id="auth-email-input"
+            type="email"
+            placeholder="ton@email.com"
+            style="
+              width: 100%;
+              padding: 10px;
+              border-radius: 8px;
+              border: 1px solid var(--border);
+              background: var(--card);
+              color: var(--text);
+              margin-bottom: 10px;
+              box-sizing: border-box;
+            "
+            onkeydown="
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                envoyerMagicLink();
+              }
+            "
+          />
+          <div
+            id="auth-error"
+            style="
+              color: #ff6b6b;
+              font-size: 0.8rem;
+              margin-bottom: 10px;
+              display: none;
+            "
+          ></div>
+          <button
+            class="btn-stream"
+            style="width: 100%; justify-content: center"
+            onclick="envoyerMagicLink()"
+            id="auth-send-btn"
+          >
+            <i class="fas fa-paper-plane"></i>
+            <span data-i18n="auth_send_btn">Envoyer le lien</span>
+          </button>
+          <button
+            class="btn-stream"
+            style="
+              width: 100%;
+              justify-content: center;
+              margin-top: 8px;
+              background: transparent;
+            "
+            onclick="fermerAuthModal()"
+          >
+            <span data-i18n="auth_cancel">Annuler</span>
+          </button>
+        </div>
+        <div id="auth-modal-sent" style="display: none">
+          <div style="font-size: 2.5rem; margin-bottom: 8px">📬</div>
+          <h3
+            style="margin: 0 0 8px; color: var(--text)"
+            data-i18n="auth_sent_title"
+          >
+            Lien envoyé !
+          </h3>
+          <p
+            style="
+              color: var(--muted);
+              font-size: 0.85rem;
+              margin: 0 0 16px;
+              line-height: 1.6;
+            "
+            data-i18n="auth_sent_desc"
+          >
+            Vérifie ta boîte mail (et les spams) puis clique sur le lien reçu.
+          </p>
+          <button
+            class="btn-stream"
+            style="width: 100%; justify-content: center"
+            onclick="fermerAuthModal()"
+          >
+            <span data-i18n="auth_close">Fermer</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── PAYWALL (essai gratuit épuisé) ─────────────────────────── -->
+    <div
+      id="paywall-modal"
+      style="
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.85);
+        z-index: 99999;
+        align-items: center;
+        justify-content: center;
+      "
+    >
+      <div
+        style="
+          background: var(--card2);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          max-width: 380px;
+          width: 90%;
+          padding: 24px;
+          text-align: center;
+        "
+      >
+        <div style="font-size: 2.5rem; margin-bottom: 8px">🎬</div>
+        <h3
+          style="margin: 0 0 8px; color: var(--text)"
+          data-i18n="paywall_title"
+        >
+          Essai gratuit utilisé
+        </h3>
+        <p
+          style="
+            color: var(--muted);
+            font-size: 0.85rem;
+            margin: 0 0 16px;
+            line-height: 1.6;
+          "
+          data-i18n="paywall_desc"
+        >
+          Tu as utilisé ton identification gratuite du jour. Passe à Pelify Pro
+          pour un accès illimité.
+        </p>
+        <div
+          style="
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 16px;
+          "
+        >
+          <div
+            style="font-size: 1.6rem; font-weight: 700; color: var(--primary)"
+          >
+            2,25€
+            <span
+              style="font-size: 0.85rem; font-weight: 400; color: var(--muted)"
+              data-i18n="paywall_per_week"
+              >HT / semaine</span
+            >
+          </div>
+          <div
+            style="font-size: 0.78rem; color: var(--muted); margin-top: 4px"
+            data-i18n="paywall_unlimited"
+          >
+            Identifications illimitées, sans engagement
+          </div>
+        </div>
+        <div
+          id="paywall-error"
+          style="
+            color: #ff6b6b;
+            font-size: 0.8rem;
+            margin-bottom: 10px;
+            display: none;
+          "
+        ></div>
+        <button
+          class="btn-stream"
+          style="width: 100%; justify-content: center"
+          onclick="passerPro()"
+          id="paywall-cta-btn"
+        >
+          <i class="fas fa-bolt"></i>
+          <span data-i18n="paywall_cta">Passer à Pelify Pro</span>
+        </button>
+        <button
+          class="btn-stream"
+          style="
+            width: 100%;
+            justify-content: center;
+            margin-top: 8px;
+            background: transparent;
+          "
+          onclick="fermerPaywallModal()"
+        >
+          <span data-i18n="paywall_cancel">Plus tard</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ── COMPTE (utilisateur connecté) ──────────────────────────── -->
+    <div
+      id="account-modal"
+      style="
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.85);
+        z-index: 99999;
+        align-items: center;
+        justify-content: center;
+      "
+    >
+      <div
+        style="
+          background: var(--card2);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          max-width: 380px;
+          width: 90%;
+          padding: 24px;
+          text-align: center;
+        "
+      >
+        <div style="font-size: 2.5rem; margin-bottom: 8px">👤</div>
+        <p
+          id="account-email"
+          style="
+            color: var(--text);
+            font-size: 0.9rem;
+            margin: 0 0 6px;
+            word-break: break-all;
+          "
+        ></p>
+        <p id="account-status" style="font-size: 0.82rem; margin: 0 0 16px"></p>
+        <button
+          class="btn-stream"
+          style="width: 100%; justify-content: center; display: none"
+          id="account-manage-btn"
+          onclick="gererAbonnement()"
+        >
+          <i class="fas fa-cog"></i>
+          <span data-i18n="account_manage">Gérer l'abonnement</span>
+        </button>
+        <button
+          class="btn-stream"
+          style="width: 100%; justify-content: center; display: none"
+          id="account-subscribe-btn"
+          onclick="passerPro()"
+        >
+          <i class="fas fa-bolt"></i>
+          <span data-i18n="paywall_cta">Passer à Pelify Pro</span>
+        </button>
+        <button
+          class="btn-stream"
+          style="
+            width: 100%;
+            justify-content: center;
+            margin-top: 8px;
+            background: transparent;
+          "
+          onclick="deconnexion()"
+        >
+          <i class="fas fa-sign-out-alt"></i>
+          <span data-i18n="account_logout">Déconnexion</span>
+        </button>
+        <button
+          class="btn-stream"
+          style="
+            width: 100%;
+            justify-content: center;
+            margin-top: 8px;
+            background: transparent;
+          "
+          onclick="fermerCompteModal()"
+        >
+          <span data-i18n="auth_close">Fermer</span>
+        </button>
+      </div>
+    </div>
 
     <main>
       <!-- ERROR -->
@@ -846,7 +1164,7 @@
       >
     </footer>
     <!-- Notre script principal -->
-    <script src="/frontend/script.js?v=92" defer></script>
+    <script src="/frontend/script.js?v=94" defer></script>
     <script src="/frontend/filming.js?v=68" defer></script>
     <!-- MODALE PUBLICITÉ -->
     <div
