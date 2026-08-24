@@ -385,7 +385,7 @@ async def auth_me(request: Request, response: Response):
 
 
 # ════════════════════════════════════════════════════════════════
-# BILLING — Stripe (abonnement hebdo 2,25€ HT)
+# BILLING — Stripe (abonnement hebdo 2,95€ HT)
 # ════════════════════════════════════════════════════════════════
 
 class CheckoutRequest(BaseModel):
@@ -451,7 +451,7 @@ def _check_quota_or_paywall(request: Request) -> Optional[dict]:
 
     return {
         "status": "error", "code": "quota_exceeded",
-        "message": "Essai gratuit du jour déjà utilisé. Passe à Pelify Pro pour un accès illimité (2,25€ HT/semaine).",
+        "message": "Essai gratuit du jour déjà utilisé. Passe à Pelify Pro pour un accès illimité (2,95€ HT/semaine).",
         "checkout_endpoint": "/billing/checkout",
     }
 
