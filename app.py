@@ -356,7 +356,10 @@ async def auth_verify(token: str, request: Request):
     if not session_token:
         return HTMLResponse("<h2>Service temporairement indisponible.</h2>", status_code=503)
 
-    redirect = Response(status_code=302, headers={"Location": f"{pelify_auth.APP_BASE_URL}/"})
+    redirect = Response(status_code=302, headers={
+        "Location": f"{pelify_auth.APP_BASE_URL}/",
+        "Cache-Control": "no-store, private",
+    })
     pelify_auth.set_session_cookie(redirect, session_token)
     return redirect
 
@@ -372,7 +375,8 @@ async def auth_logout(request: Request):
 
 
 @app.get("/auth/me")
-async def auth_me(request: Request):
+async def auth_me(request: Request, response: Response):
+    response.headers["Cache-Control"] = "no-store, private"
     user = pelify_auth.get_current_user(request)
     if not user:
         return {"logged_in": False}
@@ -402,7 +406,8 @@ async def billing_checkout(request: Request, body: CheckoutRequest = CheckoutReq
 
 
 @app.get("/billing/portal")
-async def billing_portal(request: Request):
+async def billing_portal(request: Request, response: Response):
+    response.headers["Cache-Control"] = "no-store, private"
     user = pelify_auth.get_current_user(request)
     if not user or not user.get("stripe_customer_id"):
         return JSONResponse({"status": "error", "message": "Aucun abonnement actif."}, status_code=404)
