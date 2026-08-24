@@ -384,13 +384,18 @@ async def auth_me(request: Request):
 # BILLING — Stripe (abonnement hebdo 2,25€ HT)
 # ════════════════════════════════════════════════════════════════
 
+class CheckoutRequest(BaseModel):
+    plan: str = "weekly"
+
+
 @app.post("/billing/checkout")
-async def billing_checkout(request: Request):
+async def billing_checkout(request: Request, body: CheckoutRequest = CheckoutRequest()):
     user = pelify_auth.get_current_user(request)
     if not user:
         return JSONResponse({"status": "error", "message": "Connecte-toi d'abord."}, status_code=401)
 
-    url = pelify_billing.create_checkout_session(user["id"], user["email"])
+    plan = body.plan if body.plan in ("weekly", "monthly") else "weekly"
+    url = pelify_billing.create_checkout_session(user["id"], user["email"], plan)
     if not url:
         return JSONResponse({"status": "error", "message": "Paiement temporairement indisponible."}, status_code=503)
     return {"status": "ok", "checkout_url": url}

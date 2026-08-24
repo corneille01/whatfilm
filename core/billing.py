@@ -9,6 +9,8 @@
 #      behavior "exclusive" si tu actives Stripe Tax (sinon le prix
 #      encaissé sera exactement 2,25€ sans TVA ajoutée automatiquement)
 #   3. Copier l'ID du prix (price_...) dans STRIPE_PRICE_ID_WEEKLY
+#      (et faire pareil pour un 2e tarif mensuel si besoin -> STRIPE_PRICE_ID_MONTHLY,
+#      en ajoutant un second "Add another price" sur le MÊME produit Stripe)
 #   4. Créer un webhook pointant vers https://<ton-domaine>/billing/webhook
 #      avec les événements : checkout.session.completed,
 #      customer.subscription.updated, customer.subscription.deleted
@@ -18,6 +20,7 @@
 #   STRIPE_SECRET_KEY
 #   STRIPE_WEBHOOK_SECRET
 #   STRIPE_PRICE_ID_WEEKLY
+#   STRIPE_PRICE_ID_MONTHLY (optionnel, pour le second tarif)
 #   APP_BASE_URL
 
 import os
@@ -31,21 +34,28 @@ from storage.cache_engine import users_db
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 STRIPE_PRICE_ID_WEEKLY = os.environ.get("STRIPE_PRICE_ID_WEEKLY", "")
+STRIPE_PRICE_ID_MONTHLY = os.environ.get("STRIPE_PRICE_ID_MONTHLY", "")
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://pelify.app")
 
+PLAN_PRICE_IDS = {
+    "weekly": STRIPE_PRICE_ID_WEEKLY,
+    "monthly": STRIPE_PRICE_ID_MONTHLY,
+}
 
-def create_checkout_session(user_id: int, email: str) -> Optional[str]:
-    """Crée une session Stripe Checkout pour l'abonnement hebdo, retourne l'URL de paiement."""
-    if not stripe.api_key or not STRIPE_PRICE_ID_WEEKLY:
-        print("⚠️ billing: STRIPE_SECRET_KEY ou STRIPE_PRICE_ID_WEEKLY manquant", flush=True)
+
+def create_checkout_session(user_id: int, email: str, plan: str = "weekly") -> Optional[str]:
+    """Crée une session Stripe Checkout pour l'abonnement (hebdo ou mensuel), retourne l'URL de paiement."""
+    price_id = PLAN_PRICE_IDS.get(plan)
+    if not stripe.api_key or not price_id:
+        print(f"⚠️ billing: STRIPE_SECRET_KEY ou price manquant pour le plan '{plan}'", flush=True)
         return None
     try:
         session = stripe.checkout.Session.create(
             mode="subscription",
-            line_items=[{"price": STRIPE_PRICE_ID_WEEKLY, "quantity": 1}],
+            line_items=[{"price": price_id, "quantity": 1}],
             customer_email=email,
             client_reference_id=str(user_id),
-            metadata={"pelify_user_id": str(user_id)},
+            metadata={"pelify_user_id": str(user_id), "plan": plan},
             success_url=f"{APP_BASE_URL}/?billing=success",
             cancel_url=f"{APP_BASE_URL}/?billing=cancel",
             allow_promotion_codes=True,

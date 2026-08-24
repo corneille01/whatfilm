@@ -515,6 +515,8 @@ report_wrong_btn: "Not the right movie?",
     paywall_title: "Free trial used",
     paywall_desc: "You've used your free identification for today. Upgrade to Pelify Pro for unlimited access.",
     paywall_per_week: "excl. tax / week",
+    paywall_choose: "Choose",
+    paywall_per_month: "excl. tax / month",
     paywall_unlimited: "Unlimited identifications, cancel anytime",
     paywall_cta: "Upgrade to Pelify Pro",
     paywall_cancel: "Later",
@@ -657,6 +659,8 @@ report_wrong_btn: "Not the right movie?",
     paywall_title: "Free trial used",
     paywall_desc: "You've used your free identification for today. Upgrade to Pelify Pro for unlimited access.",
     paywall_per_week: "excl. tax / week",
+    paywall_choose: "Choose",
+    paywall_per_month: "excl. tax / month",
     paywall_unlimited: "Unlimited identifications, cancel anytime",
     paywall_cta: "Upgrade to Pelify Pro",
     paywall_cancel: "Later",
@@ -799,6 +803,8 @@ report_wrong_btn: "Ce n'est pas le bon film ?",
     paywall_title: "Essai gratuit utilisé",
     paywall_desc: "Tu as utilisé ton identification gratuite du jour. Passe à Pelify Pro pour un accès illimité.",
     paywall_per_week: "HT / semaine",
+    paywall_choose: "Choisir",
+    paywall_per_month: "HT / mois",
     paywall_unlimited: "Identifications illimitées, sans engagement",
     paywall_cta: "Passer à Pelify Pro",
     paywall_cancel: "Plus tard",
@@ -941,6 +947,8 @@ report_wrong_btn: "¿No es la película correcta?",
     paywall_title: "Prueba gratuita utilizada",
     paywall_desc: "Ya usaste tu identificación gratuita de hoy. Pásate a Pelify Pro para acceso ilimitado.",
     paywall_per_week: "sin IVA / semana",
+    paywall_choose: "Elegir",
+    paywall_per_month: "sin IVA / mes",
     paywall_unlimited: "Identificaciones ilimitadas, cancela cuando quieras",
     paywall_cta: "Pasar a Pelify Pro",
     paywall_cancel: "Más tarde",
@@ -1083,6 +1091,8 @@ report_wrong_btn: "Nicht der richtige Film?",
     paywall_title: "Kostenloser Versuch verbraucht",
     paywall_desc: "Du hast deine kostenlose Identifikation für heute genutzt. Hol dir Pelify Pro für unbegrenzten Zugriff.",
     paywall_per_week: "netto / Woche",
+    paywall_choose: "Wählen",
+    paywall_per_month: "netto / Monat",
     paywall_unlimited: "Unbegrenzte Identifikationen, jederzeit kündbar",
     paywall_cta: "Zu Pelify Pro wechseln",
     paywall_cancel: "Später",
@@ -1225,6 +1235,8 @@ report_wrong_btn: "不是这部电影？",
     paywall_title: "今日免费次数已用完",
     paywall_desc: "你已使用今日的免费识别。升级到 Pelify Pro 即可无限使用。",
     paywall_per_week: "税前 / 每周",
+    paywall_choose: "选择",
+    paywall_per_month: "税前 / 每月",
     paywall_unlimited: "无限识别，随时可取消",
     paywall_cta: "升级 Pelify Pro",
     paywall_cancel: "以后再说",
@@ -1879,7 +1891,7 @@ function fermerPaywallModal(){
   document.getElementById("paywall-modal").style.display = "none";
 }
 
-async function passerPro(){
+async function passerPro(plan = "weekly"){
   const errEl = document.getElementById("paywall-error");
   if(!_currentUser?.logged_in){
     fermerPaywallModal();
@@ -1888,7 +1900,11 @@ async function passerPro(){
     return;
   }
   try{
-    const res = await fetch("/billing/checkout", {method: "POST"});
+    const res = await fetch("/billing/checkout", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({plan}),
+    });
     const data = await res.json();
     if(data.status === "ok" && data.checkout_url){
       window.location.href = data.checkout_url;

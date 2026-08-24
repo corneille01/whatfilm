@@ -468,31 +468,93 @@
           pour un accès illimité.
         </p>
         <div
-          style="
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 14px;
-            margin-bottom: 16px;
-          "
+          style="display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap"
         >
           <div
-            style="font-size: 1.6rem; font-weight: 700; color: var(--primary)"
+            style="
+              flex: 1;
+              min-width: 130px;
+              background: var(--card);
+              border: 1px solid var(--border);
+              border-radius: 12px;
+              padding: 14px;
+            "
           >
-            2,25€
-            <span
-              style="font-size: 0.85rem; font-weight: 400; color: var(--muted)"
-              data-i18n="paywall_per_week"
-              >HT / semaine</span
+            <div
+              style="font-size: 1.3rem; font-weight: 700; color: var(--primary)"
             >
+              2,25€
+              <span
+                style="
+                  font-size: 0.75rem;
+                  font-weight: 400;
+                  color: var(--muted);
+                  display: block;
+                "
+                data-i18n="paywall_per_week"
+                >HT / semaine</span
+              >
+            </div>
+            <button
+              class="btn-stream"
+              style="
+                width: 100%;
+                justify-content: center;
+                margin-top: 10px;
+                font-size: 0.85rem;
+              "
+              onclick="passerPro('weekly')"
+              id="paywall-cta-weekly-btn"
+            >
+              <span data-i18n="paywall_choose">Choisir</span>
+            </button>
           </div>
           <div
-            style="font-size: 0.78rem; color: var(--muted); margin-top: 4px"
-            data-i18n="paywall_unlimited"
+            style="
+              flex: 1;
+              min-width: 130px;
+              background: var(--card);
+              border: 1px solid var(--primary);
+              border-radius: 12px;
+              padding: 14px;
+            "
           >
-            Identifications illimitées, sans engagement
+            <div
+              style="font-size: 1.3rem; font-weight: 700; color: var(--primary)"
+            >
+              10€
+              <span
+                style="
+                  font-size: 0.75rem;
+                  font-weight: 400;
+                  color: var(--muted);
+                  display: block;
+                "
+                data-i18n="paywall_per_month"
+                >HT / mois</span
+              >
+            </div>
+            <button
+              class="btn-stream"
+              style="
+                width: 100%;
+                justify-content: center;
+                margin-top: 10px;
+                font-size: 0.85rem;
+              "
+              onclick="passerPro('monthly')"
+              id="paywall-cta-monthly-btn"
+            >
+              <span data-i18n="paywall_choose">Choisir</span>
+            </button>
           </div>
         </div>
+        <p
+          style="font-size: 0.78rem; color: var(--muted); margin: -10px 0 16px"
+          data-i18n="paywall_unlimited"
+        >
+          Identifications illimitées, sans engagement
+        </p>
         <div
           id="paywall-error"
           style="
@@ -504,21 +566,7 @@
         ></div>
         <button
           class="btn-stream"
-          style="width: 100%; justify-content: center"
-          onclick="passerPro()"
-          id="paywall-cta-btn"
-        >
-          <i class="fas fa-bolt"></i>
-          <span data-i18n="paywall_cta">Passer à Pelify Pro</span>
-        </button>
-        <button
-          class="btn-stream"
-          style="
-            width: 100%;
-            justify-content: center;
-            margin-top: 8px;
-            background: transparent;
-          "
+          style="width: 100%; justify-content: center; background: transparent"
           onclick="fermerPaywallModal()"
         >
           <span data-i18n="paywall_cancel">Plus tard</span>
@@ -574,7 +622,10 @@
           class="btn-stream"
           style="width: 100%; justify-content: center; display: none"
           id="account-subscribe-btn"
-          onclick="passerPro()"
+          onclick="
+            fermerCompteModal();
+            ouvrirPaywallModal();
+          "
         >
           <i class="fas fa-bolt"></i>
           <span data-i18n="paywall_cta">Passer à Pelify Pro</span>
