@@ -86,38 +86,175 @@ def _ts_to_dt(ts: Optional[int]) -> Optional[datetime]:
 
 
 def handle_webhook_event(payload: bytes, sig_header: str) -> dict:
-    """Vérifie la signature et applique l'événement. Lève une exception si
-    la signature est invalide (l'appelant doit répondre 400)."""
-    if not STRIPE_WEBHOOK_SECRET:
-        raise RuntimeError("STRIPE_WEBHOOK_SECRET manquant")
+    """
+    Traite les événements Stripe reçus par le webhook.
 
-    event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
+    Important :
+    Stripe renvoie des StripeObject (Session, Subscription, etc.)
+    et pas forcément des dictionnaires Python.
+    On les convertit donc explicitement avec to_dict()
+    avant d'utiliser .get().
+    """
+
+    event = stripe.Webhook.construct_event(
+        payload,
+        sig_header,
+        STRIPE_WEBHOOK_SECRET,
+    )
+
     event_type = event["type"]
     obj = event["data"]["object"]
 
+    # StripeObject -> dict
+    if hasattr(obj, "to_dict"):
+        obj = obj.to_dict()
+
+    # ---------------------------------------------------------
+    # CHECKOUT TERMINÉ
+    # ---------------------------------------------------------
     if event_type == "checkout.session.completed":
-        user_id = obj.get("client_reference_id") or (obj.get("metadata") or {}).get("pelify_user_id")
+
+        user_id = obj.get("client_reference_id")
+
+        if not user_id:
+            metadata = obj.get("metadata") or {}
+            user_id = metadata.get("pelify_user_id")
+
         customer_id = obj.get("customer")
         subscription_id = obj.get("subscription")
+
+        # Enregistrer le customer Stripe
         if user_id and customer_id:
-            users_db.set_stripe_customer_id(int(user_id), customer_id)
+            users_db.set_stripe_customer_id(
+                int(user_id),
+                customer_id,
+            )
+
+        # Activer / enregistrer l'abonnement
         if user_id and subscription_id:
-            sub = stripe.Subscription.retrieve(subscription_id)
-            users_db.upsert_subscription(
-                int(user_id), subscription_id, sub["status"],
-                _ts_to_dt(sub.get("current_period_end")),
+
+            sub = stripe.Subscription.retrieve(
+                subscription_id
             )
 
-    elif event_type in ("customer.subscription.updated", "customer.subscription.deleted"):
+            # Stripe Subscription -> dict
+            if hasattr(sub, "to_dict"):
+                sub = sub.to_dict()
+
+            users_db.upsert_subscription(
+                int(user_id),
+                subscription_id,
+                sub["status"],
+                _ts_to_dt(
+                    sub.get("current_period_end")
+                ),
+            )
+
+            print(
+                f"abonnement activé : "
+                f"user_id={user_id}, "
+                f"subscription_id={subscription_id}, "
+                f"status={sub['status']}"
+            )
+
+        return {
+            "ok": True,
+            "event": event_type,
+            "user_id": user_id,
+            "customer_id": customer_id,
+            "subscription_id": subscription_id,
+        }
+
+    # ---------------------------------------------------------
+    # ABONNEMENT MIS À JOUR
+    # ---------------------------------------------------------
+    if event_type == "customer.subscription.updated":
+
+        subscription_id = obj.get("id")
         customer_id = obj.get("customer")
-        user = users_db.get_user_by_stripe_customer(customer_id) if customer_id else None
-        if user:
-            status = obj.get("status", "canceled") if event_type == "customer.subscription.updated" else "canceled"
-            users_db.upsert_subscription(
-                user["id"], obj.get("id", ""), status,
-                _ts_to_dt(obj.get("current_period_end")),
-            )
-        else:
-            print(f"⚠️ billing: webhook {event_type} pour customer inconnu {customer_id}", flush=True)
+        status = obj.get("status")
 
-    return {"handled": event_type}
+        current_period_end = obj.get(
+            "current_period_end"
+        )
+
+        user_id = None
+
+        if customer_id:
+            user_id = users_db.get_user_id_by_stripe_customer(
+                customer_id
+            )
+
+        if user_id and subscription_id:
+
+            users_db.upsert_subscription(
+                int(user_id),
+                subscription_id,
+                status,
+                _ts_to_dt(current_period_end),
+            )
+
+            print(
+                f"abonnement mis à jour : "
+                f"user_id={user_id}, "
+                f"subscription_id={subscription_id}, "
+                f"status={status}"
+            )
+
+        return {
+            "ok": True,
+            "event": event_type,
+            "user_id": user_id,
+            "subscription_id": subscription_id,
+            "status": status,
+        }
+
+    # ---------------------------------------------------------
+    # ABONNEMENT ANNULÉ / SUPPRIMÉ
+    # ---------------------------------------------------------
+    if event_type == "customer.subscription.deleted":
+
+        subscription_id = obj.get("id")
+        customer_id = obj.get("customer")
+
+        user_id = None
+
+        if customer_id:
+            user_id = users_db.get_user_id_by_stripe_customer(
+                customer_id
+            )
+
+        if user_id and subscription_id:
+
+            users_db.upsert_subscription(
+                int(user_id),
+                subscription_id,
+                "canceled",
+                None,
+            )
+
+            print(
+                f"abonnement annulé : "
+                f"user_id={user_id}, "
+                f"subscription_id={subscription_id}"
+            )
+
+        return {
+            "ok": True,
+            "event": event_type,
+            "user_id": user_id,
+            "subscription_id": subscription_id,
+            "status": "canceled",
+        }
+
+    # ---------------------------------------------------------
+    # AUTRES ÉVÉNEMENTS
+    # ---------------------------------------------------------
+    print(
+        f"Stripe webhook reçu : {event_type}"
+    )
+
+    return {
+        "ok": True,
+        "event": event_type,
+    }
