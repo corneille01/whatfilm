@@ -2698,9 +2698,25 @@ async def robots():
         "Sitemap: https://pelify.app/sitemap.xml\n"
     )
 
+def _serve_index_html():
+    """
+    Sert index.html en forçant le navigateur à revalider à chaque visite
+    (Cache-Control: no-cache) au lieu de se fier à un cache heuristique.
+    Sans ça, un visiteur qui revient sur le site après un déploiement peut
+    recevoir un vieux index.html en cache pendant que script.js/style.css
+    (versionnés via ?v=) sont, eux, à jour — le mélange ancien/nouveau
+    casse le rendu (page blanche) tant qu'il ne force pas un refresh.
+    Le fichier reste très léger, la revalidation ne coûte quasi rien.
+    """
+    return FileResponse(
+        "frontend/index.html",
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
+
+
 @app.get("/")
 async def index():
-    return FileResponse("frontend/index.html")
+    return _serve_index_html()
 
 @app.get("/health")
 async def health():
@@ -2764,30 +2780,30 @@ async def cache_debug_key(key_type: str, value: str, lang: str = "fr"):
 
 @app.get("/genre/{genre_name}")
 async def page_genre(genre_name: str):
-    return FileResponse("frontend/index.html")
+    return _serve_index_html()
 
 @app.get("/plateforme/{provider_key}")
 async def page_plateforme(provider_key: str):
-    return FileResponse("frontend/index.html")
+    return _serve_index_html()
 
 @app.get("/film/{film_id}")
 async def page_film(film_id: int):
-    return FileResponse("frontend/index.html")
+    return _serve_index_html()
 
 @app.get("/film/{film_id}/{slug}")
 async def page_film_slug(film_id: int, slug: str):
-    return FileResponse("frontend/index.html")
+    return _serve_index_html()
 
 @app.get("/series")
 async def page_series():
-    return FileResponse("frontend/index.html")
+    return _serve_index_html()
 
 @app.get("/lieux-de-tournage")
 async def page_lieux():
-    return FileResponse("frontend/index.html")
+    return _serve_index_html()
 
 @app.get("/{lang}")
 async def page_multilingue(lang: str):
     if len(lang) != 2 or not lang.isalpha():
         return Response(status_code=404)
-    return FileResponse("frontend/index.html")
+    return _serve_index_html()
