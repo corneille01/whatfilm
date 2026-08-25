@@ -1816,14 +1816,44 @@ function gameOver(){
 // ════ AUTH & BILLING (monétisation) ════
 let _currentUser = null; // {logged_in, email?, subscribed?}
 
-async function refreshAuthState(){
-  try{
-    const res = await fetch("/auth/me");
-    _currentUser = await res.json();
-  }catch(e){
-    _currentUser = {logged_in:false};
+async function refreshAuthState() {
+  try {
+    const res = await fetch("/auth/me", {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache"
+      }
+    });
+
+    if (!res.ok) {
+      _currentUser = { logged_in: false };
+      majAccountBtn();
+      return _currentUser;
+    }
+
+    const data = await res.json();
+
+    _currentUser = {
+      logged_in: !!data.logged_in,
+      email: data.email || null,
+      user_id: data.user_id || null,
+      subscribed: !!data.subscribed,
+      subscription: data.subscription || null
+    };
+
+    majAccountBtn();
+
+    return _currentUser;
+
+  } catch (e) {
+    console.error("refreshAuthState:", e);
+    _currentUser = { logged_in: false };
+    majAccountBtn();
+    return _currentUser;
   }
-  majAccountBtn();
 }
 
 function majAccountBtn(){
@@ -1959,12 +1989,46 @@ async function gererAbonnement(){
   }
 }
 
-async function deconnexion(){
-  try{ await fetch("/auth/logout", {method: "POST"}); }catch(e){}
-  _currentUser = {logged_in: false};
-  majAccountBtn();
-  fermerCompteModal();
-  toast(t("account_logged_out"));
+async function deconnexion() {
+  try {
+    const res = await fetch("/auth/logout", {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache"
+      }
+    });
+
+    if (!res.ok) {
+      throw new Error("Échec de la déconnexion");
+    }
+
+    // Vérification réelle auprès du serveur
+    const auth = await refreshAuthState();
+
+    if (auth.logged_in) {
+      throw new Error("La session serveur est toujours active.");
+    }
+
+    _currentUser = {
+      logged_in: false,
+      email: null,
+      user_id: null,
+      subscribed: false,
+      subscription: null
+    };
+
+    majAccountBtn();
+    fermerCompteModal();
+
+    toast(t("account_logged_out"));
+
+  } catch (e) {
+    console.error("Déconnexion:", e);
+    toast("Impossible de confirmer la déconnexion.");
+  }
 }
 
 async function fetchWithRetry(url, options, signal, maxRetries = 2, delayMs = 3000) {
@@ -2090,7 +2154,11 @@ async function analyserVideo(lien){
        _analysisInFlight = false; 
       _afficherResultatFinal(finalData);return;
     }
-    if(data.status==="processing"&&data.session_id){clearInterval(progInterval);const finalResult=await pollAnalysisStatus(data.session_id,signal);await _consumeAnalysis(finalResult,signal,lien);return;}
+    if(data.status==="processing"&&data.session_id){
+    const r=await pollAnalysisStatus(data.session_id,signal);
+    await _consumeAnalysis(r,signal,lien);
+    return;
+}
     clearInterval(progInterval);
      _analysisInFlight = false;  
     _afficherResultatFinal(data);
@@ -2130,7 +2198,7 @@ if(!file){ _analysisInFlight = false; return; }
     if(data.status==="error"&&(data.code==="auth_required"||data.code==="quota_exceeded")){_adFinished=true;document.getElementById('ad-modal').style.display='none';clearInterval(_adCountdownInterval);overlay.classList.remove("active");stopGame();_analysisInFlight=false;if(data.code==="auth_required")ouvrirAuthModal();else ouvrirPaywallModal();return;}
     if(data.status==="error"){_adFinished=true;document.getElementById('ad-modal').style.display='none';clearInterval(_adCountdownInterval);overlay.classList.remove("active");stopGame();afficherErreurRiche(data); _analysisInFlight = false; return;}
     if(data.status==="processing"&&data.session_id){const r=await pollAnalysisStatus(data.session_id,signal);await _consumeAnalysis(r,signal);return;}
-    await _consumeAnalysis(data,signal);
+    await _consumeAnalysis(data,signal,lien);
   }catch(e){
     _adFinished=true;document.getElementById('ad-modal').style.display='none';clearInterval(_adCountdownInterval);overlay.classList.remove("active");stopGame();
     _analysisInFlight = false;
@@ -2140,10 +2208,145 @@ if(!file){ _analysisInFlight = false; return; }
 }
 
 async function _consumeAnalysis(data, signal, originalUrl) {
+
+  // ═══════════════════════════════════════════════════════════════
+  // AUTHENTIFICATION / QUOTA
+  // ═══════════════════════════════════════════════════════════════
+  if (
+    data &&
+    data.status === "error" &&
+    (
+      data.code === "auth_required" ||
+      data.code === "quota_exceeded"
+    )
+  ) {
+    _adFinished = true;
+
+    const adModal = document.getElementById("ad-modal");
+    if (adModal) {
+      adModal.style.display = "none";
+    }
+
+    if (
+      typeof _adCountdownInterval !== "undefined" &&
+      _adCountdownInterval
+    ) {
+      clearInterval(_adCountdownInterval);
+    }
+
+    if (typeof overlay !== "undefined" && overlay) {
+      overlay.classList.remove("active");
+    }
+
+    if (typeof stopGame === "function") {
+      stopGame();
+    }
+
+    _analysisInFlight = false;
+
+    // ───────────────────────────────────────────────────────────
+    // AUTH REQUIRED
+    // ───────────────────────────────────────────────────────────
+    if (data.code === "auth_required") {
+
+      await refreshAuthState();
+
+      if (!_currentUser?.logged_in) {
+        ouvrirAuthModal();
+        return;
+      }
+
+      // Le frontend sait que l'utilisateur est connecté,
+      // mais le backend affirme le contraire.
+      console.warn(
+        "auth_required alors que l'utilisateur est connecté",
+        _currentUser
+      );
+
+      afficherErreurRiche({
+        code: "unexpected",
+        message:
+          "Votre session est connectée mais le serveur demande encore une authentification."
+      });
+
+      return;
+    }
+
+    // ───────────────────────────────────────────────────────────
+    // QUOTA EXCEEDED
+    // ───────────────────────────────────────────────────────────
+    await refreshAuthState();
+
+    // IMPORTANT :
+    // Un utilisateur Pelify Pro ne doit jamais être envoyé
+    // vers le paywall simplement parce qu'une réponse quota_exceeded
+    // a été reçue.
+    if (_currentUser?.subscribed === true) {
+
+      console.warn(
+        "quota_exceeded reçu alors que Pelify Pro est actif.",
+        _currentUser
+      );
+
+      afficherErreurRiche({
+        code: "unexpected",
+        message:
+          "Votre abonnement Pelify Pro est actif, mais le serveur a renvoyé une erreur de quota. Réessayez."
+      });
+
+      return;
+    }
+
+    // Utilisateur gratuit → paywall
+    ouvrirPaywallModal();
+    return;
+  }
+
+
+  // ═══════════════════════════════════════════════════════════════
+  // AUTRES ERREURS
+  // ═══════════════════════════════════════════════════════════════
+  if (data && data.status === "error") {
+
+    _adFinished = true;
+
+    const adModal = document.getElementById("ad-modal");
+    if (adModal) {
+      adModal.style.display = "none";
+    }
+
+    if (
+      typeof _adCountdownInterval !== "undefined" &&
+      _adCountdownInterval
+    ) {
+      clearInterval(_adCountdownInterval);
+    }
+
+    if (typeof overlay !== "undefined" && overlay) {
+      overlay.classList.remove("active");
+    }
+
+    if (typeof stopGame === "function") {
+      stopGame();
+    }
+
+    _analysisInFlight = false;
+
+    afficherErreurRiche(data);
+
+    return;
+  }
+
+
+  // ═══════════════════════════════════════════════════════════════
+  // TRANSCRIPTION / OCR
+  // ═══════════════════════════════════════════════════════════════
   if (data && data.status === "transcription_needed") {
+
     const skipWhisper = data.skip_whisper === true;
 
     const [ocrText, transcript] = await Promise.allSettled([
+
       data.frames_base64?.length
         ? runLocalOCR(data.frames_base64)
         : Promise.resolve(""),
@@ -2155,20 +2358,38 @@ async function _consumeAnalysis(data, signal, originalUrl) {
 
     const finalData = await _postAnalyserContinue(
       data.session_id,
-      ocrText.status === "fulfilled" ? ocrText.value : "",
-      transcript.status === "fulfilled" ? transcript.value : "",
+
+      ocrText.status === "fulfilled"
+        ? ocrText.value
+        : "",
+
+      transcript.status === "fulfilled"
+        ? transcript.value
+        : "",
+
       getBrowserLangShort(),
+
       signal,
+
       originalUrl
     );
 
-   _afficherResultatFinal(finalData);
-_analysisInFlight = false;
-return;
+    _afficherResultatFinal(finalData);
+
+    _analysisInFlight = false;
+
+    return;
   }
- _analysisInFlight = false;  
+
+
+  // ═══════════════════════════════════════════════════════════════
+  // RÉSULTAT FINAL
+  // ═══════════════════════════════════════════════════════════════
+  _analysisInFlight = false;
+
   _afficherResultatFinal(data);
 }
+
 function sleepWithAbort(ms, signal) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
