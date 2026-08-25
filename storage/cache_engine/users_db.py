@@ -324,30 +324,79 @@ def upsert_subscription(user_id: int, stripe_subscription_id: str, status: str,
         )
 
 
-def is_subscription_active(user_id: int) -> bool:
+def get_subscription(user_id: int) -> Optional[dict]:
+    """
+    Retourne l'abonnement complet de l'utilisateur.
+
+    Retourne None si aucun abonnement n'existe ou si Neon
+    est momentanément indisponible.
+    """
     conn = _get_conn()
     if not conn:
-        # Neon down : on ne bloque pas un abonné payant à cause d'une panne DB.
-        # Le webhook Stripe re-synchronisera dès que Neon revient.
-        return False
+        return None
+
     try:
-        with conn.cursor() as cur:
+        with conn.cursor(
+            cursor_factory=psycopg2.extras.RealDictCursor
+        ) as cur:
             cur.execute(
-                "SELECT status, current_period_end FROM pelify_subscriptions WHERE user_id = %s;",
+                """
+                SELECT
+                    user_id,
+                    stripe_subscription_id,
+                    status,
+                    current_period_end,
+                    updated_at
+                FROM pelify_subscriptions
+                WHERE user_id = %s
+                LIMIT 1;
+                """,
                 (user_id,),
             )
-            row = cur.fetchone()
-            if not row:
-                return False
-            status, current_period_end = row
-            if status not in ("active", "trialing"):
-                return False
-            if current_period_end and current_period_end < datetime.now(timezone.utc):
-                return False
-            return True
+
+            return cur.fetchone()
+
     except Exception as e:
-        print(f"⚠️ users_db.is_subscription_active KO ({e})", flush=True)
+        print(
+            f"⚠️ users_db.get_subscription KO ({e})",
+            flush=True,
+        )
+        return None
+
+
+def is_subscription_active(user_id: int) -> bool:
+    """
+    Vérifie si l'utilisateur possède actuellement un abonnement
+    Stripe actif ou en période d'essai.
+
+    Les statuts acceptés sont :
+      - active
+      - trialing
+
+    current_period_end est également contrôlé lorsqu'il existe.
+    """
+
+    subscription = get_subscription(user_id)
+
+    if not subscription:
         return False
+
+    status = subscription.get("status")
+
+    if status not in ("active", "trialing"):
+        return False
+
+    current_period_end = subscription.get(
+        "current_period_end"
+    )
+
+    if current_period_end:
+        now = datetime.now(timezone.utc)
+
+        if current_period_end < now:
+            return False
+
+    return True
 
 
 # ────────────────────────────────────────────────────────────────

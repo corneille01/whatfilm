@@ -377,11 +377,47 @@ async def auth_logout(request: Request):
 @app.get("/auth/me")
 async def auth_me(request: Request, response: Response):
     response.headers["Cache-Control"] = "no-store, private"
+
     user = pelify_auth.get_current_user(request)
+
     if not user:
-        return {"logged_in": False}
-    subscribed = users_db.is_subscription_active(user["id"])
-    return {"logged_in": True, "email": user["email"], "subscribed": subscribed}
+        return {
+            "logged_in": False,
+            "subscribed": False,
+        }
+
+    try:
+        subscription = users_db.get_subscription(user["id"])
+
+        subscribed = False
+
+        if subscription:
+            status = subscription.get("status")
+
+            if status in ("active", "trialing"):
+                subscribed = True
+
+        return {
+            "logged_in": True,
+            "email": user["email"],
+            "user_id": user["id"],
+            "subscribed": subscribed,
+            "subscription": subscription,
+        }
+
+    except Exception as e:
+        print(
+            f"⚠️ /auth/me abonnement KO : {e}",
+            flush=True,
+        )
+
+        return {
+            "logged_in": True,
+            "email": user["email"],
+            "user_id": user["id"],
+            "subscribed": False,
+            "subscription": None,
+        }
 
 
 # ════════════════════════════════════════════════════════════════
