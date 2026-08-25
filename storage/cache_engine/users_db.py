@@ -400,17 +400,54 @@ def is_subscription_active(user_id: int) -> bool:
 
 
 # ────────────────────────────────────────────────────────────────
-# Quota gratuit — compté PAR IP (pas par compte, cf. décision produit)
+# Quota gratuit — compté PAR COMPTE (email), pas par IP.
+#
+# Historique : la V1 comptait par IP, mais plusieurs utilisateurs
+# derrière un même WiFi/box (IP partagée, CGNAT) se retrouvaient à
+# partager le même quota — un client bloquait l'essai gratuit de
+# tous les autres sur le même réseau. Le quota est donc maintenant
+# rattaché au compte (user_id / email), pas à l'IP.
+# ────────────────────────────────────────────────────────────────
+
+def check_and_consume_user_quota(user_id: int) -> bool:
+    """
+    Retourne True si l'essai gratuit du jour est consommé avec succès pour
+    ce compte, False si le quota du jour est déjà atteint.
+    Fail-open si Neon est down (on ne veut pas casser le produit pour
+    un abonné potentiel à cause d'une panne DB) — à surveiller si Neon
+    est instable, car fail-open ici veut dire "laisser passer".
+    """
+    conn = _get_conn()
+    if not conn:
+        return True
+    today = datetime.now(timezone.utc).date()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO pelify_usage (user_id, used_on, count)
+                VALUES (%s, %s, 1)
+                ON CONFLICT (user_id, used_on) DO UPDATE SET count = pelify_usage.count + 1
+                    WHERE pelify_usage.count < %s
+                RETURNING count;
+                """,
+                (user_id, today, FREE_TRIALS_PER_DAY),
+            )
+            row = cur.fetchone()
+            return row is not None
+    except Exception as e:
+        print(f"⚠️ users_db.check_and_consume_user_quota KO ({e})", flush=True)
+        return True
+
+
+# ────────────────────────────────────────────────────────────────
+# Ancien quota par IP — conservé mais NON utilisé par défaut pour le
+# gating (cf. décision produit ci-dessus). Laissé disponible si tu
+# veux un jour combiner IP + email (ex: anti-abus multi-comptes),
+# mais ce n'est plus ce qui bloque l'essai gratuit aujourd'hui.
 # ────────────────────────────────────────────────────────────────
 
 def check_and_consume_free_quota(ip: str) -> bool:
-    """
-    Retourne True si l'essai gratuit du jour est consommé avec succès,
-    False si le quota du jour est déjà atteint pour cette IP.
-    Fail-open si Neon est down (on ne veut pas casser le produit pour
-    un abonné potentiel à cause d'une panne DB) — mais fail-open ici
-    veut dire "laisser passer", donc à surveiller si Neon est instable.
-    """
     conn = _get_conn()
     if not conn:
         return True
@@ -432,23 +469,3 @@ def check_and_consume_free_quota(ip: str) -> bool:
     except Exception as e:
         print(f"⚠️ users_db.check_and_consume_free_quota KO ({e})", flush=True)
         return True
-
-
-def record_user_usage(user_id: int) -> None:
-    """Best-effort, pour affichage/stats côté utilisateur ('essai déjà utilisé aujourd'hui')."""
-    conn = _get_conn()
-    if not conn:
-        return
-    today = datetime.now(timezone.utc).date()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO pelify_usage (user_id, used_on, count)
-                VALUES (%s, %s, 1)
-                ON CONFLICT (user_id, used_on) DO UPDATE SET count = pelify_usage.count + 1;
-                """,
-                (user_id, today),
-            )
-    except Exception as e:
-        print(f"⚠️ users_db.record_user_usage KO ({e})", flush=True)

@@ -1662,6 +1662,8 @@ function afficherErreurRiche(data){
 // ════ BARRE RECHERCHE ════
 function majBtnClear(){document.getElementById("btn-clear").classList.toggle("visible",document.getElementById("input_global").value.length>0);}
 function effacerRecherche(){document.getElementById("input_global").value="";document.getElementById("btn-clear").classList.remove("visible");document.getElementById("input_global").focus();}
+function majHeroBtnClear(){const b=document.getElementById("hero-btn-clear");const i=document.getElementById("hero-search-input");if(b&&i)b.classList.toggle("visible",i.value.length>0);}
+function effacerRechercheHero(){const i=document.getElementById("hero-search-input");const b=document.getElementById("hero-btn-clear");if(i)i.value="";if(b)b.classList.remove("visible");if(i)i.focus();}
 
 // ════ NAVIGATION ════
 function _hideAllPages(){

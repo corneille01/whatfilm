@@ -1,9 +1,9 @@
-const CACHE_NAME = "pelify-app-v9";
+const CACHE_NAME = "pelify-app-v10";
 
 const APP_SHELL = [
   "/",
-  "/frontend/style.css?v=99",
-  "/frontend/script.js?v=99",
+  "/frontend/style.css?v=104",
+  "/frontend/script.js?v=104",
   "/frontend/filming.js?v=69",
   "/frontend/manifest.webmanifest",
   "/.well-known/assetlinks.json",
@@ -50,6 +50,17 @@ self.addEventListener("fetch", event => {
 
   if (req.method !== "GET") return;
 
+  // ⚠️ Ne JAMAIS mettre en cache les routes d'auth / paiement : ce sont
+  // des réponses propres à chaque utilisateur (session, abonnement),
+  // et une réponse mise en cache pourrait être reservie à quelqu'un
+  // d'autre, ou resservir un vieil état "déconnecté" après connexion.
+  if (
+    url.pathname.startsWith("/auth/") ||
+    url.pathname.startsWith("/billing/")
+  ) {
+    return;
+  }
+
   if (req.mode === "navigate") {
     event.respondWith(
       fetch(req).catch(() => caches.match("/"))
@@ -78,7 +89,7 @@ self.addEventListener("fetch", event => {
     url.pathname.startsWith("/films-tournes")||
     url.pathname.startsWith("/film")||
     url.pathname.startsWith("/genre")||
-    url.pathname.startsWith("/")||
+    url.pathname === "/" ||
     url.pathname.startsWith("/fr")||
     url.pathname.startsWith("/es")||
     url.pathname.startsWith("/de")||

@@ -469,7 +469,6 @@ async def billing_webhook(request: Request):
 def _check_quota_or_paywall(request: Request) -> Optional[dict]:
     """À appeler au début de chaque endpoint d'analyse. Retourne un dict
     d'erreur (paywall) si l'utilisateur doit payer, sinon None (accès accordé)."""
-    ip = _get_client_ip(request)
     user = pelify_auth.get_current_user(request)
 
     if not user:
@@ -481,8 +480,10 @@ def _check_quota_or_paywall(request: Request) -> Optional[dict]:
     if users_db.is_subscription_active(user["id"]):
         return None  # abonné : illimité
 
-    if users_db.check_and_consume_free_quota(ip):
-        users_db.record_user_usage(user["id"])
+    # Quota compté par COMPTE (email), pas par IP — un WiFi/box partagé
+    # ne doit pas faire partager le même essai gratuit entre plusieurs
+    # personnes.
+    if users_db.check_and_consume_user_quota(user["id"]):
         return None  # essai gratuit du jour consommé avec succès
 
     return {
