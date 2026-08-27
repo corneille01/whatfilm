@@ -56,7 +56,7 @@ def create_checkout_session(user_id: int, email: str, plan: str = "weekly") -> O
             customer_email=email,
             client_reference_id=str(user_id),
             metadata={"pelify_user_id": str(user_id), "plan": plan},
-            success_url=f"{APP_BASE_URL}/?billing=success",
+            success_url=f"{APP_BASE_URL}/?billing=success&session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{APP_BASE_URL}/?billing=cancel",
             allow_promotion_codes=True,
         )
@@ -83,6 +83,48 @@ def create_portal_session(customer_id: str) -> Optional[str]:
 
 def _ts_to_dt(ts: Optional[int]) -> Optional[datetime]:
     return datetime.fromtimestamp(ts, tz=timezone.utc) if ts else None
+
+
+def confirm_checkout_session(session_id: str, user_id: int) -> bool:
+    """
+    Vérifie activement l'état d'une session Checkout auprès de Stripe et
+    synchronise l'abonnement en base — sans attendre le webhook.
+
+    Sert de filet de sécurité contre l'effet de course : l'utilisateur est
+    redirigé vers pelify.app dès le paiement validé, mais le webhook peut
+    arriver quelques secondes plus tard. Sans ça, une analyse lancée dans
+    cette fenêtre peut se voir refuser l'accès alors que le paiement est
+    déjà passé. Idempotent : sans danger même si le webhook a déjà tout
+    synchronisé.
+    """
+    if not stripe.api_key or not session_id:
+        return False
+    try:
+        session = stripe.checkout.Session.retrieve(session_id, expand=["subscription"])
+    except Exception as e:
+        print(f"⚠️ billing.confirm_checkout_session (retrieve) KO ({e})", flush=True)
+        return False
+
+    # Sécurité : on ne confirme que la session de CE user, pas n'importe
+    # laquelle qu'un id devinerait dans l'URL.
+    if session.get("client_reference_id") != str(user_id):
+        print(f"⚠️ billing.confirm_checkout_session: session {session_id} n'appartient pas à user {user_id}", flush=True)
+        return False
+
+    if session.get("payment_status") != "paid" and session.get("status") != "complete":
+        return False
+
+    customer_id = session.get("customer")
+    subscription = session.get("subscription")
+    if customer_id:
+        users_db.set_stripe_customer_id(user_id, customer_id)
+    if subscription:
+        users_db.upsert_subscription(
+            user_id, subscription["id"], subscription["status"],
+            _ts_to_dt(subscription.get("current_period_end")),
+        )
+        return True
+    return False
 
 
 def handle_webhook_event(payload: bytes, sig_header: str) -> dict:

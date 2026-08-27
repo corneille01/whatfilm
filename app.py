@@ -441,6 +441,23 @@ async def billing_checkout(request: Request, body: CheckoutRequest = CheckoutReq
     return {"status": "ok", "checkout_url": url}
 
 
+@app.get("/billing/confirm")
+async def billing_confirm(request: Request, response: Response, session_id: str):
+    """
+    Appelé par le frontend juste après le retour de Stripe Checkout
+    (?billing=success&session_id=...) pour synchroniser l'abonnement
+    immédiatement, sans dépendre du délai du webhook.
+    """
+    response.headers["Cache-Control"] = "no-store, private"
+    user = pelify_auth.get_current_user(request)
+    if not user:
+        return JSONResponse({"status": "error", "message": "Connecte-toi d'abord."}, status_code=401)
+
+    confirmed = pelify_billing.confirm_checkout_session(session_id, user["id"])
+    subscribed = users_db.is_subscription_active(user["id"])
+    return {"status": "ok", "confirmed": confirmed, "subscribed": subscribed}
+
+
 @app.get("/billing/portal")
 async def billing_portal(request: Request, response: Response):
     response.headers["Cache-Control"] = "no-store, private"

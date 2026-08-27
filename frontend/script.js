@@ -4155,12 +4155,24 @@ function routerInit(){
 window.onload=()=>{
   initLang();
   initBannerBottom();
-  refreshAuthState();
-  (()=>{
+  (async()=>{
     const params=new URLSearchParams(location.search);
     const billing=params.get("billing");
-    if(billing==="success"){toast(t("billing_success"));history.replaceState({},"",location.pathname);}
-    else if(billing==="cancel"){history.replaceState({},"",location.pathname);}
+    const sessionId=params.get("session_id");
+    history.replaceState({},"",location.pathname);
+    if(billing==="success"){
+      // On confirme activement auprès du serveur (qui re-vérifie
+      // directement auprès de Stripe) plutôt que d'attendre le webhook,
+      // pour éviter qu'une analyse lancée juste après le paiement se
+      // heurte à un abonnement pas encore synchronisé.
+      if(sessionId){
+        try{ await fetch(`/billing/confirm?session_id=${encodeURIComponent(sessionId)}`); }catch(e){}
+      }
+      await refreshAuthState();
+      toast(t("billing_success"));
+    }else{
+      refreshAuthState();
+    }
   })();
  if (!routerInit()) {
   setHomeMode();
