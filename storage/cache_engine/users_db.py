@@ -17,6 +17,7 @@
 import os
 import hashlib
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -33,16 +34,39 @@ _conn = None
 _schema_ready = False
 
 
-def _get_conn():
+def _get_conn(retry: bool = True):
+    """
+    Connexion Neon paresseuse et réutilisée. Neon (serverless) peut se
+    mettre en veille après inactivité et prendre plusieurs secondes à se
+    réveiller — un premier essai peut donc légitimement échouer sans que
+    la base soit réellement en panne. On retente une fois avant d'abandonner,
+    pour éviter qu'un utilisateur avec une session parfaitement valide soit
+    déconnecté juste parce que Neon se réveillait au mauvais moment.
+    """
     global _conn
     try:
         if _conn is None or _conn.closed:
-            _conn = psycopg2.connect(NEON_DATABASE_URL, connect_timeout=5)
+            _conn = psycopg2.connect(NEON_DATABASE_URL, connect_timeout=10)
             _conn.autocommit = True
     except Exception as e:
-        print(f"⚠️ users_db: connexion Neon KO ({e})", flush=True)
         _conn = None
+        if retry:
+            print(f"⚠️ users_db: connexion Neon KO, nouvel essai ({e})", flush=True)
+            time.sleep(1.5)
+            return _get_conn(retry=False)
+        print(f"⚠️ users_db: connexion Neon KO après nouvel essai ({e})", flush=True)
     return _conn
+
+
+def _reset_conn():
+    """Force une reconnexion à la prochaine requête (connexion probablement morte)."""
+    global _conn
+    try:
+        if _conn is not None:
+            _conn.close()
+    except Exception:
+        pass
+    _conn = None
 
 
 def ensure_schema():
@@ -258,14 +282,28 @@ def create_session(user_id: int, ip: str) -> Optional[str]:
             )
         return token
     except Exception as e:
-        print(f"⚠️ users_db.create_session KO ({e})", flush=True)
-        return None
+        print(f"⚠️ users_db.create_session KO, nouvel essai ({e})", flush=True)
+        _reset_conn()
+        conn = _get_conn(retry=False)
+        if not conn:
+            return None
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO pelify_sessions (user_id, token_hash, ip, expires_at) VALUES (%s, %s, %s, %s);",
+                    (user_id, _hash_token(token), ip, expires_at),
+                )
+            return token
+        except Exception as e2:
+            print(f"⚠️ users_db.create_session KO après nouvel essai ({e2})", flush=True)
+            return None
 
 
 def get_user_from_session(token: str) -> Optional[dict]:
     conn = _get_conn()
     if not conn:
         return None
+    token_hash = _hash_token(token)
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
@@ -275,18 +313,47 @@ def get_user_from_session(token: str) -> Optional[dict]:
                 JOIN pelify_users u ON u.id = s.user_id
                 WHERE s.token_hash = %s AND s.expires_at > now();
                 """,
-                (_hash_token(token),),
+                (token_hash,),
             )
             row = cur.fetchone()
             if row:
                 cur.execute(
                     "UPDATE pelify_sessions SET last_seen_at = now() WHERE token_hash = %s;",
-                    (_hash_token(token),),
+                    (token_hash,),
                 )
             return row
     except Exception as e:
-        print(f"⚠️ users_db.get_user_from_session KO ({e})", flush=True)
-        return None
+        # La connexion a pu mourir entre deux requêtes (Neon qui se
+        # rendort, coupure réseau...) — on force une reconnexion et on
+        # retente UNE fois avant de conclure "session introuvable", pour
+        # ne pas déconnecter quelqu'un dont la session est en réalité
+        # parfaitement valide.
+        print(f"⚠️ users_db.get_user_from_session KO, nouvel essai ({e})", flush=True)
+        _reset_conn()
+        conn = _get_conn(retry=False)
+        if not conn:
+            return None
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT u.id, u.email, u.stripe_customer_id
+                    FROM pelify_sessions s
+                    JOIN pelify_users u ON u.id = s.user_id
+                    WHERE s.token_hash = %s AND s.expires_at > now();
+                    """,
+                    (token_hash,),
+                )
+                row = cur.fetchone()
+                if row:
+                    cur.execute(
+                        "UPDATE pelify_sessions SET last_seen_at = now() WHERE token_hash = %s;",
+                        (token_hash,),
+                    )
+                return row
+        except Exception as e2:
+            print(f"⚠️ users_db.get_user_from_session KO après nouvel essai ({e2})", flush=True)
+            return None
 
 
 def delete_session(token: str) -> None:

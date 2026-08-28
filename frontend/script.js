@@ -1955,6 +1955,15 @@ async function passerPro(plan = "weekly"){
 async function ouvrirCompteModal(){
   await refreshAuthState();
   if(!_currentUser?.logged_in){
+    // Filet de sécurité : le cookie de session est HttpOnly (invisible en
+    // JS, volontairement), donc on ne peut pas vérifier sa présence ici.
+    // On retente une fois après un court délai avant de forcer une
+    // reconnexion complète, au cas où le premier essai ait heurté un
+    // hoquet DB transitoire (ex: Neon qui se réveille).
+    await new Promise(r => setTimeout(r, 800));
+    await refreshAuthState();
+  }
+  if(!_currentUser?.logged_in){
     ouvrirAuthModal();
     return;
   }
