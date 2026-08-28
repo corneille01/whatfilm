@@ -332,16 +332,20 @@ async def auth_request_link(request: Request, body: MagicLinkRequest):
 
     user_id = users_db.get_or_create_user(email, ip)
     if user_id is None:
+        print(f"🔑 auth/request-link: get_or_create_user KO pour {email} (ip={ip})", flush=True)
         return JSONResponse({"status": "error", "message": "Service temporairement indisponible."}, status_code=503)
 
     token = users_db.create_magic_link(user_id)
     if not token:
+        print(f"🔑 auth/request-link: create_magic_link KO pour user_id={user_id}", flush=True)
         return JSONResponse({"status": "error", "message": "Service temporairement indisponible."}, status_code=503)
 
     sent = await pelify_auth.send_magic_link_email(email, token)
     if not sent:
+        print(f"🔑 auth/request-link: envoi email KO pour user_id={user_id}", flush=True)
         return JSONResponse({"status": "error", "message": "Échec de l'envoi de l'email. Réessaie dans un instant."}, status_code=502)
 
+    print(f"🔑 auth/request-link: OK — lien envoyé à user_id={user_id} (ip={ip})", flush=True)
     return {"status": "ok", "message": "Lien de connexion envoyé par email."}
 
 
@@ -350,12 +354,15 @@ async def auth_verify(token: str, request: Request):
     ip = _get_client_ip(request)
     user_id = users_db.consume_magic_link(token)
     if not user_id:
+        print(f"🔑 auth/verify: token invalide/expiré/déjà utilisé (ip={ip}, token={token[:8]}...)", flush=True)
         return HTMLResponse("<h2>Lien invalide ou expiré.</h2><a href='/'>Retour à Pelify</a>", status_code=400)
 
     session_token = users_db.create_session(user_id, ip)
     if not session_token:
+        print(f"🔑 auth/verify: create_session KO pour user_id={user_id} (ip={ip})", flush=True)
         return HTMLResponse("<h2>Service temporairement indisponible.</h2>", status_code=503)
 
+    print(f"🔑 auth/verify: OK — session créée pour user_id={user_id} (ip={ip})", flush=True)
     redirect = Response(status_code=302, headers={
         "Location": f"{pelify_auth.APP_BASE_URL}/",
         "Cache-Control": "no-store, private",
@@ -378,9 +385,11 @@ async def auth_logout(request: Request):
 async def auth_me(request: Request, response: Response):
     response.headers["Cache-Control"] = "no-store, private"
 
+    cookie_present = bool(request.cookies.get(pelify_auth.SESSION_COOKIE_NAME))
     user = pelify_auth.get_current_user(request)
 
     if not user:
+        print(f"🔑 auth/me: non connecté (cookie présent={cookie_present})", flush=True)
         return {
             "logged_in": False,
             "subscribed": False,
@@ -397,6 +406,7 @@ async def auth_me(request: Request, response: Response):
             if status in ("active", "trialing"):
                 subscribed = True
 
+        print(f"🔑 auth/me: connecté user_id={user['id']} subscribed={subscribed}", flush=True)
         return {
             "logged_in": True,
             "email": user["email"],
