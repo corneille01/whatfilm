@@ -512,6 +512,10 @@ report_wrong_btn: "Not the right movie?",
     auth_sent_desc: "Check your inbox (and spam folder) then click the link you received.",
     auth_close: "Close",
     auth_invalid_email: "Invalid email address.",
+    auth_code_hint: "Link not working (opened inside your mail app)? Enter the 6-digit code from the email:",
+    auth_code_submit: "Verify code",
+    auth_code_invalid: "Invalid or expired code.",
+    auth_code_success: "Logged in successfully!",
     paywall_title: "Free trial used",
     paywall_desc: "You've used your free identification for today. Upgrade to Pelify Pro for unlimited access.",
     paywall_per_week: "excl. tax / week",
@@ -656,6 +660,10 @@ report_wrong_btn: "Not the right movie?",
     auth_sent_desc: "Check your inbox (and spam folder) then click the link you received.",
     auth_close: "Close",
     auth_invalid_email: "Invalid email address.",
+    auth_code_hint: "Link not working (opened inside your mail app)? Enter the 6-digit code from the email:",
+    auth_code_submit: "Verify code",
+    auth_code_invalid: "Invalid or expired code.",
+    auth_code_success: "Logged in successfully!",
     paywall_title: "Free trial used",
     paywall_desc: "You've used your free identification for today. Upgrade to Pelify Pro for unlimited access.",
     paywall_per_week: "excl. tax / week",
@@ -800,6 +808,10 @@ report_wrong_btn: "Ce n'est pas le bon film ?",
     auth_sent_desc: "Vérifie ta boîte mail (et les spams) puis clique sur le lien reçu.",
     auth_close: "Fermer",
     auth_invalid_email: "Email invalide.",
+    auth_code_hint: "Le lien ne fonctionne pas (ouvert dans l'app mail) ? Entre le code à 6 chiffres reçu par email :",
+    auth_code_submit: "Valider le code",
+    auth_code_invalid: "Code invalide ou expiré.",
+    auth_code_success: "Connecté avec succès !",
     paywall_title: "Essai gratuit utilisé",
     paywall_desc: "Tu as utilisé ton identification gratuite du jour. Passe à Pelify Pro pour un accès illimité.",
     paywall_per_week: "HT / semaine",
@@ -944,6 +956,10 @@ report_wrong_btn: "¿No es la película correcta?",
     auth_sent_desc: "Revisa tu correo (y spam) y haz clic en el enlace recibido.",
     auth_close: "Cerrar",
     auth_invalid_email: "Email no válido.",
+    auth_code_hint: "¿El enlace no funciona (se abrió en la app de correo)? Introduce el código de 6 dígitos del email:",
+    auth_code_submit: "Validar código",
+    auth_code_invalid: "Código no válido o expirado.",
+    auth_code_success: "¡Conectado con éxito!",
     paywall_title: "Prueba gratuita utilizada",
     paywall_desc: "Ya usaste tu identificación gratuita de hoy. Pásate a Pelify Pro para acceso ilimitado.",
     paywall_per_week: "sin IVA / semana",
@@ -1088,6 +1104,10 @@ report_wrong_btn: "Nicht der richtige Film?",
     auth_sent_desc: "Schau in dein Postfach (auch Spam) und klicke auf den Link.",
     auth_close: "Schließen",
     auth_invalid_email: "Ungültige E-Mail-Adresse.",
+    auth_code_hint: "Der Link funktioniert nicht (in der Mail-App geöffnet)? Gib den 6-stelligen Code aus der E-Mail ein:",
+    auth_code_submit: "Code bestätigen",
+    auth_code_invalid: "Code ungültig oder abgelaufen.",
+    auth_code_success: "Erfolgreich angemeldet!",
     paywall_title: "Kostenloser Versuch verbraucht",
     paywall_desc: "Du hast deine kostenlose Identifikation für heute genutzt. Hol dir Pelify Pro für unbegrenzten Zugriff.",
     paywall_per_week: "netto / Woche",
@@ -1232,6 +1252,10 @@ report_wrong_btn: "不是这部电影？",
     auth_sent_desc: "请查收邮箱（包括垃圾邮件），点击收到的链接。",
     auth_close: "关闭",
     auth_invalid_email: "邮箱地址无效。",
+    auth_code_hint: "链接无法打开（在邮件应用内打开）？请输入邮件中的6位数验证码：",
+    auth_code_submit: "验证代码",
+    auth_code_invalid: "验证码无效或已过期。",
+    auth_code_success: "登录成功！",
     paywall_title: "今日免费次数已用完",
     paywall_desc: "你已使用今日的免费识别。升级到 Pelify Pro 即可无限使用。",
     paywall_per_week: "税前 / 每周",
@@ -1881,6 +1905,8 @@ function fermerAuthModal(){
   document.getElementById("auth-modal").style.display = "none";
 }
 
+let _pendingLoginEmail = "";
+
 async function envoyerMagicLink(){
   const input = document.getElementById("auth-email-input");
   const email = input.value.trim();
@@ -1896,6 +1922,7 @@ async function envoyerMagicLink(){
   try{
     const res = await fetch("/auth/request-link", {
       method: "POST",
+      credentials: "same-origin",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({email}),
     });
@@ -1905,8 +1932,55 @@ async function envoyerMagicLink(){
       errEl.style.display = "block";
       return;
     }
+    _pendingLoginEmail = email;
     document.getElementById("auth-modal-form").style.display = "none";
     document.getElementById("auth-modal-sent").style.display = "block";
+    document.getElementById("auth-code-input").value = "";
+    document.getElementById("auth-code-error").style.display = "none";
+    setTimeout(() => document.getElementById("auth-code-input")?.focus(), 100);
+  }catch(e){
+    errEl.textContent = t("err_generic");
+    errEl.style.display = "block";
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+async function validerCodeConnexion(){
+  const codeInput = document.getElementById("auth-code-input");
+  const code = codeInput.value.trim();
+  const errEl = document.getElementById("auth-code-error");
+  errEl.style.display = "none";
+
+  if(!/^[0-9]{6}$/.test(code)){
+    errEl.textContent = t("auth_code_invalid");
+    errEl.style.display = "block";
+    return;
+  }
+  if(!_pendingLoginEmail){
+    errEl.textContent = t("err_generic");
+    errEl.style.display = "block";
+    return;
+  }
+
+  const btn = document.getElementById("auth-code-btn");
+  btn.disabled = true;
+  try{
+    const res = await fetch("/auth/verify-code", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({email: _pendingLoginEmail, code}),
+    });
+    const data = await res.json();
+    if(data.status !== "ok"){
+      errEl.textContent = data.message || t("err_generic");
+      errEl.style.display = "block";
+      return;
+    }
+    fermerAuthModal();
+    await refreshAuthState();
+    toast(t("auth_code_success"));
   }catch(e){
     errEl.textContent = t("err_generic");
     errEl.style.display = "block";
@@ -2147,7 +2221,7 @@ async function analyserVideo(lien){
   let progInterval=setInterval(()=>{if(progress<88){progress+=Math.random()*8+3;if(progress>88)progress=88;if(progressBar)progressBar.style.width=progress+"%";if(percentLabel)percentLabel.textContent=Math.round(progress)+"%";}},900);
   analysisAbortController=new AbortController();const signal=analysisAbortController.signal;
   try{
-   const res=await fetchWithRetry("/analyser",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:lien,lang:getTMDBLang(),browser_lang:getBrowserLangShort()})},signal);
+   const res=await fetchWithRetry("/analyser",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:lien,lang:getTMDBLang(),browser_lang:getBrowserLangShort()})},signal);
     if(res.status===401||res.status===402){
       clearInterval(progInterval);_adFinished=true;document.getElementById('ad-modal').style.display='none';clearInterval(_adCountdownInterval);overlay.classList.remove("active");stopGame();
       _analysisInFlight=false;
@@ -2199,7 +2273,7 @@ if(!file){ _analysisInFlight = false; return; }
   const fd=new FormData();fd.append("file",file);fd.append("lang",getTMDBLang());fd.append("browser_lang",getBrowserLangShort());
   try{
     const data=await new Promise((resolve,reject)=>{
-      const xhr=new XMLHttpRequest();xhr.open("POST","/analyser-upload");
+      const xhr=new XMLHttpRequest();xhr.open("POST","/analyser-upload");xhr.withCredentials=true;
       xhr.upload.onprogress=e=>{if(e.lengthComputable){const p=Math.round((e.loaded/e.total)*40);if(progressBar)progressBar.style.width=p+"%";if(percentLabel)percentLabel.textContent=p+"%";}};
       xhr.onload=()=>{try{resolve(JSON.parse(xhr.responseText));}catch(e){reject(new Error("json_parse"));}};
       xhr.onerror=()=>reject(new Error("network"));
@@ -4160,6 +4234,10 @@ function routerInit(){
 
 
 
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshAuthState();
+});
 
 window.onload=()=>{
   initLang();

@@ -23,7 +23,7 @@ SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() 
 SESSION_COOKIE_NAME = "pelify_session"
 
 
-async def send_magic_link_email(email: str, token: str) -> bool:
+async def send_magic_link_email(email: str, token: str, code: str) -> bool:
     """Envoie le mail de connexion via Resend. Retourne False si l'envoi échoue
     (l'appelant doit alors répondre une erreur claire à l'utilisateur, pas
     faire semblant que ça a marché)."""
@@ -38,6 +38,14 @@ async def send_magic_link_email(email: str, token: str) -> bool:
       <p>Clique sur le lien ci-dessous pour te connecter (valable 15 minutes) :</p>
       <p><a href="{link}" style="background:#6c5ce7;color:#fff;padding:12px 20px;
          border-radius:8px;text-decoration:none;display:inline-block">Se connecter</a></p>
+      <p style="color:#888;font-size:13px;margin-top:16px">
+        Le lien s'ouvre parfois dans le navigateur intégré de ton app mail, qui
+        ne te reconnaît pas ensuite sur ton navigateur habituel. Dans ce cas,
+        entre plutôt ce code directement sur pelify.app :
+      </p>
+      <p style="font-size:28px;font-weight:700;letter-spacing:4px;
+         background:#f4f4f4;padding:12px 16px;border-radius:8px;text-align:center;
+         color:#111">{code}</p>
       <p style="color:#888;font-size:13px">Si tu n'es pas à l'origine de cette demande, ignore cet email.</p>
     </div>
     """

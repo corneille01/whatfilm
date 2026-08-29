@@ -29,6 +29,7 @@ NEON_DATABASE_URL = os.environ.get("NEON_DATABASE_URL") or os.environ.get("DATAB
 MAGIC_LINK_TTL_MINUTES = 15
 SESSION_TTL_DAYS = 30
 FREE_TRIALS_PER_DAY = 1
+LOGIN_CODE_MAX_ATTEMPTS = 5
 
 _conn = None
 _schema_ready = False
@@ -97,6 +98,13 @@ def ensure_schema():
                     used_at TIMESTAMPTZ,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 );
+            """)
+            # Migration douce : ajoute les colonnes du code à 6 chiffres si la
+            # table existait déjà avant cette fonctionnalité.
+            cur.execute("""
+                ALTER TABLE pelify_magic_links
+                    ADD COLUMN IF NOT EXISTS code_hash TEXT,
+                    ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
             """)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS pelify_sessions (
@@ -181,20 +189,32 @@ def get_or_create_user(email: str, signup_ip: str) -> Optional[int]:
         return None
 
 
-def create_magic_link(user_id: int) -> Optional[str]:
-    """Crée un token de connexion, retourne le token EN CLAIR (jamais stocké tel quel)."""
+def _new_login_code() -> str:
+    """Code à 6 chiffres, généré avec secrets (pas random) même si l'entropie
+    reste faible — le vrai rempart contre le brute-force est le compteur
+    LOGIN_CODE_MAX_ATTEMPTS + l'expiration à 15 min, pas la longueur du code."""
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def create_magic_link(user_id: int) -> Optional[tuple]:
+    """Crée un lien de connexion ET un code à 6 chiffres pour le même essai
+    de connexion (deux façons d'arriver au même résultat — le lien pour le
+    confort, le code pour contourner les navigateurs intégrés des apps mail
+    qui ne partagent pas leurs cookies avec le vrai navigateur).
+    Retourne (token, code) EN CLAIR (jamais stockés tels quels), ou None."""
     conn = _get_conn()
     if not conn:
         return None
     token = _new_token()
+    code = _new_login_code()
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=MAGIC_LINK_TTL_MINUTES)
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO pelify_magic_links (user_id, token_hash, expires_at) VALUES (%s, %s, %s);",
-                (user_id, _hash_token(token), expires_at),
+                "INSERT INTO pelify_magic_links (user_id, token_hash, code_hash, expires_at) VALUES (%s, %s, %s, %s);",
+                (user_id, _hash_token(token), _hash_token(code), expires_at),
             )
-        return token
+        return token, code
     except Exception as e:
         print(f"⚠️ users_db.create_magic_link KO ({e})", flush=True)
         return None
@@ -225,6 +245,44 @@ def consume_magic_link(token: str) -> Optional[int]:
     except Exception as e:
         print(f"⚠️ users_db.consume_magic_link KO ({e})", flush=True)
         return None
+
+
+def verify_login_code(user_id: int, code: str) -> bool:
+    """
+    Vérifie le code à 6 chiffres du dernier essai de connexion en cours pour
+    ce compte. Incrémente un compteur de tentatives par lien (pas par
+    utilisateur/IP) pour limiter le brute-force sans pénaliser tout le
+    compte si un autre lien légitime est demandé ensuite.
+    """
+    conn = _get_conn()
+    if not conn:
+        return False
+    code_hash = _hash_token(code)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, code_hash, attempts FROM pelify_magic_links
+                WHERE user_id = %s AND used_at IS NULL AND expires_at > now()
+                    AND code_hash IS NOT NULL
+                ORDER BY id DESC LIMIT 1;
+                """,
+                (user_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return False
+            link_id, stored_hash, attempts = row
+            if attempts >= LOGIN_CODE_MAX_ATTEMPTS:
+                return False
+            if stored_hash != code_hash:
+                cur.execute("UPDATE pelify_magic_links SET attempts = attempts + 1 WHERE id = %s;", (link_id,))
+                return False
+            cur.execute("UPDATE pelify_magic_links SET used_at = now() WHERE id = %s;", (link_id,))
+            return True
+    except Exception as e:
+        print(f"⚠️ users_db.verify_login_code KO ({e})", flush=True)
+        return False
 
 
 def get_user(user_id: int) -> Optional[dict]:

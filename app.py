@@ -335,18 +335,56 @@ async def auth_request_link(request: Request, body: MagicLinkRequest):
         print(f"🔑 auth/request-link: get_or_create_user KO pour {email} (ip={ip})", flush=True)
         return JSONResponse({"status": "error", "message": "Service temporairement indisponible."}, status_code=503)
 
-    token = users_db.create_magic_link(user_id)
-    if not token:
+    link_data = users_db.create_magic_link(user_id)
+    if not link_data:
         print(f"🔑 auth/request-link: create_magic_link KO pour user_id={user_id}", flush=True)
         return JSONResponse({"status": "error", "message": "Service temporairement indisponible."}, status_code=503)
+    token, code = link_data
 
-    sent = await pelify_auth.send_magic_link_email(email, token)
+    sent = await pelify_auth.send_magic_link_email(email, token, code)
     if not sent:
         print(f"🔑 auth/request-link: envoi email KO pour user_id={user_id}", flush=True)
         return JSONResponse({"status": "error", "message": "Échec de l'envoi de l'email. Réessaie dans un instant."}, status_code=502)
 
-    print(f"🔑 auth/request-link: OK — lien envoyé à user_id={user_id} (ip={ip})", flush=True)
+    print(f"🔑 auth/request-link: OK — lien+code envoyés à user_id={user_id} (ip={ip})", flush=True)
     return {"status": "ok", "message": "Lien de connexion envoyé par email."}
+
+
+class VerifyCodeRequest(BaseModel):
+    email: str
+    code: str
+
+
+@app.post("/auth/verify-code")
+async def auth_verify_code(request: Request, response: Response, body: VerifyCodeRequest):
+    response.headers["Cache-Control"] = "no-store, private"
+    email = body.email.strip().lower()
+    code = body.code.strip()
+    if not _EMAIL_RE.match(email) or not code.isdigit() or len(code) != 6:
+        return JSONResponse({"status": "error", "message": "Email ou code invalide."}, status_code=400)
+
+    ip = _get_client_ip(request)
+    rate_err = _check_rate_limit(ip)
+    if rate_err:
+        return JSONResponse(rate_err, status_code=429)
+
+    user_id = users_db.get_or_create_user(email, ip)
+    if user_id is None:
+        return JSONResponse({"status": "error", "message": "Service temporairement indisponible."}, status_code=503)
+
+    if not users_db.verify_login_code(user_id, code):
+        print(f"🔑 auth/verify-code: code invalide/expiré pour user_id={user_id} (ip={ip})", flush=True)
+        return JSONResponse({"status": "error", "message": "Code invalide ou expiré."}, status_code=400)
+
+    session_token = users_db.create_session(user_id, ip)
+    if not session_token:
+        print(f"🔑 auth/verify-code: create_session KO pour user_id={user_id}", flush=True)
+        return JSONResponse({"status": "error", "message": "Service temporairement indisponible."}, status_code=503)
+
+    print(f"🔑 auth/verify-code: OK — session créée pour user_id={user_id} (ip={ip})", flush=True)
+    resp = JSONResponse({"status": "ok"})
+    pelify_auth.set_session_cookie(resp, session_token)
+    return resp
 
 
 @app.get("/auth/verify")
@@ -384,6 +422,8 @@ async def auth_logout(request: Request):
 @app.get("/auth/me")
 async def auth_me(request: Request, response: Response):
     response.headers["Cache-Control"] = "no-store, private"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Vary"] = "Cookie"
 
     cookie_present = bool(request.cookies.get(pelify_auth.SESSION_COOKIE_NAME))
     user = pelify_auth.get_current_user(request)
