@@ -2064,7 +2064,10 @@ function fermerCompteModal(){
 
 async function gererAbonnement(){
   try{
-    const res = await fetch("/billing/portal");
+    const res = await fetch("/billing/portal", {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
     const data = await res.json();
     if(data.status === "ok" && data.portal_url){
       window.location.href = data.portal_url;

@@ -81,6 +81,27 @@ def create_portal_session(customer_id: str) -> Optional[str]:
         return None
 
 
+def recover_customer_id(user_id: int, stripe_subscription_id: str) -> Optional[str]:
+    """
+    Auto-réparation : si l'abonnement d'un compte est actif mais que
+    stripe_customer_id n'a jamais été enregistré (raté du webhook ou
+    de la confirmation initiale), on va le rechercher directement
+    auprès de Stripe via l'abonnement connu, et on le sauvegarde.
+    """
+    if not stripe.api_key or not stripe_subscription_id:
+        return None
+    try:
+        sub = stripe.Subscription.retrieve(stripe_subscription_id)
+        customer_id = sub.get("customer") if hasattr(sub, "get") else getattr(sub, "customer", None)
+        if customer_id:
+            users_db.set_stripe_customer_id(user_id, customer_id)
+            print(f"🔧 billing.recover_customer_id: réparé pour user_id={user_id} (customer_id={customer_id})", flush=True)
+            return customer_id
+    except Exception as e:
+        print(f"⚠️ billing.recover_customer_id KO ({e})", flush=True)
+    return None
+
+
 def _ts_to_dt(ts: Optional[int]) -> Optional[datetime]:
     return datetime.fromtimestamp(ts, tz=timezone.utc) if ts else None
 

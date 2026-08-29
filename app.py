@@ -512,10 +512,23 @@ async def billing_confirm(request: Request, response: Response, session_id: str)
 async def billing_portal(request: Request, response: Response):
     response.headers["Cache-Control"] = "no-store, private"
     user = pelify_auth.get_current_user(request)
-    if not user or not user.get("stripe_customer_id"):
+    if not user:
+        return JSONResponse({"status": "error", "message": "Connecte-toi d'abord."}, status_code=401)
+
+    customer_id = user.get("stripe_customer_id")
+    if not customer_id:
+        # Auto-réparation : l'abonnement peut être actif sans que le
+        # customer_id ait été enregistré (raté ponctuel du webhook).
+        subscription = users_db.get_subscription(user["id"])
+        if subscription and subscription.get("stripe_subscription_id"):
+            customer_id = pelify_billing.recover_customer_id(
+                user["id"], subscription["stripe_subscription_id"]
+            )
+
+    if not customer_id:
         return JSONResponse({"status": "error", "message": "Aucun abonnement actif."}, status_code=404)
 
-    url = pelify_billing.create_portal_session(user["stripe_customer_id"])
+    url = pelify_billing.create_portal_session(customer_id)
     if not url:
         return JSONResponse({"status": "error", "message": "Service temporairement indisponible."}, status_code=503)
     return {"status": "ok", "portal_url": url}
