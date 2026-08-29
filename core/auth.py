@@ -92,4 +92,14 @@ def set_session_cookie(response, token: str) -> None:
 
 
 def clear_session_cookie(response) -> None:
-    response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
+    # Doit reprendre EXACTEMENT les mêmes attributs (secure, httponly,
+    # samesite) que set_session_cookie — certains navigateurs n'écrasent
+    # pas un cookie Secure si l'ordre de suppression ne matche pas ces
+    # attributs, laissant la session active malgré la déconnexion.
+    response.delete_cookie(
+        key=SESSION_COOKIE_NAME,
+        path="/",
+        secure=SESSION_COOKIE_SECURE,
+        httponly=True,
+        samesite="lax",
+    )

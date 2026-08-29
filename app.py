@@ -539,12 +539,17 @@ def _check_quota_or_paywall(request: Request) -> Optional[dict]:
     user = pelify_auth.get_current_user(request)
 
     if not user:
+        print("🎬 quota-check: auth_required (pas de session valide)", flush=True)
         return {
             "status": "error", "code": "auth_required",
             "message": "Connecte-toi (email) pour lancer une analyse — c'est gratuit, sans mot de passe.",
         }
 
-    if users_db.is_subscription_active(user["id"]):
+    subscription = users_db.get_subscription(user["id"])
+    active = users_db.is_subscription_active(user["id"])
+    print(f"🎬 quota-check: user_id={user['id']} subscription={subscription} active={active}", flush=True)
+
+    if active:
         return None  # abonné : illimité
 
     # Quota compté par COMPTE (email), pas par IP — un WiFi/box partagé
@@ -553,6 +558,7 @@ def _check_quota_or_paywall(request: Request) -> Optional[dict]:
     if users_db.check_and_consume_user_quota(user["id"]):
         return None  # essai gratuit du jour consommé avec succès
 
+    print(f"🎬 quota-check: user_id={user['id']} quota_exceeded", flush=True)
     return {
         "status": "error", "code": "quota_exceeded",
         "message": "Essai gratuit du jour déjà utilisé. Passe à Pelify Pro pour un accès illimité (2,95€ HT/semaine).",

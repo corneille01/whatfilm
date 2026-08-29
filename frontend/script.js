@@ -1999,18 +1999,20 @@ function fermerPaywallModal(){
 
 async function passerPro(plan = "weekly"){
   const errEl = document.getElementById("paywall-error");
-  if(!_currentUser?.logged_in){
-    fermerPaywallModal();
-    fermerCompteModal();
-    ouvrirAuthModal();
-    return;
-  }
   try{
     const res = await fetch("/billing/checkout", {
       method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({plan}),
     });
+    if(res.status === 401){
+      fermerPaywallModal();
+      fermerCompteModal();
+      ouvrirAuthModal();
+      return;
+    }
     const data = await res.json();
     if(data.status === "ok" && data.checkout_url){
       window.location.href = data.checkout_url;
