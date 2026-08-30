@@ -2085,6 +2085,7 @@ async function gererAbonnement(){
 }
 
 async function deconnexion() {
+  let logoutRequestFailed = false;
   try {
     const res = await fetch("/auth/logout", {
       method: "POST",
@@ -2095,35 +2096,38 @@ async function deconnexion() {
         "Pragma": "no-cache"
       }
     });
-
-    if (!res.ok) {
-      throw new Error("Échec de la déconnexion");
-    }
-
-    // Vérification réelle auprès du serveur
-    const auth = await refreshAuthState();
-
-    if (auth.logged_in) {
-      throw new Error("La session serveur est toujours active.");
-    }
-
-    _currentUser = {
-      logged_in: false,
-      email: null,
-      user_id: null,
-      subscribed: false,
-      subscription: null
-    };
-
-    majAccountBtn();
-    fermerCompteModal();
-
-    toast(t("account_logged_out"));
-
+    logoutRequestFailed = !res.ok;
   } catch (e) {
-    console.error("Déconnexion:", e);
-    toast("Impossible de confirmer la déconnexion.");
+    logoutRequestFailed = true;
   }
+
+  if (logoutRequestFailed) {
+    // Le serveur n'a même pas répondu correctement à la demande de
+    // déconnexion elle-même : là on ne sait vraiment pas si ça a marché.
+    toast("Impossible de confirmer la déconnexion.");
+    return;
+  }
+
+  // /auth/logout a répondu OK : on considère la déconnexion réussie et on
+  // met TOUJOURS à jour l'interface immédiatement — indépendamment de ce
+  // qu'une éventuelle revérification /auth/me renverrait juste après (un
+  // résultat divergent à cet instant précis est un hoquet de lecture, pas
+  // une preuve que la déconnexion a échoué, et l'utilisateur ne doit
+  // jamais continuer à voir son ancien compte affiché comme connecté).
+  _currentUser = {
+    logged_in: false,
+    email: null,
+    user_id: null,
+    subscribed: false,
+    subscription: null
+  };
+  majAccountBtn();
+  fermerCompteModal();
+  toast(t("account_logged_out"));
+
+  // Resynchronisation silencieuse en arrière-plan, sans bloquer l'UI et
+  // sans afficher d'erreur si elle est temporairement incohérente.
+  refreshAuthState().catch(() => {});
 }
 
 async function fetchWithRetry(url, options, signal, maxRetries = 2, delayMs = 3000) {
