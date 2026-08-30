@@ -1978,8 +1978,13 @@ async function validerCodeConnexion(){
       errEl.style.display = "block";
       return;
     }
+    const auth = await refreshAuthState();
+    if(!auth?.logged_in){
+      errEl.textContent = t("err_generic") + " (session non persistée par le navigateur)";
+      errEl.style.display = "block";
+      return;
+    }
     fermerAuthModal();
-    await refreshAuthState();
     toast(t("auth_code_success"));
   }catch(e){
     errEl.textContent = t("err_generic");
