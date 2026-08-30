@@ -2,14 +2,13 @@ const CACHE_NAME = "pelify-app-v12";
 
 const APP_SHELL = [
   "/",
-  "/frontend/style.css?v=115",
-  "/frontend/script.js?v=115",
+  "/frontend/style.css?v=117",
+  "/frontend/script.js?v=117",
   "/frontend/filming.js?v=69",
   "/frontend/manifest.webmanifest",
   "/.well-known/assetlinks.json",
 
   "/frontend/images/logo.webp",
-  "/frontend/images/logo.png",
   "/frontend/images/icon-192.png",
   "/frontend/images/icon-512.png"
 ];

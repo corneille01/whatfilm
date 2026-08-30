@@ -1980,9 +1980,21 @@ async function validerCodeConnexion(){
     }
     const auth = await refreshAuthState();
     if(!auth?.logged_in){
-      errEl.textContent = t("err_generic") + " (session non persistée par le navigateur)";
-      errEl.style.display = "block";
-      return;
+      // Filet de sécurité : sur certains navigateurs, le cookie posé par
+      // une réponse fetch() met un instant à devenir disponible pour la
+      // requête suivante. On retente deux fois avant de conclure à un
+      // vrai échec, plutôt que d'afficher une erreur trop vite.
+      let confirmed = false;
+      for(const delay of [500, 1000]){
+        await new Promise(r => setTimeout(r, delay));
+        const retryAuth = await refreshAuthState();
+        if(retryAuth?.logged_in){ confirmed = true; break; }
+      }
+      if(!confirmed){
+        errEl.textContent = t("err_generic") + " (session non persistée par le navigateur)";
+        errEl.style.display = "block";
+        return;
+      }
     }
     fermerAuthModal();
     toast(t("auth_code_success"));
