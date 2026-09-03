@@ -574,7 +574,7 @@ def _check_quota_or_paywall(request: Request) -> Optional[dict]:
     print(f"🎬 quota-check: user_id={user['id']} quota_exceeded", flush=True)
     return {
         "status": "error", "code": "quota_exceeded",
-        "message": "Essai gratuit du jour déjà utilisé. Passe à Pelify Pro pour un accès illimité (2,95€ HT/semaine).",
+        "message": "Tes 3 essais gratuits du jour sont déjà utilisés. Passe à Pelify Pro pour un accès illimité (2,95€ HT/semaine).",
         "checkout_endpoint": "/billing/checkout",
     }
 
